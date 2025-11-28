@@ -61,7 +61,7 @@ PGPASSWORD=osmpassword osm2pgsql \
     --host localhost \
     --port 5432 \
     --database osm \
-    --username osm \
+    --user osm \
     $PBF_FILE
 
 if [ $? -eq 0 ]; then
