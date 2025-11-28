@@ -37,7 +37,7 @@ const WEST_JAVA_BOUNDS = {
 };
 
 // Tile rendering mode
-const TILE_MODE = process.env.TILE_MODE || 'proxy'; // 'proxy' or 'render'
+const TILE_MODE = process.env.TILE_MODE || 'render'; // 'proxy' or 'render'
 
 /**
  * Health check endpoint
@@ -279,6 +279,11 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
   console.log(`🛣️  Route: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
   console.log(`🎨 Tile Mode: ${TILE_MODE}`);
+  if (TILE_MODE === 'render') {
+    console.log(`🗄️  Database: PostgreSQL + PostGIS`);
+  } else {
+    console.log(`🌐 Source: OpenStreetMap proxy`);
+  }
   console.log('');
   console.log('');
   console.log('💡 Endpoints:');

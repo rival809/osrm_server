@@ -15,29 +15,65 @@ if [ ! -f "$PBF_FILE" ]; then
     exit 1
 fi
 
-# Start PostgreSQL container jika belum jalan
-echo "🐘 Starting PostgreSQL container..."
-docker-compose up -d postgis
+# Check if PostgreSQL container exists
+if ! docker ps -a | grep -q postgis; then
+    echo "🐘 Starting PostgreSQL container..."
+    docker-compose up -d postgis
+else
+    echo "🐘 PostgreSQL container already running"
+fi
 
-# Tunggu PostgreSQL siap
-echo "⏳ Menunggu PostgreSQL siap..."
-sleep 10
+# Wait for PostgreSQL to be ready
+echo "⏳ Waiting for PostgreSQL to be ready..."
+until docker exec postgis pg_isready -h localhost -p 5432 -U $DB_USER; do
+    echo "   Waiting for PostgreSQL..."
+    sleep 5
+done
+echo "   ✅ PostgreSQL ready!"
+
+# Install osm2pgsql if not exists
+if ! command -v osm2pgsql &> /dev/null; then
+    echo "📦 Installing osm2pgsql..."
+    sudo apt update
+    sudo apt install -y osm2pgsql
+fi
 
 # Import menggunakan osm2pgsql
 echo "📥 Importing data dengan osm2pgsql..."
-echo "    (Ini akan memakan waktu lama, harap bersabar...)"
+echo "    File: $DATA_FILE"
+echo "    Target: $DB_HOST:$DB_PORT/$DB_NAME"
+echo "    (Proses akan memakan waktu 30-60 menit...)"
+echo ""
 
-docker run --rm \
-    --network osrm_service_osrm-network \
-    -v "${PWD}/data:/data" \
-    iboates/osm2pgsql:latest \
-    osm2pgsql \
+PGPASSWORD=$DB_PASS osm2pgsql \
     --create \
     --slim \
     --drop \
-    --cache 2000 \
-    --number-processes 4 \
+    --cache 4000 \
+    --number-processes 2 \
     --hstore \
+    --style /usr/share/osm2pgsql/default.style \
+    --multi-geometry \
+    --host $DB_HOST \
+    --port $DB_PORT \
+    --database $DB_NAME \
+    --username $DB_USER \
+    $DATA_FILE
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✅ Import selesai!"
+    echo "📊 Database statistics:"
+    PGPASSWORD=$DB_PASS psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "\dt"
+    echo ""
+    echo "📌 Langkah selanjutnya:"
+    echo "   1. Set TILE_MODE=render di environment"
+    echo "   2. Restart Node.js server: npm start"
+else
+    echo ""
+    echo "❌ Import gagal!"
+    exit 1
+fi
     --style /usr/share/osm2pgsql/default.style \
     --multi-geometry \
     --host postgis \
