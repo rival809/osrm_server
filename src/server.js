@@ -249,32 +249,34 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // Query PostGIS untuk data dalam bounds
+    // Query PostGIS untuk data dalam bounds dengan koordinat yang lebih sederhana
     const query = `
       SELECT 
         name,
         highway,
         amenity,
-        ST_AsBinary(ST_Transform(way, 4326)) as geom,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_line 
       WHERE way && ST_Transform(
         ST_MakeEnvelope($1, $2, $3, $4, 4326), 
         3857
       )
+      AND highway IN ('primary', 'secondary', 'trunk', 'tertiary', 'residential')
       UNION ALL
       SELECT 
         name,
         NULL as highway,
         amenity,
-        ST_AsBinary(ST_Transform(way, 4326)) as geom,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_point 
       WHERE way && ST_Transform(
         ST_MakeEnvelope($1, $2, $3, $4, 4326), 
         3857
       )
-      LIMIT 1000
+      AND amenity IS NOT NULL
+      LIMIT 200
     `;
 
     const result = await pool.query(query, [
@@ -313,7 +315,7 @@ function boundsToTile(bounds, zoom) {
  * Helper: Generate simple tile from database features
  */
 async function generateSimpleTile(features, bounds) {
-  // Generate SVG tile with actual road/feature rendering
+  // Generate SVG tile dengan proper coordinate mapping
   let roads = [];
   let points = [];
   
@@ -323,68 +325,98 @@ async function generateSimpleTile(features, bounds) {
       roads.push({
         name: feature.name || '',
         highway: feature.highway,
-        geom: feature.geom
+        geom_text: feature.geom_text
       });
     } else if (feature.amenity && feature.geom_type === 'ST_Point') {
       points.push({
         name: feature.name || '',
         amenity: feature.amenity,
-        geom: feature.geom
+        geom_text: feature.geom_text
       });
     }
   });
 
-  // Create SVG with basic road rendering
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
-      <rect width="256" height="256" fill="#f8f8f8"/>
-      
-      <!-- Grid lines for reference -->
-      <defs>
-        <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-          <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
-        </pattern>
-      </defs>
-      <rect width="256" height="256" fill="url(#grid)"/>
-      
-      <!-- Roads -->
-      ${roads.slice(0, 50).map((road, i) => {
+  // Helper: Convert lat/lon to tile pixel coordinates
+  function latLonToPixel(lat, lon) {
+    const x = ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * 256;
+    const y = ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * 256;
+    return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
+  }
+
+  // Parse WKT geometry and convert to SVG paths
+  let roadPaths = [];
+  let poiCircles = [];
+
+  roads.slice(0, 50).forEach(road => {
+    if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
+      // Parse LINESTRING(lon lat, lon lat, ...)
+      const coords = road.geom_text
+        .replace('LINESTRING(', '')
+        .replace(')', '')
+        .split(',')
+        .map(pair => {
+          const [lon, lat] = pair.trim().split(' ').map(parseFloat);
+          return latLonToPixel(lat, lon);
+        });
+
+      if (coords.length >= 2) {
         const color = road.highway === 'primary' ? '#ff6b35' : 
                      road.highway === 'secondary' ? '#f7931e' : 
-                     road.highway === 'trunk' ? '#dd2e44' : '#888';
-        const width = road.highway === 'primary' ? 3 : 
-                     road.highway === 'secondary' ? 2 : 1.5;
+                     road.highway === 'trunk' ? '#dd2e44' : 
+                     road.highway === 'tertiary' ? '#4a90e2' : '#666';
+        const width = road.highway === 'primary' ? 2.5 : 
+                     road.highway === 'secondary' ? 2 : 
+                     road.highway === 'trunk' ? 3 : 1.5;
+
+        const pathData = `M ${coords[0].x} ${coords[0].y} ` + 
+          coords.slice(1).map(c => `L ${c.x} ${c.y}`).join(' ');
+
+        roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.8"/>`);
+      }
+    }
+  });
+
+  points.slice(0, 30).forEach(poi => {
+    if (poi.geom_text && poi.geom_text.startsWith('POINT')) {
+      // Parse POINT(lon lat)
+      const match = poi.geom_text.match(/POINT\(([0-9.-]+) ([0-9.-]+)\)/);
+      if (match) {
+        const [, lon, lat] = match.map(parseFloat);
+        const pixel = latLonToPixel(lat, lon);
         
-        // Simple line representation (mock coordinates)
-        const x1 = (i * 13 + 20) % 236 + 10;
-        const y1 = (i * 17 + 30) % 236 + 10;
-        const x2 = ((i + 1) * 19 + 40) % 236 + 10;
-        const y2 = ((i + 1) * 23 + 50) % 236 + 10;
+        const color = poi.amenity === 'restaurant' ? '#e74c3c' :
+                     poi.amenity === 'hospital' ? '#2ecc71' :
+                     poi.amenity === 'school' ? '#3498db' : '#9b59b6';
         
-        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${width}"/>`;
-      }).join('')}
+        poiCircles.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="3" fill="${color}" opacity="0.8"/>`);
+      }
+    }
+  });
+
+  // Create SVG with actual coordinate mapping
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
+      <rect width="256" height="256" fill="#f5f5f5"/>
+      
+      <!-- Roads -->
+      ${roadPaths.join('')}
       
       <!-- Points of Interest -->
-      ${points.slice(0, 20).map((poi, i) => {
-        const x = (i * 31 + 50) % 216 + 20;
-        const y = (i * 37 + 70) % 216 + 20;
-        return `<circle cx="${x}" cy="${y}" r="2" fill="#2b83ba"/>`;
-      }).join('')}
+      ${poiCircles.join('')}
       
       <!-- Info overlay -->
-      <rect x="5" y="5" width="120" height="35" fill="rgba(255,255,255,0.9)" stroke="#ccc"/>
-      <text x="10" y="20" font-family="Arial" font-size="11" fill="#333">
-        Local DB Tile
+      <rect x="5" y="5" width="100" height="30" fill="rgba(255,255,255,0.9)" stroke="#ccc" rx="3"/>
+      <text x="10" y="18" font-family="Arial" font-size="10" fill="#333">
+        DB: ${roads.length}R ${points.length}P
       </text>
-      <text x="10" y="32" font-family="Arial" font-size="9" fill="#666">
-        ${roads.length}R + ${points.length}P
+      <text x="10" y="28" font-family="Arial" font-size="8" fill="#666">
+        Z${Math.round(Math.log2(360 / (bounds.maxLon - bounds.minLon)))}
       </text>
     </svg>
   `;
 
-  console.log(`Generated DB tile: ${roads.length} roads, ${points.length} POIs`);
+  console.log(`Generated tile: ${roadPaths.length} road paths, ${poiCircles.length} POI circles`);
   
-  // Return SVG as text for browser rendering
   return Buffer.from(svg, 'utf8');
 }
 
