@@ -210,34 +210,20 @@ function isTileInWestJava(bounds) {
 }
 
 /**
- * Helper: Convert tile coordinates to lat/lon bounds (Web Mercator)
+ * Helper: Convert tile coordinates to lat/lon bounds (standard slippy map)
  */
 function tileToBounds(x, y, z) {
   const n = Math.pow(2, z);
-  
-  // Web Mercator tile bounds
   const lonMin = (x / n) * 360 - 180;
   const lonMax = ((x + 1) / n) * 360 - 180;
-  
-  // Web Mercator Y coordinate conversion
-  const latMinRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n)));
-  const latMaxRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
-  
-  const latMin = latMinRad * 180 / Math.PI;
-  const latMax = latMaxRad * 180 / Math.PI;
+  const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI;
+  const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
   
   return {
     minLon: lonMin,
     minLat: latMin,
     maxLon: lonMax,
-    maxLat: latMax,
-    // Add Web Mercator bounds for database query
-    webMercator: {
-      minX: lonMin * 20037508.34 / 180,
-      maxX: lonMax * 20037508.34 / 180,
-      minY: Math.log(Math.tan((90 + latMin) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180,
-      maxY: Math.log(Math.tan((90 + latMax) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180
-    }
+    maxLat: latMax
   };
 }
 
@@ -263,42 +249,76 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // Query PostGIS dengan Web Mercator bounds yang tepat
-    const mercBounds = bounds.webMercator;
+    // Comprehensive query for complete map rendering
     const query = `
+      -- Buildings (polygons)
       SELECT 
         name,
+        'building' as feature_type,
+        building,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND building IS NOT NULL
+      
+      UNION ALL
+      
+      -- Landuse areas (parks, residential, etc)
+      SELECT 
+        name,
+        'landuse' as feature_type,
+        landuse,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND landuse IN ('residential', 'commercial', 'industrial', 'forest', 'grass', 'park')
+      
+      UNION ALL
+      
+      -- Roads with names
+      SELECT 
+        name,
+        'highway' as feature_type,
         highway,
-        amenity,
-        ST_AsText(ST_Simplify(ST_Transform(way, 4326), 0.00001)) as geom_text,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_line 
-      WHERE way && ST_MakeEnvelope($1, $2, $3, $4, 3857)
-      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified')
-      AND ST_Intersects(way, ST_MakeEnvelope($1, $2, $3, $4, 3857))
+      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'service')
+      
       UNION ALL
+      
+      -- Points of Interest
       SELECT 
         name,
-        NULL as highway,
+        'poi' as feature_type,
         amenity,
         ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_point 
-      WHERE way && ST_MakeEnvelope($1, $2, $3, $4, 3857)
-      AND amenity IN ('restaurant', 'hospital', 'school', 'fuel', 'bank', 'atm')
-      LIMIT 100
+      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND amenity IN ('restaurant', 'hospital', 'school', 'fuel', 'bank', 'atm', 'pharmacy')
+      
+      ORDER BY feature_type, ST_Area(ST_Transform(way, 4326)) DESC
+      LIMIT 500
     `;
 
     const result = await pool.query(query, [
-      mercBounds.minX, mercBounds.minY, mercBounds.maxX, mercBounds.maxY
+      bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
     ]);
 
-    // Simple tile generation - return SVG as PNG
+    // Debug tile bounds and data
+    console.log(`Tile bounds: ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} to ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}`);
+    
     if (result.rows.length > 0) {
       console.log(`Rendering tile with ${result.rows.length} features from database`);
+      console.log(`Sample feature: ${result.rows[0].highway || result.rows[0].amenity} - ${result.rows[0].geom_type}`);
       return await generateSimpleTile(result.rows, bounds);
     } else {
-      console.log('No data found in database for this tile, using empty tile');
+      console.log('No data found in database for this tile bounds');
+      console.log(`Query bounds: minLon=${bounds.minLon}, minLat=${bounds.minLat}, maxLon=${bounds.maxLon}, maxLat=${bounds.maxLat}`);
       return await createEmptyTile();
     }
 
@@ -322,22 +342,36 @@ function boundsToTile(bounds, zoom) {
 }
 
 /**
- * Helper: Generate simple tile from database features
+ * Helper: Generate comprehensive map tile from database features
  */
 async function generateSimpleTile(features, bounds) {
-  // Generate SVG tile dengan proper coordinate mapping
+  // Categorize features
+  let buildings = [];
+  let landuse = [];
   let roads = [];
   let points = [];
   
-  // Process features from database
+  // Process all features from database
   features.forEach(feature => {
-    if (feature.highway && feature.geom_type === 'ST_LineString') {
+    if (feature.feature_type === 'building' && feature.geom_type === 'ST_Polygon') {
+      buildings.push({
+        name: feature.name || '',
+        building: feature.building,
+        geom_text: feature.geom_text
+      });
+    } else if (feature.feature_type === 'landuse' && feature.geom_type === 'ST_Polygon') {
+      landuse.push({
+        name: feature.name || '',
+        landuse: feature.landuse,
+        geom_text: feature.geom_text
+      });
+    } else if (feature.feature_type === 'highway' && feature.geom_type === 'ST_LineString') {
       roads.push({
         name: feature.name || '',
         highway: feature.highway,
         geom_text: feature.geom_text
       });
-    } else if (feature.amenity && feature.geom_type === 'ST_Point') {
+    } else if (feature.feature_type === 'poi' && feature.geom_type === 'ST_Point') {
       points.push({
         name: feature.name || '',
         amenity: feature.amenity,
@@ -370,9 +404,71 @@ async function generateSimpleTile(features, bounds) {
     };
   }
 
-  // Parse WKT geometry and convert to SVG paths
+  // Parse WKT geometry and convert to SVG elements
+  let landusePolygons = [];
+  let buildingPolygons = [];
   let roadPaths = [];
+  let roadLabels = [];
   let poiCircles = [];
+
+  // Process landuse areas (background)
+  landuse.slice(0, 20).forEach((area, idx) => {
+    if (area.geom_text && area.geom_text.startsWith('POLYGON')) {
+      try {
+        const polygon = parsePolygonWKT(area.geom_text);
+        if (polygon.length >= 3) {
+          const color = area.landuse === 'forest' ? '#90ee90' :
+                       area.landuse === 'park' ? '#c8facc' :
+                       area.landuse === 'residential' ? '#f0f0f0' :
+                       area.landuse === 'commercial' ? '#fdf4e3' :
+                       area.landuse === 'industrial' ? '#e6e6e6' : '#f5f5f5';
+          
+          const pathData = `M ${polygon[0].x} ${polygon[0].y} ` +
+            polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          landusePolygons.push(`<path d="${pathData}" fill="${color}" stroke="#ddd" stroke-width="0.5" opacity="0.7"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing landuse: ${e.message}`);
+      }
+    }
+  });
+
+  // Process buildings
+  buildings.slice(0, 100).forEach((building, idx) => {
+    if (building.geom_text && building.geom_text.startsWith('POLYGON')) {
+      try {
+        const polygon = parsePolygonWKT(building.geom_text);
+        if (polygon.length >= 3) {
+          const pathData = `M ${polygon[0].x} ${polygon[0].y} ` +
+            polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          buildingPolygons.push(`<path d="${pathData}" fill="#d9d0c7" stroke="#bbb" stroke-width="0.8" opacity="0.9"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing building: ${e.message}`);
+      }
+    }
+  });
+
+  // Helper function to parse POLYGON WKT
+  function parsePolygonWKT(wkt) {
+    const coordsText = wkt.replace('POLYGON((', '').replace('))', '');
+    const coordPairs = coordsText.split(',');
+    const coords = [];
+    
+    for (let i = 0; i < Math.min(coordPairs.length, 20); i++) {
+      const pair = coordPairs[i].trim().split(' ');
+      if (pair.length >= 2) {
+        const lon = parseFloat(pair[0]);
+        const lat = parseFloat(pair[1]);
+        if (!isNaN(lon) && !isNaN(lat)) {
+          coords.push(latLonToPixel(lat, lon));
+        }
+      }
+    }
+    return coords;
+  }
 
   roads.slice(0, 30).forEach((road, idx) => {
     if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
@@ -416,6 +512,21 @@ async function generateSimpleTile(features, bounds) {
             coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
 
           roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.9" stroke-linecap="round"/>`);
+          
+          // Add road name label if exists
+          if (road.name && coords.length >= 2) {
+            const midPoint = coords[Math.floor(coords.length / 2)];
+            const angle = Math.atan2(coords[coords.length - 1].y - coords[0].y, coords[coords.length - 1].x - coords[0].x) * 180 / Math.PI;
+            
+            roadLabels.push(`
+              <text x="${midPoint.x}" y="${midPoint.y}" 
+                    font-family="Arial" font-size="8" fill="#333" 
+                    text-anchor="middle" transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
+                    style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
+                ${road.name}
+              </text>
+            `);
+          }
         }
       } catch (e) {
         console.error(`Error parsing road geometry: ${e.message}`);
@@ -452,38 +563,39 @@ async function generateSimpleTile(features, bounds) {
     }
   });
 
-  // Create SVG with proper map styling
+  // Create comprehensive map SVG
   let svg = `
     <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
       <!-- Background -->
-      <rect width="256" height="256" fill="#f8f8f8"/>
+      <rect width="256" height="256" fill="#f9f9f9"/>
       
-      <!-- Tile border for debugging -->
-      <rect x="0" y="0" width="256" height="256" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
+      <!-- Landuse areas (drawn first, as background) -->
+      ${landusePolygons.join('\n      ')}
       
-      <!-- Roads (drawn first, under POIs) -->
+      <!-- Buildings (drawn second) -->
+      ${buildingPolygons.join('\n      ')}
+      
+      <!-- Roads (drawn third) -->
       ${roadPaths.join('\n      ')}
+      
+      <!-- Road labels (drawn fourth) -->
+      ${roadLabels.join('\n      ')}
       
       <!-- Points of Interest (drawn on top) -->
       ${poiCircles.join('\n      ')}
       
-      <!-- Debug info -->
-      <rect x="3" y="3" width="120" height="32" fill="rgba(255,255,255,0.95)" stroke="#bbb" stroke-width="1" rx="2"/>
-      <text x="8" y="16" font-family="monospace" font-size="9" fill="#333">
-        Roads: ${roadPaths.length}/${roads.length}
+      <!-- Map info -->
+      <rect x="3" y="220" width="180" height="32" fill="rgba(255,255,255,0.95)" stroke="#bbb" stroke-width="1" rx="2"/>
+      <text x="8" y="235" font-family="Arial" font-size="8" fill="#333">
+        🏢${buildingPolygons.length} 🛣️${roadPaths.length} 📍${poiCircles.length} 🌿${landusePolygons.length}
       </text>
-      <text x="8" y="26" font-size="8" fill="#666" font-family="monospace">
-        POIs: ${poiCircles.length}/${points.length}
-      </text>
-      
-      <!-- Bounds info (small text) -->
-      <text x="200" y="250" font-size="6" fill="#999" font-family="monospace">
-        ${bounds.minLon.toFixed(3)},${bounds.minLat.toFixed(3)}
+      <text x="8" y="245" font-size="7" fill="#666" font-family="monospace">
+        ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} → ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}
       </text>
     </svg>
   `;
 
-  console.log(`Generated tile: ${roadPaths.length} road paths, ${poiCircles.length} POI circles`);
+  console.log(`Generated comprehensive tile: ${buildingPolygons.length} buildings, ${roadPaths.length} roads, ${poiCircles.length} POIs, ${landusePolygons.length} landuse`);
   
   return Buffer.from(svg, 'utf8');
 }
