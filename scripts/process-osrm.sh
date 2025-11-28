@@ -20,8 +20,18 @@ fi
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo "❌ Error: Docker tidak berjalan!"
-    echo "   Start Docker service: sudo systemctl start docker"
+    echo "❌ Error: Docker tidak dapat diakses!"
+    echo ""
+    echo "💡 Kemungkinan penyebab:"
+    echo "   1. Docker service belum running:"
+    echo "      sudo systemctl start docker"
+    echo ""
+    echo "   2. User belum masuk group docker:"
+    echo "      sudo usermod -aG docker $USER"
+    echo "      newgrp docker"
+    echo ""
+    echo "   3. Atau jalankan dengan sudo:"
+    echo "      sudo ./scripts/process-osrm.sh"
     exit 1
 fi
 
