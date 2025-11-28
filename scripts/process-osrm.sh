@@ -1,39 +1,78 @@
 #!/bin/bash
 
-# Script untuk memproses PBF file dengan OSRM
-# File ini akan extract, partition, dan customize data untuk routing mobil
+# Process OSRM data untuk Pulau Jawa
+# Script Bash untuk Linux/Ubuntu
 
-echo "🔧 Memproses data OSM untuk OSRM..."
-echo "⚠️  Proses ini membutuhkan waktu 10-30 menit tergantung spesifikasi komputer"
+set -e
 
-DATA_DIR="./data"
-PBF_FILE="$DATA_DIR/java-latest.osm.pbf"
+PBF_FILE="data/java-latest.osm.pbf"
+OSRM_IMAGE="ghcr.io/project-osrm/osrm-backend"
+
+echo "🔄 Processing OSRM data untuk Pulau Jawa..."
+echo ""
 
 # Check if PBF file exists
 if [ ! -f "$PBF_FILE" ]; then
-    echo "❌ File PBF tidak ditemukan: $PBF_FILE"
-    echo "📥 Jalankan: npm run download-pbf"
+    echo "❌ Error: File $PBF_FILE tidak ditemukan!"
+    echo "   Jalankan: ./scripts/download-pbf.sh"
     exit 1
 fi
 
-# Extract
-echo "📦 Step 1/3: Extract..."
-docker run -t -v "${PWD}/data:/data" osrm/osrm-backend osrm-extract \
-    -p /opt/car.lua /data/java-latest.osm.pbf || exit 1
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Error: Docker tidak berjalan!"
+    echo "   Start Docker service: sudo systemctl start docker"
+    exit 1
+fi
 
-# Partition
-echo "🗂️  Step 2/3: Partition..."
-docker run -t -v "${PWD}/data:/data" osrm/osrm-backend osrm-partition \
-    /data/java-latest.osrm || exit 1
+echo "📦 File input: $PBF_FILE"
+echo "🚗 Profile: car (mobil)"
+echo ""
 
-# Customize
-echo "⚙️  Step 3/3: Customize..."
-docker run -t -v "${PWD}/data:/data" osrm/osrm-backend osrm-customize \
-    /data/java-latest.osrm || exit 1
+# Step 1: Extract
+echo "1️⃣  Extract (5-10 menit)..."
+docker run -t -v "${PWD}/data:/data" $OSRM_IMAGE \
+    osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf
 
-echo "✅ Proses selesai!"
-echo "🚀 OSRM data siap digunakan"
+if [ $? -ne 0 ]; then
+    echo "❌ Extract gagal!"
+    exit 1
+fi
+echo "   ✅ Extract selesai!"
+echo ""
+
+# Step 2: Partition
+echo "2️⃣  Partition (3-5 menit)..."
+docker run -t -v "${PWD}/data:/data" $OSRM_IMAGE \
+    osrm-partition /data/java-latest.osrm
+
+if [ $? -ne 0 ]; then
+    echo "❌ Partition gagal!"
+    exit 1
+fi
+echo "   ✅ Partition selesai!"
+echo ""
+
+# Step 3: Customize
+echo "3️⃣  Customize (2-3 menit)..."
+docker run -t -v "${PWD}/data:/data" $OSRM_IMAGE \
+    osrm-customize /data/java-latest.osrm
+
+if [ $? -ne 0 ]; then
+    echo "❌ Customize gagal!"
+    exit 1
+fi
+echo "   ✅ Customize selesai!"
+echo ""
+
+# List generated files
+echo "📁 File yang dihasilkan:"
+ls -lh data/*.osrm* 2>/dev/null || echo "   Tidak ada file .osrm*"
+echo ""
+
+echo "✅ Processing OSRM selesai!"
 echo ""
 echo "📌 Langkah selanjutnya:"
-echo "   1. Jalankan: npm run import-postgis"
-echo "   2. Jalankan: docker-compose up -d"
+echo "   1. Jalankan: docker-compose up -d"
+echo "   2. Jalankan: npm start"
+echo "   3. Buka browser: http://localhost:8080"
