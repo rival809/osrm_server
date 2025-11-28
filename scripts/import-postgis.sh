@@ -31,21 +31,25 @@ until docker exec postgis pg_isready -h localhost -p 5432; do
 done
 echo "   ✅ PostgreSQL ready!"
 
-# Install osm2pgsql if not exists
+# Install required packages
+echo "📦 Installing required packages..."
+sudo apt update
+if ! command -v psql &> /dev/null; then
+    sudo apt install -y postgresql-client
+fi
 if ! command -v osm2pgsql &> /dev/null; then
-    echo "📦 Installing osm2pgsql..."
-    sudo apt update
     sudo apt install -y osm2pgsql
 fi
 
 # Import menggunakan osm2pgsql
 echo "📥 Importing data dengan osm2pgsql..."
-echo "    File: $DATA_FILE"
-echo "    Target: $DB_HOST:$DB_PORT/$DB_NAME"
+echo "    File: $PBF_FILE"
+echo "    Target: localhost:5432/osm"
+echo "    Cache: 4GB (adjust sesuai RAM tersedia)"
 echo "    (Proses akan memakan waktu 30-60 menit...)"
 echo ""
 
-PGPASSWORD=$DB_PASS osm2pgsql \
+PGPASSWORD=osmpassword osm2pgsql \
     --create \
     --slim \
     --drop \
@@ -54,42 +58,28 @@ PGPASSWORD=$DB_PASS osm2pgsql \
     --hstore \
     --style /usr/share/osm2pgsql/default.style \
     --multi-geometry \
-    --host $DB_HOST \
-    --port $DB_PORT \
-    --database $DB_NAME \
-    --username $DB_USER \
-    $DATA_FILE
+    --host localhost \
+    --port 5432 \
+    --database osm \
+    --username osm \
+    $PBF_FILE
 
 if [ $? -eq 0 ]; then
     echo ""
     echo "✅ Import selesai!"
     echo "📊 Database statistics:"
-    PGPASSWORD=$DB_PASS psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "\dt"
+    PGPASSWORD=osmpassword psql -h localhost -p 5432 -U osm -d osm -c "\dt"
+    echo ""
+    echo "🎯 Tables created:"
+    PGPASSWORD=osmpassword psql -h localhost -p 5432 -U osm -d osm -c "SELECT schemaname,tablename,n_tup_ins FROM pg_stat_user_tables WHERE n_tup_ins > 0;"
     echo ""
     echo "📌 Langkah selanjutnya:"
-    echo "   1. Set TILE_MODE=render di environment"
+    echo "   1. Server sudah set TILE_MODE=render"
     echo "   2. Restart Node.js server: npm start"
+    echo "   3. Test tiles: curl http://localhost:8080/tiles/10/897/650.png"
 else
     echo ""
     echo "❌ Import gagal!"
-    exit 1
-fi
-    --style /usr/share/osm2pgsql/default.style \
-    --multi-geometry \
-    --host postgis \
-    --port 5432 \
-    --database osm \
-    --username osm \
-    --password \
-    /data/java-latest.osm.pbf
-
-if [ $? -eq 0 ]; then
-    echo "✅ Import selesai!"
-    echo "🗄️  Database siap digunakan"
-    echo ""
-    echo "📌 Langkah selanjutnya:"
-    echo "   Jalankan: docker-compose up -d"
-else
-    echo "❌ Import gagal!"
+    echo "Check logs above untuk debugging"
     exit 1
 fi
