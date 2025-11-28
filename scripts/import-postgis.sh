@@ -25,7 +25,7 @@ fi
 
 # Wait for PostgreSQL to be ready
 echo "⏳ Waiting for PostgreSQL to be ready..."
-until docker exec postgis pg_isready -h localhost -p 5432 -U $DB_USER; do
+until docker exec postgis pg_isready -h localhost -p 5432; do
     echo "   Waiting for PostgreSQL..."
     sleep 5
 done
