@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  # OSRM Backend untuk routing mobil
+  osrm-backend:
+    image: osrm/osrm-backend:latest
+    container_name: osrm-backend
+    volumes:
+      - ./data:/data
+    ports:
+      - "5000:5000"
+    command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
+    restart: unless-stopped
+    networks:
+      - osrm-network
+
+  # PostgreSQL + PostGIS untuk menyimpan vector tiles
+  postgis:
+    image: postgis/postgis:15-3.3
+    container_name: postgis
+    environment:
+      POSTGRES_DB: osm
+      POSTGRES_USER: osm
+      POSTGRES_PASSWORD: osmpassword
+    volumes:
+      - ./data/postgis:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - osrm-network
+
+  # Tile server service (akan kita buat)
+  tile-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tile-server
+    volumes:
+      - ./data:/data
+      - ./cache:/cache
+      - ./styles:/styles
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://osm:osmpassword@postgis:5432/osm
+      - OSRM_URL=http://osrm-backend:5000
+      - CACHE_DIR=/cache
+    depends_on:
+      - osrm-backend
+      - postgis
+    restart: unless-stopped
+    networks:
+      - osrm-network
+
+networks:
+  osrm-network:
+    driver: bridge
