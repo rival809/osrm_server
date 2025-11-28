@@ -31,6 +31,12 @@ until docker exec postgis pg_isready -h localhost -p 5432; do
 done
 echo "   ✅ PostgreSQL ready!"
 
+# Enable required database extensions
+echo "🔧 Enabling database extensions..."
+PGPASSWORD=osmpassword psql -h localhost -p 5432 -U osm -d osm -c "CREATE EXTENSION IF NOT EXISTS hstore;"
+PGPASSWORD=osmpassword psql -h localhost -p 5432 -U osm -d osm -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+echo "   ✅ Extensions enabled!"
+
 # Install required packages
 echo "📦 Installing required packages..."
 sudo apt update
