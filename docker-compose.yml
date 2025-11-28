@@ -3,7 +3,7 @@ version: "3.8"
 services:
   # OSRM Backend untuk routing mobil
   osrm-backend:
-    image: osrm/osrm-backend:v5.26.0
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
     container_name: osrm-backend
     volumes:
       - ./data:/data
