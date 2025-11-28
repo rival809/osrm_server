@@ -249,60 +249,21 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // Comprehensive query for complete map rendering
+    // First, let's check what tables exist and use a simple query
     const query = `
-      -- Buildings (polygons)
-      SELECT 
-        name,
-        'building' as feature_type,
-        building,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-      AND building IS NOT NULL
-      
-      UNION ALL
-      
-      -- Landuse areas (parks, residential, etc)
-      SELECT 
-        name,
-        'landuse' as feature_type,
-        landuse,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-      AND landuse IN ('residential', 'commercial', 'industrial', 'forest', 'grass', 'park')
-      
-      UNION ALL
-      
-      -- Roads with names
+      -- Roads only from planet_osm_line (most likely to exist)
       SELECT 
         name,
         'highway' as feature_type,
         highway,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
+        highway as category,
+        ST_AsText(geom) as geom_text,
+        ST_GeometryType(geom) as geom_type
       FROM planet_osm_line 
-      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified', 'service')
-      
-      UNION ALL
-      
-      -- Points of Interest
-      SELECT 
-        name,
-        'poi' as feature_type,
-        amenity,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_point 
-      WHERE ST_Transform(way, 4326) && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-      AND amenity IN ('restaurant', 'hospital', 'school', 'fuel', 'bank', 'atm', 'pharmacy')
-      
-      ORDER BY feature_type, ST_Area(ST_Transform(way, 4326)) DESC
-      LIMIT 500
+      WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND highway IS NOT NULL
+      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential')
+      LIMIT 100
     `;
 
     const result = await pool.query(query, [
@@ -324,8 +285,43 @@ async function renderTileFromDB(bounds, zoom) {
 
   } catch (error) {
     console.error('Database rendering error:', error.message);
-    console.log('Falling back to proxy mode for this tile');
-    // Fallback to proxy
+    
+    // Try alternative query with different column names
+    try {
+      const altQuery = `
+        SELECT 
+          name,
+          highway,
+          ST_AsText(geometry) as geom_text,
+          ST_GeometryType(geometry) as geom_type
+        FROM planet_osm_roads 
+        WHERE geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+        LIMIT 50
+        UNION ALL
+        SELECT 
+          name,
+          NULL as highway,
+          ST_AsText(geometry) as geom_text,
+          ST_GeometryType(geometry) as geom_type
+        FROM planet_osm_point 
+        WHERE geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+        LIMIT 20
+      `;
+      
+      const altResult = await pool.query(altQuery, [
+        bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
+      ]);
+      
+      if (altResult.rows.length > 0) {
+        console.log(`Alternative query found ${altResult.rows.length} features`);
+        // Simple roads-only rendering
+        return await generateSimpleRoadTile(altResult.rows, bounds);
+      }
+    } catch (altError) {
+      console.error('Alternative query also failed:', altError.message);
+    }
+    
+    console.log('All database queries failed, falling back to proxy mode');
     const tileCoords = boundsToTile(bounds, zoom);
     return proxyTileFromOSM(zoom, tileCoords.x, tileCoords.y);
   }
@@ -597,6 +593,78 @@ async function generateSimpleTile(features, bounds) {
 
   console.log(`Generated comprehensive tile: ${buildingPolygons.length} buildings, ${roadPaths.length} roads, ${poiCircles.length} POIs, ${landusePolygons.length} landuse`);
   
+  return Buffer.from(svg, 'utf8');
+}
+
+/**
+ * Helper: Generate simple road-only tile (fallback)
+ */
+async function generateSimpleRoadTile(features, bounds) {
+  let roadPaths = [];
+  
+  features.forEach((feature, idx) => {
+    if (feature.highway && feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
+      try {
+        const coordsText = feature.geom_text.replace('LINESTRING(', '').replace(')', '');
+        const coordPairs = coordsText.split(',');
+        
+        const coords = [];
+        for (let i = 0; i < Math.min(coordPairs.length, 10); i++) {
+          const pair = coordPairs[i].trim().split(' ');
+          if (pair.length >= 2) {
+            const lon = parseFloat(pair[0]);
+            const lat = parseFloat(pair[1]);
+            if (!isNaN(lon) && !isNaN(lat)) {
+              const pixel = latLonToPixel(lat, lon, bounds);
+              coords.push(pixel);
+            }
+          }
+        }
+
+        if (coords.length >= 2) {
+          const color = feature.highway === 'primary' ? '#e74c3c' : 
+                       feature.highway === 'secondary' ? '#f39c12' : 
+                       feature.highway === 'trunk' ? '#8e44ad' : '#666';
+          const width = feature.highway === 'trunk' ? 3 : 
+                       feature.highway === 'primary' ? 2.5 : 2;
+
+          const pathData = `M ${coords[0].x} ${coords[0].y} ` + 
+            coords.slice(1).map(c => `L ${c.x} ${c.y}`).join(' ');
+
+          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.8"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing simple road: ${e.message}`);
+      }
+    }
+  });
+
+  function latLonToPixel(lat, lon, bounds) {
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    
+    if (lonRange <= 0 || latRange <= 0) {
+      return { x: 128, y: 128 };
+    }
+    
+    const x = ((lon - bounds.minLon) / lonRange) * 256;
+    const y = ((bounds.maxLat - lat) / latRange) * 256;
+    
+    return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
+  }
+
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <rect width="256" height="256" fill="#f8f8f8"/>
+      ${roadPaths.join('\n      ')}
+      <rect x="5" y="5" width="100" height="25" fill="rgba(255,255,255,0.9)" stroke="#ccc" rx="2"/>
+      <text x="10" y="20" font-family="Arial" font-size="9" fill="#333">
+        Simple: ${roadPaths.length} roads
+      </text>
+    </svg>
+  `;
+
+  console.log(`Generated simple road tile: ${roadPaths.length} roads`);
   return Buffer.from(svg, 'utf8');
 }
 
