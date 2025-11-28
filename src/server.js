@@ -338,79 +338,127 @@ async function generateSimpleTile(features, bounds) {
 
   // Helper: Convert lat/lon to tile pixel coordinates
   function latLonToPixel(lat, lon) {
-    const x = ((lon - bounds.minLon) / (bounds.maxLon - bounds.minLon)) * 256;
-    const y = ((bounds.maxLat - lat) / (bounds.maxLat - bounds.minLat)) * 256;
-    return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
+    // Ensure we have valid bounds
+    const lonRange = bounds.maxLon - bounds.minLon;
+    const latRange = bounds.maxLat - bounds.minLat;
+    
+    if (lonRange <= 0 || latRange <= 0) {
+      return { x: 128, y: 128 }; // Center fallback
+    }
+    
+    // Map coordinates to 256x256 pixel space
+    const x = ((lon - bounds.minLon) / lonRange) * 256;
+    const y = ((bounds.maxLat - lat) / latRange) * 256; // Flip Y axis
+    
+    return { x, y };
   }
 
   // Parse WKT geometry and convert to SVG paths
   let roadPaths = [];
   let poiCircles = [];
 
-  roads.slice(0, 50).forEach(road => {
+  roads.slice(0, 30).forEach((road, idx) => {
     if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
-      // Parse LINESTRING(lon lat, lon lat, ...)
-      const coords = road.geom_text
-        .replace('LINESTRING(', '')
-        .replace(')', '')
-        .split(',')
-        .map(pair => {
-          const [lon, lat] = pair.trim().split(' ').map(parseFloat);
-          return latLonToPixel(lat, lon);
-        });
+      try {
+        // Parse LINESTRING(lon lat, lon lat, ...)
+        const coordsText = road.geom_text.replace('LINESTRING(', '').replace(')', '');
+        const coordPairs = coordsText.split(',');
+        
+        const coords = [];
+        for (let i = 0; i < Math.min(coordPairs.length, 10); i++) {
+          const pair = coordPairs[i].trim().split(' ');
+          if (pair.length >= 2) {
+            const lon = parseFloat(pair[0]);
+            const lat = parseFloat(pair[1]);
+            
+            if (!isNaN(lon) && !isNaN(lat)) {
+              const pixel = latLonToPixel(lat, lon);
+              // Only add if coordinates are within tile bounds
+              if (pixel.x >= -50 && pixel.x <= 306 && pixel.y >= -50 && pixel.y <= 306) {
+                coords.push(pixel);
+              }
+            }
+          }
+        }
 
-      if (coords.length >= 2) {
-        const color = road.highway === 'primary' ? '#ff6b35' : 
-                     road.highway === 'secondary' ? '#f7931e' : 
-                     road.highway === 'trunk' ? '#dd2e44' : 
-                     road.highway === 'tertiary' ? '#4a90e2' : '#666';
-        const width = road.highway === 'primary' ? 2.5 : 
-                     road.highway === 'secondary' ? 2 : 
-                     road.highway === 'trunk' ? 3 : 1.5;
+        if (coords.length >= 2) {
+          const color = road.highway === 'primary' ? '#e74c3c' : 
+                       road.highway === 'secondary' ? '#f39c12' : 
+                       road.highway === 'trunk' ? '#8e44ad' : 
+                       road.highway === 'tertiary' ? '#3498db' : 
+                       road.highway === 'residential' ? '#95a5a6' : '#7f8c8d';
+          const width = road.highway === 'trunk' ? 4 :
+                       road.highway === 'primary' ? 3 : 
+                       road.highway === 'secondary' ? 2.5 : 
+                       road.highway === 'tertiary' ? 2 : 1.5;
 
-        const pathData = `M ${coords[0].x} ${coords[0].y} ` + 
-          coords.slice(1).map(c => `L ${c.x} ${c.y}`).join(' ');
+          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
+            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
 
-        roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.8"/>`);
+          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.9" stroke-linecap="round"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing road geometry: ${e.message}`);
       }
     }
   });
 
-  points.slice(0, 30).forEach(poi => {
+  points.slice(0, 20).forEach((poi, idx) => {
     if (poi.geom_text && poi.geom_text.startsWith('POINT')) {
-      // Parse POINT(lon lat)
-      const match = poi.geom_text.match(/POINT\(([0-9.-]+) ([0-9.-]+)\)/);
-      if (match) {
-        const [, lon, lat] = match.map(parseFloat);
-        const pixel = latLonToPixel(lat, lon);
-        
-        const color = poi.amenity === 'restaurant' ? '#e74c3c' :
-                     poi.amenity === 'hospital' ? '#2ecc71' :
-                     poi.amenity === 'school' ? '#3498db' : '#9b59b6';
-        
-        poiCircles.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="3" fill="${color}" opacity="0.8"/>`);
+      try {
+        // Parse POINT(lon lat)
+        const match = poi.geom_text.match(/POINT\(([0-9.-]+)\s+([0-9.-]+)\)/);
+        if (match) {
+          const lon = parseFloat(match[1]);
+          const lat = parseFloat(match[2]);
+          
+          if (!isNaN(lon) && !isNaN(lat)) {
+            const pixel = latLonToPixel(lat, lon);
+            
+            // Only add if coordinates are within reasonable tile bounds
+            if (pixel.x >= 0 && pixel.x <= 256 && pixel.y >= 0 && pixel.y <= 256) {
+              const color = poi.amenity === 'restaurant' ? '#e67e22' :
+                           poi.amenity === 'hospital' ? '#27ae60' :
+                           poi.amenity === 'school' ? '#2980b9' :
+                           poi.amenity === 'fuel' ? '#f1c40f' : '#9b59b6';
+              
+              poiCircles.push(`<circle cx="${pixel.x.toFixed(1)}" cy="${pixel.y.toFixed(1)}" r="4" fill="${color}" opacity="0.8" stroke="white" stroke-width="1"/>`);
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`Error parsing POI geometry: ${e.message}`);
       }
     }
   });
 
-  // Create SVG with actual coordinate mapping
+  // Create SVG with proper map styling
   let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
-      <rect width="256" height="256" fill="#f5f5f5"/>
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <!-- Background -->
+      <rect width="256" height="256" fill="#f8f8f8"/>
       
-      <!-- Roads -->
-      ${roadPaths.join('')}
+      <!-- Tile border for debugging -->
+      <rect x="0" y="0" width="256" height="256" fill="none" stroke="#e0e0e0" stroke-width="0.5"/>
       
-      <!-- Points of Interest -->
-      ${poiCircles.join('')}
+      <!-- Roads (drawn first, under POIs) -->
+      ${roadPaths.join('\n      ')}
       
-      <!-- Info overlay -->
-      <rect x="5" y="5" width="100" height="30" fill="rgba(255,255,255,0.9)" stroke="#ccc" rx="3"/>
-      <text x="10" y="18" font-family="Arial" font-size="10" fill="#333">
-        DB: ${roads.length}R ${points.length}P
+      <!-- Points of Interest (drawn on top) -->
+      ${poiCircles.join('\n      ')}
+      
+      <!-- Debug info -->
+      <rect x="3" y="3" width="120" height="32" fill="rgba(255,255,255,0.95)" stroke="#bbb" stroke-width="1" rx="2"/>
+      <text x="8" y="16" font-family="monospace" font-size="9" fill="#333">
+        Roads: ${roadPaths.length}/${roads.length}
       </text>
-      <text x="10" y="28" font-family="Arial" font-size="8" fill="#666">
-        Z${Math.round(Math.log2(360 / (bounds.maxLon - bounds.minLon)))}
+      <text x="8" y="26" font-size="8" fill="#666" font-family="monospace">
+        POIs: ${poiCircles.length}/${points.length}
+      </text>
+      
+      <!-- Bounds info (small text) -->
+      <text x="200" y="250" font-size="6" fill="#999" font-family="monospace">
+        ${bounds.minLon.toFixed(3)},${bounds.minLat.toFixed(3)}
       </text>
     </svg>
   `;
