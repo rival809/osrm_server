@@ -249,20 +249,27 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // First, let's check what tables exist and use a simple query
+    // FOUND IT! Column 'way' exists with geometry(LineString, 3857)
     const query = `
-      -- Roads only from planet_osm_line (most likely to exist)
       SELECT 
         name,
-        'highway' as feature_type,
         highway,
-        highway as category,
-        ST_AsText(geom) as geom_text,
-        ST_GeometryType(geom) as geom_type
+        'road' as feature_type,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
       FROM planet_osm_line 
-      WHERE geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
       AND highway IS NOT NULL
-      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential')
+      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified')
+      ORDER BY 
+        CASE highway
+          WHEN 'motorway' THEN 1
+          WHEN 'trunk' THEN 2  
+          WHEN 'primary' THEN 3
+          WHEN 'secondary' THEN 4
+          WHEN 'tertiary' THEN 5
+          ELSE 6
+        END
       LIMIT 100
     `;
 
@@ -270,16 +277,15 @@ async function renderTileFromDB(bounds, zoom) {
       bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
     ]);
 
-    // Debug tile bounds and data
-    console.log(`Tile bounds: ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} to ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}`);
+    console.log(`GEOMETRY FOUND! Query returned ${result.rows.length} roads with coordinates`);
     
     if (result.rows.length > 0) {
-      console.log(`Rendering tile with ${result.rows.length} features from database`);
-      console.log(`Sample feature: ${result.rows[0].highway || result.rows[0].amenity} - ${result.rows[0].geom_type}`);
-      return await generateSimpleTile(result.rows, bounds);
+      console.log(`Sample with geometry:`, result.rows[0]);
+      
+      // Generate REAL OSM tile with actual coordinates!
+      return await generateRealOSMTile(result.rows, bounds);
     } else {
-      console.log('No data found in database for this tile bounds');
-      console.log(`Query bounds: minLon=${bounds.minLon}, minLat=${bounds.minLat}, maxLon=${bounds.maxLon}, maxLat=${bounds.maxLat}`);
+      console.log(`No roads found for bounds: ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} to ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}`);
       return await createEmptyTile();
     }
 
@@ -314,18 +320,58 @@ async function renderTileFromDB(bounds, zoom) {
       if (altResult.rows.length > 0) {
         console.log(`Basic query found ${altResult.rows.length} roads:`, altResult.rows.map(r => r.name || r.highway).join(', '));
         
-        // Now try to get column names
-        const columnsQuery = `
-          SELECT column_name FROM information_schema.columns 
-          WHERE table_name = 'planet_osm_line'
-          AND table_schema = 'public'
-          ORDER BY ordinal_position
-        `;
+        // Get column info for all OSM tables
+        const tablesInfo = ['planet_osm_line', 'planet_osm_polygon', 'planet_osm_point'];
         
-        const columnsResult = await pool.query(columnsQuery);
-        console.log('Available columns in planet_osm_line:', columnsResult.rows.map(r => r.column_name).join(', '));
+        for (let table of tablesInfo) {
+          try {
+            const columnsQuery = `
+              SELECT column_name, data_type FROM information_schema.columns 
+              WHERE table_name = '${table}'
+              AND table_schema = 'public'
+              ORDER BY ordinal_position
+            `;
+            
+            const columnsResult = await pool.query(columnsQuery);
+            console.log(`\n=== ${table.toUpperCase()} COLUMNS ===`);
+            console.log(columnsResult.rows.map(r => `${r.column_name}(${r.data_type})`).join(', '));
+            
+            // Check if this table has geometry column
+            const geomColumns = columnsResult.rows.filter(r => 
+              r.column_name.includes('geom') || 
+              r.column_name.includes('way') || 
+              r.data_type.includes('geometry')
+            );
+            
+            if (geomColumns.length > 0) {
+              console.log(`Geometry columns in ${table}:`, geomColumns.map(c => c.column_name).join(', '));
+              
+              // Try to get actual data with the found geometry column
+              const geomCol = geomColumns[0].column_name;
+              const testQuery = `
+                SELECT name, highway, ${geomCol} IS NOT NULL as has_geom,
+                       ST_AsText(${geomCol}) as geom_text
+                FROM ${table} 
+                WHERE highway IS NOT NULL
+                AND ${geomCol} IS NOT NULL
+                LIMIT 3
+              `;
+              
+              const testResult = await pool.query(testQuery);
+              if (testResult.rows.length > 0) {
+                console.log(`SUCCESS! Found geometry data in ${table}.${geomCol}`);
+                console.log('Sample:', testResult.rows[0]);
+                
+                // Now render with correct column
+                return await generateFullOSMTile(bounds, geomCol, table);
+              }
+            }
+          } catch (e) {
+            console.log(`Error checking ${table}:`, e.message);
+          }
+        }
         
-        // Generate a mockup tile since we have data but geometry issues
+        // If no geometry found, show the mock
         return await generateMockTileFromData(altResult.rows, bounds);
       }
     } catch (altError) {
@@ -726,6 +772,371 @@ async function generateMockTileFromData(features, bounds) {
 
   console.log(`Generated mock tile showing ${features.length} database features`);
   return Buffer.from(svg, 'utf8');
+}
+
+/**
+ * Helper: Generate full OSM-style tile with correct column names
+ */
+async function generateFullOSMTile(bounds, geomColumn, mainTable) {
+  console.log(`Generating full OSM tile using ${mainTable}.${geomColumn}`);
+  
+  try {
+    // Query all features with the correct geometry column
+    const fullQuery = `
+      -- Roads
+      SELECT 
+        name,
+        highway,
+        'road' as feature_type,
+        ST_AsText(${geomColumn}) as geom_text,
+        ST_GeometryType(${geomColumn}) as geom_type
+      FROM ${mainTable}
+      WHERE ${geomColumn} && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+      AND highway IS NOT NULL
+      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified')
+      LIMIT 100
+    `;
+    
+    const result = await pool.query(fullQuery, [bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat]);
+    console.log(`Full query returned ${result.rows.length} features`);
+    
+    let roadPaths = [];
+    let roadLabels = [];
+    
+    result.rows.forEach((feature, idx) => {
+      if (feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
+        try {
+          const coords = parseLineString(feature.geom_text, bounds);
+          
+          if (coords.length >= 2) {
+            // OSM-style colors
+            const color = getOSMRoadColor(feature.highway);
+            const width = getOSMRoadWidth(feature.highway);
+            
+            const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
+              coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+
+            roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" opacity="0.9"/>`);
+            
+            // Add road labels
+            if (feature.name && coords.length >= 2) {
+              const midIdx = Math.floor(coords.length / 2);
+              const midPoint = coords[midIdx];
+              
+              roadLabels.push(`
+                <text x="${midPoint.x}" y="${midPoint.y}" 
+                      font-family="Arial" font-size="8" fill="#333" 
+                      text-anchor="middle" 
+                      style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
+                  ${feature.name}
+                </text>
+              `);
+            }
+          }
+        } catch (e) {
+          console.error(`Error processing road ${idx}:`, e.message);
+        }
+      }
+    });
+
+    // Generate OSM-style SVG
+    let svg = `
+      <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+        <!-- OSM-style background -->
+        <rect width="256" height="256" fill="#f2efe9"/>
+        
+        <!-- Roads with proper styling -->
+        ${roadPaths.join('\n        ')}
+        
+        <!-- Road labels -->
+        ${roadLabels.join('\n        ')}
+        
+        <!-- OSM-style info -->
+        <rect x="3" y="3" width="150" height="30" fill="rgba(255,255,255,0.95)" stroke="#ccc" rx="2"/>
+        <text x="8" y="16" font-family="Arial" font-size="9" fill="#333" font-weight="bold">
+          OSM Local: ${roadPaths.length} roads
+        </text>
+        <text x="8" y="26" font-size="7" fill="#666" font-family="monospace">
+          ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)}
+        </text>
+      </svg>
+    `;
+
+    console.log(`Generated full OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
+    return Buffer.from(svg, 'utf8');
+
+  } catch (error) {
+    console.error('Error in generateFullOSMTile:', error.message);
+    throw error;
+  }
+}
+
+function parseLineString(wkt, bounds) {
+  const coordsText = wkt.replace('LINESTRING(', '').replace(')', '');
+  const coordPairs = coordsText.split(',');
+  const coords = [];
+  
+  for (let i = 0; i < Math.min(coordPairs.length, 20); i++) {
+    const pair = coordPairs[i].trim().split(' ');
+    if (pair.length >= 2) {
+      const lon = parseFloat(pair[0]);
+      const lat = parseFloat(pair[1]);
+      if (!isNaN(lon) && !isNaN(lat)) {
+        const pixel = coordToPixel(lat, lon, bounds);
+        coords.push(pixel);
+      }
+    }
+  }
+  return coords;
+}
+
+function coordToPixel(lat, lon, bounds) {
+  const lonRange = bounds.maxLon - bounds.minLon;
+  const latRange = bounds.maxLat - bounds.minLat;
+  
+  if (lonRange <= 0 || latRange <= 0) {
+    return { x: 128, y: 128 };
+  }
+  
+  const x = ((lon - bounds.minLon) / lonRange) * 256;
+  const y = ((bounds.maxLat - lat) / latRange) * 256;
+  
+  return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
+}
+
+function getOSMRoadColor(highway) {
+  const colors = {
+    'motorway': '#e892a2',
+    'trunk': '#f9b29c', 
+    'primary': '#fcd6a4',
+    'secondary': '#f7fabf',
+    'tertiary': '#ffffff',
+    'residential': '#ffffff',
+    'service': '#ffffff',
+    'unclassified': '#ffffff'
+  };
+  return colors[highway] || '#cccccc';
+}
+
+function getOSMRoadWidth(highway) {
+  const widths = {
+    'motorway': 5,
+    'trunk': 4,
+    'primary': 3.5,
+    'secondary': 3,
+    'tertiary': 2.5,
+    'residential': 2,
+    'service': 1.5,
+    'unclassified': 2
+  };
+  return widths[highway] || 1.5;
+}
+
+/**
+ * Helper: Generate schematic tile from road data (no geometry)
+ */
+async function generateSchematicTile(roads, bounds) {
+  console.log(`Generating schematic tile with ${roads.length} roads`);
+  
+  // Group roads by type
+  const roadGroups = {};
+  roads.forEach(road => {
+    if (!roadGroups[road.highway]) {
+      roadGroups[road.highway] = [];
+    }
+    roadGroups[road.highway].push(road);
+  });
+
+  let roadElements = [];
+  let labels = [];
+  
+  // Generate schematic road network
+  let yPos = 40;
+  
+  Object.entries(roadGroups).forEach(([highway, roadList]) => {
+    const color = getOSMRoadColor(highway);
+    const width = getOSMRoadWidth(highway);
+    
+    // Horizontal main road
+    roadElements.push(`
+      <line x1="20" y1="${yPos}" x2="236" y2="${yPos}" 
+            stroke="${color}" stroke-width="${width}" stroke-linecap="round" opacity="0.9"/>
+    `);
+    
+    // Branching roads
+    for (let i = 0; i < Math.min(roadList.length, 3); i++) {
+      const x = 50 + (i * 60);
+      roadElements.push(`
+        <line x1="${x}" y1="${yPos}" x2="${x + 20}" y2="${yPos + 30}" 
+              stroke="${color}" stroke-width="${width * 0.7}" stroke-linecap="round" opacity="0.7"/>
+      `);
+      
+      // Add road name if available
+      if (roadList[i].name) {
+        labels.push(`
+          <text x="${x + 10}" y="${yPos + 45}" font-family="Arial" font-size="7" 
+                fill="#333" text-anchor="middle" 
+                style="stroke: white; stroke-width: 1; paint-order: stroke;">
+            ${roadList[i].name.substring(0, 15)}
+          </text>
+        `);
+      }
+    }
+    
+    // Highway type label
+    labels.push(`
+      <text x="25" y="${yPos - 5}" font-family="Arial" font-size="9" 
+            fill="#333" font-weight="bold">
+        ${highway.toUpperCase()}
+      </text>
+    `);
+    
+    yPos += 50;
+  });
+
+  // Generate comprehensive SVG
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <!-- OSM-style background -->
+      <rect width="256" height="256" fill="#f2efe9"/>
+      
+      <!-- Title -->
+      <rect x="10" y="5" width="236" height="25" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
+      <text x="128" y="20" font-family="Arial" font-size="12" fill="#333" 
+            text-anchor="middle" font-weight="bold">
+        🗺️ OSM Database Connected - Bandung Area
+      </text>
+      
+      <!-- Schematic road network -->
+      ${roadElements.join('')}
+      
+      <!-- Road labels -->
+      ${labels.join('')}
+      
+      <!-- Info panel -->
+      <rect x="10" y="200" width="236" height="45" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
+      <text x="20" y="215" font-family="Arial" font-size="10" fill="#333" font-weight="bold">
+        Database: ${roads.length} roads found
+      </text>
+      <text x="20" y="228" font-family="Arial" font-size="9" fill="#666">
+        Types: ${Object.keys(roadGroups).join(', ')}
+      </text>
+      <text x="20" y="240" font-family="Arial" font-size="8" fill="#e74c3c">
+        ⚠️ Geometry columns missing - need PostGIS import
+      </text>
+    </svg>
+  `;
+
+  console.log(`Generated schematic tile: ${Object.keys(roadGroups).length} road types`);
+  return Buffer.from(svg, 'utf8');
+}
+
+/**
+ * Helper: Generate REAL OSM tile with actual geometry coordinates
+ */
+async function generateRealOSMTile(features, bounds) {
+  console.log(`Generating REAL OSM tile with ${features.length} features and actual coordinates`);
+  
+  let roadPaths = [];
+  let roadLabels = [];
+  
+  features.forEach((feature, idx) => {
+    if (feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
+      try {
+        const coords = parseLineString(feature.geom_text, bounds);
+        
+        if (coords.length >= 2) {
+          // Real OSM colors
+          const color = getRealOSMColor(feature.highway);
+          const width = getRealOSMWidth(feature.highway);
+          
+          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
+            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+
+          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" opacity="0.9"/>`);
+          
+          // Add street names
+          if (feature.name && coords.length >= 3) {
+            const midIdx = Math.floor(coords.length / 2);
+            const midPoint = coords[midIdx];
+            
+            // Calculate text angle based on road direction
+            const p1 = coords[Math.max(0, midIdx - 1)];
+            const p2 = coords[Math.min(coords.length - 1, midIdx + 1)];
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+            
+            roadLabels.push(`
+              <text x="${midPoint.x}" y="${midPoint.y}" 
+                    font-family="Arial" font-size="8" fill="#333" 
+                    text-anchor="middle" 
+                    transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
+                    style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
+                ${feature.name}
+              </text>
+            `);
+          }
+        }
+      } catch (e) {
+        console.error(`Error processing feature ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // Generate proper OSM-style tile
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <!-- Real OSM background color -->
+      <rect width="256" height="256" fill="#f2efe9"/>
+      
+      <!-- Real road network with actual coordinates -->
+      ${roadPaths.join('\n      ')}
+      
+      <!-- Street name labels -->
+      ${roadLabels.join('\n      ')}
+      
+      <!-- Success indicator -->
+      <rect x="3" y="3" width="180" height="30" fill="rgba(255,255,255,0.95)" stroke="#4CAF50" stroke-width="2" rx="2"/>
+      <text x="8" y="16" font-family="Arial" font-size="9" fill="#4CAF50" font-weight="bold">
+        ✅ REAL OSM TILE - ${roadPaths.length} roads rendered
+      </text>
+      <text x="8" y="26" font-size="7" fill="#666" font-family="monospace">
+        ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} → ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}
+      </text>
+    </svg>
+  `;
+
+  console.log(`SUCCESS! Generated real OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
+  return Buffer.from(svg, 'utf8');
+}
+
+function getRealOSMColor(highway) {
+  // Real OpenStreetMap color scheme
+  const colors = {
+    'motorway': '#e892a2',      // Pink untuk highway
+    'trunk': '#f9b29c',         // Orange untuk trunk  
+    'primary': '#fcd6a4',       // Light orange untuk primary
+    'secondary': '#f7fabf',     // Yellow untuk secondary
+    'tertiary': '#ffffff',      // White untuk tertiary
+    'residential': '#ffffff',   // White untuk residential  
+    'service': '#ffffff',       // White untuk service
+    'unclassified': '#ffffff'   // White untuk unclassified
+  };
+  return colors[highway] || '#cccccc';
+}
+
+function getRealOSMWidth(highway) {
+  // Real OpenStreetMap width hierarchy
+  const widths = {
+    'motorway': 6,
+    'trunk': 5,
+    'primary': 4,
+    'secondary': 3,
+    'tertiary': 2.5,
+    'residential': 2,
+    'service': 1.5,
+    'unclassified': 2
+  };
+  return widths[highway] || 1.5;
 }
 
 /**
