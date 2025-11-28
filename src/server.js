@@ -249,28 +249,113 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // FOUND IT! Column 'way' exists with geometry(LineString, 3857)
+    // COMPREHENSIVE OSM query - ALL FEATURES like real OpenStreetMap
     const query = `
+      -- Water bodies and waterways
       SELECT 
         name,
-        highway,
-        'road' as feature_type,
+        'water' as feature_type,
+        COALESCE(natural, waterway) as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND (natural IN ('water') OR waterway IS NOT NULL)
+      
+      UNION ALL
+      
+      -- Green areas (parks, forests, grass)
+      SELECT 
+        name,
+        'green' as feature_type,
+        COALESCE(landuse, natural, leisure) as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND (landuse IN ('forest', 'grass', 'meadow', 'park', 'recreation_ground') 
+           OR natural IN ('wood', 'scrub', 'heath', 'grassland')
+           OR leisure IN ('park', 'garden', 'playground'))
+      
+      UNION ALL
+      
+      -- Built areas (residential, commercial, industrial)  
+      SELECT 
+        name,
+        'built' as feature_type,
+        landuse as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND landuse IN ('residential', 'commercial', 'industrial', 'retail', 'construction')
+      
+      UNION ALL
+      
+      -- Buildings 
+      SELECT 
+        name,
+        'building' as feature_type,
+        building as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_polygon 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND building IS NOT NULL
+      
+      UNION ALL
+      
+      -- Railway lines
+      SELECT 
+        name,
+        'railway' as feature_type,
+        railway as category,
         ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_line 
       WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND highway IS NOT NULL
-      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified')
+      AND railway IS NOT NULL
+      
+      UNION ALL
+      
+      -- Roads with proper hierarchy
+      SELECT 
+        name,
+        'road' as feature_type,
+        highway as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_line 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 
+                      'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 
+                      'residential', 'unclassified', 'service', 'living_street', 'pedestrian', 'footway', 'cycleway', 'path')
+      
+      UNION ALL
+      
+      -- Points of Interest with full categories
+      SELECT 
+        name,
+        'poi' as feature_type,
+        COALESCE(amenity, shop, tourism) as category,
+        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_GeometryType(way) as geom_type
+      FROM planet_osm_point 
+      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
+      AND (amenity IS NOT NULL OR shop IS NOT NULL OR tourism IS NOT NULL)
+      
       ORDER BY 
-        CASE highway
-          WHEN 'motorway' THEN 1
-          WHEN 'trunk' THEN 2  
-          WHEN 'primary' THEN 3
-          WHEN 'secondary' THEN 4
-          WHEN 'tertiary' THEN 5
-          ELSE 6
-        END
-      LIMIT 100
+        CASE feature_type
+          WHEN 'water' THEN 1
+          WHEN 'green' THEN 2  
+          WHEN 'built' THEN 3
+          WHEN 'building' THEN 4
+          WHEN 'railway' THEN 5
+          WHEN 'road' THEN 6
+          WHEN 'poi' THEN 7
+        END,
+        ST_Area(way) DESC
+      LIMIT 500
     `;
 
     const result = await pool.query(query, [
@@ -280,10 +365,12 @@ async function renderTileFromDB(bounds, zoom) {
     console.log(`GEOMETRY FOUND! Query returned ${result.rows.length} roads with coordinates`);
     
     if (result.rows.length > 0) {
-      console.log(`Sample with geometry:`, result.rows[0]);
+      const featureTypes = {};
+      result.rows.forEach(f => featureTypes[f.feature_type] = (featureTypes[f.feature_type] || 0) + 1);
+      console.log(`Complete OSM data:`, featureTypes);
       
-      // Generate REAL OSM tile with actual coordinates!
-      return await generateRealOSMTile(result.rows, bounds);
+      // Generate COMPLETE OSM tile with all elements!
+      return await generateCompleteOSMTile(result.rows, bounds);
     } else {
       console.log(`No roads found for bounds: ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} to ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}`);
       return await createEmptyTile();
@@ -871,6 +958,163 @@ async function generateFullOSMTile(bounds, geomColumn, mainTable) {
   }
 }
 
+// 100% AUTHENTIC OpenStreetMap road styling (exact colors and widths)
+function getAuthenticOSMRoadStyle(highwayType, zoom = 14) {
+  const styles = {
+    // Major roads - exact OSM colors
+    motorway: { 
+      width: 8, casingWidth: 10, 
+      color: '#e892a2', casingColor: '#dc2a67',
+      priority: 9, labelSize: 9, labelColor: '#800080' 
+    },
+    trunk: { 
+      width: 7, casingWidth: 9,
+      color: '#f9b29c', casingColor: '#cc7722', 
+      priority: 8, labelSize: 8, labelColor: '#8B4513'
+    },
+    primary: { 
+      width: 6, casingWidth: 8,
+      color: '#fcd6a4', casingColor: '#e46d71',
+      priority: 7, labelSize: 8, labelColor: '#8B4513' 
+    },
+    secondary: {
+      width: 5, casingWidth: 7, 
+      color: '#f7fabf', casingColor: '#70372f',
+      priority: 6, labelSize: 7, labelColor: '#654321'
+    },
+    tertiary: {
+      width: 4, casingWidth: 6,
+      color: '#ffffff', casingColor: '#8f8f8f', 
+      priority: 5, labelSize: 7, labelColor: '#555555'
+    },
+    
+    // Links and ramps
+    motorway_link: { 
+      width: 5, casingWidth: 7,
+      color: '#e892a2', casingColor: '#dc2a67',
+      priority: 8, labelSize: 6, labelColor: '#800080'
+    },
+    trunk_link: {
+      width: 4, casingWidth: 6, 
+      color: '#f9b29c', casingColor: '#cc7722',
+      priority: 7, labelSize: 6, labelColor: '#8B4513'
+    },
+    
+    // Residential and local roads
+    residential: {
+      width: 3.5, casingWidth: 5,
+      color: '#ffffff', casingColor: '#bbb',
+      priority: 4, labelSize: 6, labelColor: '#555555'
+    },
+    unclassified: {
+      width: 3, casingWidth: 5, 
+      color: '#ffffff', casingColor: '#ccc',
+      priority: 3, labelSize: 6, labelColor: '#666666'
+    },
+    service: {
+      width: 2, casingWidth: 3,
+      color: '#ffffff', casingColor: '#ccc',
+      priority: 2, labelSize: 5, labelColor: '#777777'
+    },
+    
+    // Pedestrian and cycling
+    footway: {
+      width: 1, casingWidth: 0,
+      color: '#fa8072', casingColor: 'none', 
+      dashArray: '2,2', priority: 1, labelSize: 5, labelColor: '#999999'
+    },
+    cycleway: {
+      width: 1.5, casingWidth: 0,
+      color: '#0000ff', casingColor: 'none',
+      dashArray: '3,2', priority: 1, labelSize: 5, labelColor: '#0000aa'
+    },
+    path: {
+      width: 1, casingWidth: 0,
+      color: '#8B4513', casingColor: 'none',
+      dashArray: '2,3', priority: 1, labelSize: 5, labelColor: '#8B4513'
+    },
+    
+    // Default for unknown types
+    default: {
+      width: 2, casingWidth: 4,
+      color: '#ffffff', casingColor: '#999', 
+      priority: 1, labelSize: 6, labelColor: '#666666'
+    }
+  };
+  
+  return styles[highwayType] || styles.default;
+}
+
+// 100% AUTHENTIC OpenStreetMap POI styling  
+function getAuthenticPOIStyle(amenityType) {
+  const styles = {
+    // Food & Drink (brown/orange tones)
+    restaurant: { color: '#ac5d37', size: 3, icon: '🍽️', labelColor: '#8B4513', priority: 7 },
+    cafe: { color: '#ac5d37', size: 2.5, icon: '☕', labelColor: '#8B4513', priority: 6 },
+    fast_food: { color: '#d4860d', size: 2, icon: '🍔', labelColor: '#8B4513', priority: 5 },
+    pub: { color: '#ac5d37', size: 2.5, icon: '🍺', labelColor: '#8B4513', priority: 6 },
+    
+    // Transport (blue tones)
+    fuel: { color: '#447bc4', size: 3, icon: '⛽', labelColor: '#1a472a', priority: 7 },
+    parking: { color: '#447bc4', size: 2, icon: '🅿️', labelColor: '#1a472a', priority: 4 },
+    bus_station: { color: '#447bc4', size: 3, icon: '🚌', labelColor: '#1a472a', priority: 8 },
+    
+    // Education (green tones) 
+    school: { color: '#39ac39', size: 3, icon: '🏫', labelColor: '#1a472a', priority: 8 },
+    university: { color: '#39ac39', size: 4, icon: '🎓', labelColor: '#1a472a', priority: 9 },
+    
+    // Healthcare (red tones)
+    hospital: { color: '#da0092', size: 4, icon: '🏥', labelColor: '#8B0000', priority: 9 },
+    pharmacy: { color: '#da0092', size: 2.5, icon: '💊', labelColor: '#8B0000', priority: 6 },
+    
+    // Finance (purple tones)
+    bank: { color: '#734a08', size: 3, icon: '🏦', labelColor: '#4B0000', priority: 7 },
+    atm: { color: '#734a08', size: 2, icon: '💳', labelColor: '#4B0000', priority: 5 },
+    
+    // Shopping (orange/yellow tones)
+    supermarket: { color: '#ac5d37', size: 3, icon: '🛒', labelColor: '#8B4513', priority: 7 },
+    shop: { color: '#ac5d37', size: 2, icon: '🏪', labelColor: '#8B4513', priority: 5 },
+    
+    // Default for unknown POI types
+    default: { color: '#999999', size: 2, icon: '📍', labelColor: '#666666', priority: 3 }
+  };
+  
+  return styles[amenityType] || styles.default;
+}
+
+// AUTHENTIC OpenStreetMap area colors
+function getGreenColor(landuse) {
+  const colors = {
+    forest: '#add19e',
+    grass: '#cdebb0', 
+    meadow: '#cdebb0',
+    park: '#c8facc',
+    garden: '#c8facc',
+    recreation_ground: '#c8facc',
+    village_green: '#c8facc',
+    cemetery: '#aacbaf',
+    allotments: '#c9e1bf',
+    orchard: '#aedfa3',
+    vineyard: '#aedfa3'
+  };
+  return colors[landuse] || '#c8facc'; // Default park green
+}
+
+function getBuiltColor(landuse) {
+  const colors = {
+    residential: '#e0dfdf',
+    commercial: '#efc8c8', 
+    industrial: '#ebdbe8',
+    retail: '#ffd6d1',
+    construction: '#c7c7b4',
+    brownfield: '#ecba32',
+    landfill: '#b6b592',
+    quarry: '#c5c3c3',
+    military: '#f55353'
+  };
+  return colors[landuse] || '#e0dfdf'; // Default residential
+}
+
 function parseLineString(wkt, bounds) {
   const coordsText = wkt.replace('LINESTRING(', '').replace(')', '');
   const coordPairs = coordsText.split(',');
@@ -1137,6 +1381,297 @@ function getRealOSMWidth(highway) {
     'unclassified': 2
   };
   return widths[highway] || 1.5;
+}
+
+/**
+ * Helper: Generate 100% AUTHENTIC OpenStreetMap tile
+ */
+async function generateCompleteOSMTile(features, bounds) {
+  console.log(`Generating 100% AUTHENTIC OSM tile with ${features.length} total features`);
+  
+  // Separate ALL feature types like real OSM
+  const water = features.filter(f => f.feature_type === 'water');
+  const green = features.filter(f => f.feature_type === 'green');
+  const built = features.filter(f => f.feature_type === 'built');  
+  const buildings = features.filter(f => f.feature_type === 'building');
+  const railways = features.filter(f => f.feature_type === 'railway');
+  const roads = features.filter(f => f.feature_type === 'road');
+  const pois = features.filter(f => f.feature_type === 'poi');
+  
+  let waterPolygons = [];
+  let greenPolygons = [];
+  let builtPolygons = [];
+  let buildingPolygons = [];
+  let railwayLines = [];
+  let roadPaths = [];
+  let roadLabels = [];
+  let poiMarkers = [];
+  
+  // 1. Process WATER areas (bottom layer - like real OSM)
+  water.slice(0, 5).forEach((waterArea, idx) => {
+    if (waterArea.geom_text && waterArea.geom_text.startsWith('POLYGON')) {
+      try {
+        const coords = parsePolygonWKT(waterArea.geom_text, bounds);
+        if (coords.length >= 3) {
+          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
+            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          waterPolygons.push(`<path d="${pathData}" fill="#b5d0d0" stroke="#9ac0cd" stroke-width="0.5" opacity="1"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing water ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 2. Process GREEN areas (parks, forests)
+  green.slice(0, 15).forEach((greenArea, idx) => {
+    if (greenArea.geom_text && greenArea.geom_text.startsWith('POLYGON')) {
+      try {
+        const coords = parsePolygonWKT(greenArea.geom_text, bounds);
+        if (coords.length >= 3) {
+          const color = getGreenColor(greenArea.category);
+          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
+            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          greenPolygons.push(`<path d="${pathData}" fill="${color}" stroke="#8dc56c" stroke-width="0.2" opacity="0.8"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing green ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 3. Process BUILT areas (residential, commercial, industrial)  
+  built.slice(0, 10).forEach((builtArea, idx) => {
+    if (builtArea.geom_text && builtArea.geom_text.startsWith('POLYGON')) {
+      try {
+        const coords = parsePolygonWKT(builtArea.geom_text, bounds);
+        if (coords.length >= 3) {
+          const color = getBuiltColor(builtArea.category);
+          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
+            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          builtPolygons.push(`<path d="${pathData}" fill="${color}" stroke="none" opacity="0.4"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing built ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 4. Process BUILDINGS with OSM-style rendering
+  buildings.slice(0, 100).forEach((building, idx) => {
+    if (building.geom_text && building.geom_text.startsWith('POLYGON')) {
+      try {
+        const coords = parsePolygonWKT(building.geom_text, bounds);
+        if (coords.length >= 3) {
+          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
+            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
+          
+          // Real OSM building colors and style
+          buildingPolygons.push(`<path d="${pathData}" fill="#d9d0c7" stroke="#bbbbb0" stroke-width="0.3" opacity="1"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing building ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 5. Process RAILWAYS
+  railways.slice(0, 10).forEach((railway, idx) => {
+    if (railway.geom_text && railway.geom_text.startsWith('LINESTRING')) {
+      try {
+        const coords = parseLineString(railway.geom_text, bounds);
+        if (coords.length >= 2) {
+          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
+            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+
+          // Railway with dashed line like real OSM
+          railwayLines.push(`<path d="${pathData}" stroke="#444444" stroke-width="1.5" fill="none" stroke-dasharray="3,3" opacity="0.8"/>`);
+        }
+      } catch (e) {
+        console.error(`Error parsing railway ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 6. Process ROADS with AUTHENTIC OSM styling and hierarchy
+  roads.slice(0, 120).forEach((road, idx) => {
+    if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
+      try {
+        const coords = parseLineString(road.geom_text, bounds);
+        if (coords.length >= 2) {
+          const roadType = road.category;
+          const style = getAuthenticOSMRoadStyle(roadType);
+          
+          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
+            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+
+          // Casing (border) for major roads
+          if (style.casing) {
+            roadPaths.push(`<path d="${pathData}" stroke="${style.casing}" stroke-width="${style.width + 2}" fill="none" stroke-linecap="round" opacity="1"/>`);
+          }
+          
+          // Main road color
+          roadPaths.push(`<path d="${pathData}" stroke="${style.color}" stroke-width="${style.width}" fill="none" stroke-linecap="round" opacity="1"/>`);
+          
+          // Street names with proper sizing and positioning
+          if (road.name && coords.length >= 3 && style.showLabel) {
+            const midIdx = Math.floor(coords.length / 2);
+            const midPoint = coords[midIdx];
+            
+            // Calculate text rotation based on road direction  
+            const p1 = coords[Math.max(0, midIdx - 1)];
+            const p2 = coords[Math.min(coords.length - 1, midIdx + 1)];
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+            
+            roadLabels.push(`
+              <text x="${midPoint.x}" y="${midPoint.y}" 
+                    font-family="DejaVu Sans, Arial" font-size="${style.fontSize}" fill="#333333" 
+                    text-anchor="middle" 
+                    transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
+                    style="font-weight: ${style.fontWeight}; stroke: white; stroke-width: 2; paint-order: stroke;">
+                ${road.name.substring(0, style.maxLength)}
+              </text>
+            `);
+          }
+        }
+      } catch (e) {
+        console.error(`Error parsing road ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // 7. Process POIs with AUTHENTIC OSM icons and styling
+  pois.slice(0, 30).forEach((poi, idx) => {
+    if (poi.geom_text && poi.geom_text.startsWith('POINT')) {
+      try {
+        const match = poi.geom_text.match(/POINT\(([0-9.-]+)\s+([0-9.-]+)\)/);
+        if (match) {
+          const lon = parseFloat(match[1]);
+          const lat = parseFloat(match[2]);
+          const pixel = coordToPixel(lat, lon, bounds);
+          
+          if (pixel.x >= 5 && pixel.x <= 251 && pixel.y >= 5 && pixel.y <= 251) {
+            const poiStyle = getAuthenticPOIStyle(poi.category);
+            
+            // POI background circle
+            poiMarkers.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="${poiStyle.size + 1}" fill="white" stroke="${poiStyle.borderColor}" stroke-width="1" opacity="0.9"/>`);
+            // POI main circle with icon color
+            poiMarkers.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="${poiStyle.size}" fill="${poiStyle.color}" opacity="1"/>`);
+            
+            // POI name label (for major POIs)
+            if (poi.name && poiStyle.showName) {
+              poiMarkers.push(`
+                <text x="${pixel.x}" y="${pixel.y + poiStyle.size + 12}" 
+                      font-family="DejaVu Sans, Arial" font-size="7" fill="#333333" 
+                      text-anchor="middle" 
+                      style="font-weight: bold; stroke: white; stroke-width: 1.5; paint-order: stroke;">
+                  ${poi.name.substring(0, 15)}
+                </text>
+              `);
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`Error parsing POI ${idx}:`, e.message);
+      }
+    }
+  });
+
+  // Generate 100% AUTHENTIC OpenStreetMap SVG with proper layering
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <!-- Authentic OSM background color -->
+      <rect width="256" height="256" fill="#f2efe9"/>
+      
+      <!-- Layer 1: Water (bottom layer) -->
+      ${waterPolygons.join('\n      ')}
+      
+      <!-- Layer 2: Green areas (parks, forests) -->
+      ${greenPolygons.join('\n      ')}
+      
+      <!-- Layer 3: Built areas (residential, commercial zones) -->  
+      ${builtPolygons.join('\n      ')}
+      
+      <!-- Layer 4: Buildings -->  
+      ${buildingPolygons.join('\n      ')}
+      
+      <!-- Layer 5: Railways -->
+      ${railwayLines.join('\n      ')}
+      
+      <!-- Layer 6: Roads (with casing) -->
+      ${roadPaths.join('\n      ')}
+      
+      <!-- Layer 7: Road labels -->
+      ${roadLabels.join('\n      ')}
+      
+      <!-- Layer 8: POI markers (top layer) -->
+      ${poiMarkers.join('\n      ')}
+      
+      <!-- Minimal info (no green box to match real OSM) -->
+      <text x="5" y="250" font-family="Arial" font-size="6" fill="#999999" opacity="0.7">
+        © Local OSM Data
+      </text>
+    </svg>
+  `;
+
+  const stats = {
+    water: waterPolygons.length,
+    green: greenPolygons.length, 
+    built: builtPolygons.length,
+    buildings: buildingPolygons.length,
+    railways: railwayLines.length,
+    roads: roadPaths.length / 2, // Divided by 2 because of casing
+    pois: poiMarkers.length / 2  // Divided by 2 because of background circles
+  };
+
+  console.log(`100% AUTHENTIC OSM tile:`, stats);
+  return Buffer.from(svg, 'utf8');
+}
+
+function parsePolygonWKT(wkt, bounds) {
+  const coordsText = wkt.replace('POLYGON((', '').replace('))', '');
+  const coordPairs = coordsText.split(',');
+  const coords = [];
+  
+  for (let i = 0; i < Math.min(coordPairs.length, 15); i++) {
+    const pair = coordPairs[i].trim().split(' ');
+    if (pair.length >= 2) {
+      const lon = parseFloat(pair[0]);
+      const lat = parseFloat(pair[1]);
+      if (!isNaN(lon) && !isNaN(lat)) {
+        coords.push(coordToPixel(lat, lon, bounds));
+      }
+    }
+  }
+  return coords;
+}
+
+function getLanduseColor(landuse) {
+  const colors = {
+    'forest': '#8dc56c',
+    'park': '#c8facc', 
+    'grass': '#cdebb0',
+    'residential': '#f0f0f0',
+    'commercial': '#fdf4e3',
+    'industrial': '#e6e6e6',
+    'water': '#b5d0d0'
+  };
+  return colors[landuse] || '#f5f5f5';
+}
+
+function getPOIColor(amenity) {
+  const colors = {
+    'restaurant': '#d73027',
+    'hospital': '#2b83ba', 
+    'school': '#fdae61',
+    'fuel': '#fee08b',
+    'bank': '#4575b4',
+    'pharmacy': '#91bfdb'
+  };
+  return colors[amenity] || '#9b59b6';
 }
 
 /**
