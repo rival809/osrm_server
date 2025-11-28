@@ -286,36 +286,47 @@ async function renderTileFromDB(bounds, zoom) {
   } catch (error) {
     console.error('Database rendering error:', error.message);
     
-    // Try alternative query with different column names
+    // Try simple table check first
     try {
-      const altQuery = `
-        SELECT 
-          name,
-          highway,
-          ST_AsText(geometry) as geom_text,
-          ST_GeometryType(geometry) as geom_type
-        FROM planet_osm_roads 
-        WHERE geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-        LIMIT 50
-        UNION ALL
-        SELECT 
-          name,
-          NULL as highway,
-          ST_AsText(geometry) as geom_text,
-          ST_GeometryType(geometry) as geom_type
-        FROM planet_osm_point 
-        WHERE geometry && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-        LIMIT 20
+      // First, just see what tables exist
+      const tablesQuery = `
+        SELECT table_name FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name LIKE 'planet_osm%'
+        LIMIT 10
       `;
       
-      const altResult = await pool.query(altQuery, [
-        bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
-      ]);
+      const tablesResult = await pool.query(tablesQuery);
+      console.log('Available tables:', tablesResult.rows.map(r => r.table_name).join(', '));
+      
+      // Try the most basic query possible
+      const altQuery = `
+        SELECT name, highway
+        FROM planet_osm_line 
+        WHERE highway IS NOT NULL
+        LIMIT 5
+      `;
+      
+      console.log('Trying basic query without geometry...');
+      
+      const altResult = await pool.query(altQuery);
       
       if (altResult.rows.length > 0) {
-        console.log(`Alternative query found ${altResult.rows.length} features`);
-        // Simple roads-only rendering
-        return await generateSimpleRoadTile(altResult.rows, bounds);
+        console.log(`Basic query found ${altResult.rows.length} roads:`, altResult.rows.map(r => r.name || r.highway).join(', '));
+        
+        // Now try to get column names
+        const columnsQuery = `
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_name = 'planet_osm_line'
+          AND table_schema = 'public'
+          ORDER BY ordinal_position
+        `;
+        
+        const columnsResult = await pool.query(columnsQuery);
+        console.log('Available columns in planet_osm_line:', columnsResult.rows.map(r => r.column_name).join(', '));
+        
+        // Generate a mockup tile since we have data but geometry issues
+        return await generateMockTileFromData(altResult.rows, bounds);
       }
     } catch (altError) {
       console.error('Alternative query also failed:', altError.message);
@@ -665,6 +676,55 @@ async function generateSimpleRoadTile(features, bounds) {
   `;
 
   console.log(`Generated simple road tile: ${roadPaths.length} roads`);
+  return Buffer.from(svg, 'utf8');
+}
+
+/**
+ * Helper: Generate mock tile from database data (no geometry)
+ */
+async function generateMockTileFromData(features, bounds) {
+  // Create a tile showing that we have data but geometry is missing
+  const roadTypes = {};
+  features.forEach(f => {
+    if (f.highway) {
+      roadTypes[f.highway] = (roadTypes[f.highway] || 0) + 1;
+    }
+  });
+
+  const roadList = Object.entries(roadTypes)
+    .map(([type, count]) => `${type}(${count})`)
+    .join(', ');
+
+  let svg = `
+    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+      <rect width="256" height="256" fill="#f0f0f0"/>
+      
+      <!-- Mock road pattern -->
+      <line x1="50" y1="128" x2="206" y2="128" stroke="#e74c3c" stroke-width="3"/>
+      <line x1="128" y1="50" x2="128" y2="206" stroke="#3498db" stroke-width="2"/>
+      <line x1="50" y1="80" x2="206" y2="176" stroke="#f39c12" stroke-width="2"/>
+      
+      <!-- Data info -->
+      <rect x="10" y="10" width="236" height="60" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
+      <text x="20" y="30" font-family="Arial" font-size="12" fill="#333" font-weight="bold">
+        DATABASE CONNECTED! 🎉
+      </text>
+      <text x="20" y="45" font-family="Arial" font-size="10" fill="#666">
+        Found ${features.length} features in DB
+      </text>
+      <text x="20" y="58" font-family="Arial" font-size="8" fill="#888">
+        ${roadList}
+      </text>
+      
+      <!-- Status -->
+      <rect x="10" y="180" width="236" height="30" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
+      <text x="20" y="198" font-family="Arial" font-size="10" fill="#e74c3c">
+        Geometry column issue - need to fix schema
+      </text>
+    </svg>
+  `;
+
+  console.log(`Generated mock tile showing ${features.length} database features`);
   return Buffer.from(svg, 'utf8');
 }
 
