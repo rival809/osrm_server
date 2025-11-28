@@ -210,20 +210,34 @@ function isTileInWestJava(bounds) {
 }
 
 /**
- * Helper: Convert tile coordinates to lat/lon bounds
+ * Helper: Convert tile coordinates to lat/lon bounds (Web Mercator)
  */
 function tileToBounds(x, y, z) {
   const n = Math.pow(2, z);
+  
+  // Web Mercator tile bounds
   const lonMin = (x / n) * 360 - 180;
   const lonMax = ((x + 1) / n) * 360 - 180;
-  const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI;
-  const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+  
+  // Web Mercator Y coordinate conversion
+  const latMinRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n)));
+  const latMaxRad = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)));
+  
+  const latMin = latMinRad * 180 / Math.PI;
+  const latMax = latMaxRad * 180 / Math.PI;
   
   return {
     minLon: lonMin,
     minLat: latMin,
     maxLon: lonMax,
-    maxLat: latMax
+    maxLat: latMax,
+    // Add Web Mercator bounds for database query
+    webMercator: {
+      minX: lonMin * 20037508.34 / 180,
+      maxX: lonMax * 20037508.34 / 180,
+      minY: Math.log(Math.tan((90 + latMin) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180,
+      maxY: Math.log(Math.tan((90 + latMax) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180
+    }
   };
 }
 
@@ -249,20 +263,19 @@ async function proxyTileFromOSM(z, x, y) {
  */
 async function renderTileFromDB(bounds, zoom) {
   try {
-    // Query PostGIS untuk data dalam bounds dengan koordinat yang lebih sederhana
+    // Query PostGIS dengan Web Mercator bounds yang tepat
+    const mercBounds = bounds.webMercator;
     const query = `
       SELECT 
         name,
         highway,
         amenity,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
+        ST_AsText(ST_Simplify(ST_Transform(way, 4326), 0.00001)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_line 
-      WHERE way && ST_Transform(
-        ST_MakeEnvelope($1, $2, $3, $4, 4326), 
-        3857
-      )
-      AND highway IN ('primary', 'secondary', 'trunk', 'tertiary', 'residential')
+      WHERE way && ST_MakeEnvelope($1, $2, $3, $4, 3857)
+      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified')
+      AND ST_Intersects(way, ST_MakeEnvelope($1, $2, $3, $4, 3857))
       UNION ALL
       SELECT 
         name,
@@ -271,16 +284,13 @@ async function renderTileFromDB(bounds, zoom) {
         ST_AsText(ST_Transform(way, 4326)) as geom_text,
         ST_GeometryType(way) as geom_type
       FROM planet_osm_point 
-      WHERE way && ST_Transform(
-        ST_MakeEnvelope($1, $2, $3, $4, 4326), 
-        3857
-      )
-      AND amenity IS NOT NULL
-      LIMIT 200
+      WHERE way && ST_MakeEnvelope($1, $2, $3, $4, 3857)
+      AND amenity IN ('restaurant', 'hospital', 'school', 'fuel', 'bank', 'atm')
+      LIMIT 100
     `;
 
     const result = await pool.query(query, [
-      bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
+      mercBounds.minX, mercBounds.minY, mercBounds.maxX, mercBounds.maxY
     ]);
 
     // Simple tile generation - return SVG as PNG
@@ -336,7 +346,7 @@ async function generateSimpleTile(features, bounds) {
     }
   });
 
-  // Helper: Convert lat/lon to tile pixel coordinates
+  // Helper: Convert lat/lon to tile pixel coordinates (Web Mercator projection)
   function latLonToPixel(lat, lon) {
     // Ensure we have valid bounds
     const lonRange = bounds.maxLon - bounds.minLon;
@@ -346,11 +356,18 @@ async function generateSimpleTile(features, bounds) {
       return { x: 128, y: 128 }; // Center fallback
     }
     
-    // Map coordinates to 256x256 pixel space
-    const x = ((lon - bounds.minLon) / lonRange) * 256;
-    const y = ((bounds.maxLat - lat) / latRange) * 256; // Flip Y axis
+    // Clamp coordinates to tile bounds
+    const clampedLon = Math.max(bounds.minLon, Math.min(bounds.maxLon, lon));
+    const clampedLat = Math.max(bounds.minLat, Math.min(bounds.maxLat, lat));
     
-    return { x, y };
+    // Linear mapping to 256x256 pixel space
+    const x = ((clampedLon - bounds.minLon) / lonRange) * 256;
+    const y = ((bounds.maxLat - clampedLat) / latRange) * 256; // Flip Y axis for SVG
+    
+    return { 
+      x: Math.max(0, Math.min(256, x)), 
+      y: Math.max(0, Math.min(256, y)) 
+    };
   }
 
   // Parse WKT geometry and convert to SVG paths
@@ -382,15 +399,18 @@ async function generateSimpleTile(features, bounds) {
         }
 
         if (coords.length >= 2) {
-          const color = road.highway === 'primary' ? '#e74c3c' : 
-                       road.highway === 'secondary' ? '#f39c12' : 
-                       road.highway === 'trunk' ? '#8e44ad' : 
-                       road.highway === 'tertiary' ? '#3498db' : 
-                       road.highway === 'residential' ? '#95a5a6' : '#7f8c8d';
-          const width = road.highway === 'trunk' ? 4 :
+          const color = road.highway === 'motorway' ? '#1565C0' : 
+                       road.highway === 'trunk' ? '#D32F2F' : 
+                       road.highway === 'primary' ? '#F57C00' : 
+                       road.highway === 'secondary' ? '#FBC02D' : 
+                       road.highway === 'tertiary' ? '#689F38' : 
+                       road.highway === 'residential' ? '#9E9E9E' : 
+                       road.highway === 'unclassified' ? '#757575' : '#BDBDBD';
+          const width = road.highway === 'motorway' ? 5 :
+                       road.highway === 'trunk' ? 4 : 
                        road.highway === 'primary' ? 3 : 
                        road.highway === 'secondary' ? 2.5 : 
-                       road.highway === 'tertiary' ? 2 : 1.5;
+                       road.highway === 'tertiary' ? 2 : 1.2;
 
           const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
             coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
