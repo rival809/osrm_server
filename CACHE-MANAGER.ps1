@@ -51,12 +51,13 @@ function Show-Menu {
 # Function to start Java tile preloading with options
 function Start-JavaTilePreload {
     Write-Host ""
-    Write-Host "🗺️ Java Island Tile Preload" -ForegroundColor Cyan
-    Write-Host "============================" -ForegroundColor Cyan
+    Write-Host "🗺️ Java Island Tile Preload (Direct OSM Download)" -ForegroundColor Cyan
+    Write-Host "=================================================" -ForegroundColor Cyan
     Write-Host "Predefined bounds for Java island:" -ForegroundColor White
     Write-Host "• Area: Java Island (West to East)" -ForegroundColor Gray
     Write-Host "• Bounds: 105.0°E to 114.0°E, 8.8°S to 5.9°S" -ForegroundColor Gray
     Write-Host "• Coverage: ~180,000 km² (Java + Madura)" -ForegroundColor Gray
+    Write-Host "• Method: Direct download from OSM servers → Local cache" -ForegroundColor Green
     Write-Host ""
     Write-Host "Zoom level options:" -ForegroundColor Yellow
     Write-Host "1. Light (10-11) - ~2,500 tiles, ~95MB, ~5 min" -ForegroundColor White
@@ -167,17 +168,38 @@ function Clean-Cache {
 # Function to monitor progress
 function Monitor-Progress {
     Write-Host ""
-    Write-Host "📊 Cache Progress Monitor" -ForegroundColor Cyan
-    Write-Host "========================" -ForegroundColor Cyan
-    Write-Host "Monitoring cache statistics in real-time..." -ForegroundColor White
+    Write-Host "📊 Cache Progress Monitor (Direct OSM Downloads)" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "Monitoring direct OSM tile downloads and cache storage..." -ForegroundColor White
     Write-Host "Press Ctrl+C to stop monitoring" -ForegroundColor Yellow
     Write-Host ""
     
+    # Test connectivity first
+    Write-Host "🔍 Testing API connectivity..." -ForegroundColor Yellow
     try {
-        # Get initial stats
-        $initialStats = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 5
-        $initialCount = $initialStats.totalFiles
-        $initialSize = $initialStats.totalSize
+        $testResponse = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 5
+        Write-Host "✅ API accessible" -ForegroundColor Green
+        Write-Host "Raw API response sample:" -ForegroundColor Gray
+        Write-Host ($testResponse | ConvertTo-Json -Depth 2) -ForegroundColor Gray
+        Write-Host ""
+        
+        # Try different property names for count
+        $initialCount = 0
+        $initialSize = "Unknown"
+        
+        if ($testResponse.totalFiles -ne $null) {
+            $initialCount = $testResponse.totalFiles
+        } elseif ($testResponse.total -ne $null) {
+            $initialCount = $testResponse.total
+        } elseif ($testResponse.count -ne $null) {
+            $initialCount = $testResponse.count
+        }
+        
+        if ($testResponse.totalSize -ne $null) {
+            $initialSize = $testResponse.totalSize
+        } elseif ($testResponse.size -ne $null) {
+            $initialSize = $testResponse.size
+        }
         
         Write-Host "Initial: $initialCount tiles, $initialSize" -ForegroundColor Gray
         Write-Host "----------------------------------------" -ForegroundColor Gray
@@ -185,29 +207,60 @@ function Monitor-Progress {
         while ($true) {
             try {
                 $currentStats = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 5
-                $currentCount = $currentStats.totalFiles
-                $currentSize = $currentStats.totalSize
-                $progress = $currentCount - $initialCount
+                
+                # Try different property names for current count
+                $currentCount = 0
+                $currentSize = "Unknown"
+                
+                if ($currentStats.totalFiles -ne $null) {
+                    $currentCount = $currentStats.totalFiles
+                } elseif ($currentStats.total -ne $null) {
+                    $currentCount = $currentStats.total
+                } elseif ($currentStats.count -ne $null) {
+                    $currentCount = $currentStats.count
+                }
+                
+                if ($currentStats.totalSize -ne $null) {
+                    $currentSize = $currentStats.totalSize
+                } elseif ($currentStats.size -ne $null) {
+                    $currentSize = $currentStats.size
+                }
                 
                 $timestamp = Get-Date -Format "HH:mm:ss"
-                Write-Host "$timestamp | Tiles: $currentCount (+$progress) | Size: $currentSize" -ForegroundColor White
+                
+                if ($currentCount -ge 0) {
+                    $progress = $currentCount - $initialCount
+                    Write-Host "$timestamp | Tiles: $currentCount (+$progress) | Size: $currentSize" -ForegroundColor White
+                } else {
+                    Write-Host "$timestamp | Raw response: $($currentStats | ConvertTo-Json -Compress)" -ForegroundColor Yellow
+                }
                 
                 # Show breakdown by zoom level
+                $zoomData = $null
                 if ($currentStats.byZoomLevel) {
-                    $currentStats.byZoomLevel.PSObject.Properties | Sort-Object Name | Select-Object -First 5 | ForEach-Object {
+                    $zoomData = $currentStats.byZoomLevel
+                } elseif ($currentStats.zoomLevels) {
+                    $zoomData = $currentStats.zoomLevels
+                }
+                
+                if ($zoomData) {
+                    $zoomData.PSObject.Properties | Sort-Object Name | Select-Object -First 3 | ForEach-Object {
                         Write-Host "  Zoom $($_.Name): $($_.Value) tiles" -ForegroundColor Gray
                     }
                 }
                 Write-Host ""
+                
             } catch {
                 $timestamp = Get-Date -Format "HH:mm:ss"
-                Write-Host "$timestamp | ❌ Unable to fetch stats" -ForegroundColor Red
+                Write-Host "$timestamp | ❌ Unable to fetch stats: $($_.Exception.Message)" -ForegroundColor Red
             }
             
             Start-Sleep 3
         }
     } catch {
-        Write-Host "Error starting progress monitor: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "❌ Cannot connect to http://3.107.98.189:8080" -ForegroundColor Red
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Please check if server is running and accessible" -ForegroundColor Yellow
     }
 }
 

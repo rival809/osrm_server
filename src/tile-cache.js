@@ -153,6 +153,37 @@ class TileCacheManager {
     throw lastError;
   }
   
+  // Preload single tile directly from OSM to cache
+  async preloadTileDirectly(z, x, y) {
+    try {
+      // Check if already cached
+      if (await this.isTileCached(z, x, y)) {
+        return { success: true, source: 'cache', message: 'Already cached' };
+      }
+      
+      // Download from OSM
+      const tileBuffer = await this.downloadTileFromOSM(z, x, y);
+      if (!tileBuffer) {
+        return { success: false, error: 'Failed to download from OSM' };
+      }
+      
+      // Save to cache
+      const saved = await this.saveTileToCache(z, x, y, tileBuffer, {
+        downloadedAt: Date.now(),
+        source: 'osm-direct',
+        preloaded: true
+      });
+      
+      return {
+        success: saved,
+        source: 'osm',
+        message: saved ? 'Downloaded and cached' : 'Failed to save to cache'
+      };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+  
   // Get tile (from cache or download)
   async getTile(z, x, y, forceDownload = false) {
     try {
@@ -210,8 +241,8 @@ class TileCacheManager {
     return tiles;
   }
   
-  // Preload tiles for specific zoom levels
-  async preloadTiles(zoomLevels = [10, 11, 12, 13], bounds = null) {
+  // Direct preload tiles from OSM servers (bypassing local server)
+  async preloadTilesDirectly(zoomLevels = [10, 11, 12, 13], bounds = null) {
     const targetBounds = bounds || this.westJavaBounds;
     const results = {
       totalTiles: 0,
@@ -222,8 +253,9 @@ class TileCacheManager {
       progress: {}
     };
     
-    console.log(`🔄 Starting tile preload for zoom levels: ${zoomLevels.join(', ')}`);
+    console.log(`🔄 Starting direct tile preload for zoom levels: ${zoomLevels.join(', ')}`);
     console.log(`📍 Bounds: ${JSON.stringify(targetBounds)}`);
+    console.log(`🌍 Direct download from OSM servers`);
     
     for (const zoom of zoomLevels) {
       const tiles = this.getTilesForBounds(targetBounds, zoom);
@@ -232,19 +264,41 @@ class TileCacheManager {
       
       console.log(`📦 Zoom ${zoom}: ${tiles.length} tiles to process`);
       
-      // Process tiles in batches to avoid overwhelming the server
-      const batchSize = 5;
+      // Process tiles in smaller batches for direct OSM download
+      const batchSize = 3; // Smaller batch for direct OSM to avoid rate limiting
       for (let i = 0; i < tiles.length; i += batchSize) {
         const batch = tiles.slice(i, i + batchSize);
         
         const batchPromises = batch.map(async (tile) => {
           try {
-            const result = await this.getTile(tile.z, tile.x, tile.y);
-            if (result.source === 'cache') {
+            // Check if tile already exists in cache
+            if (await this.isTileCached(tile.z, tile.x, tile.y)) {
               results.cachedTiles++;
-            } else {
-              results.downloadedTiles++;
+              results.progress[zoom].completed++;
+              return { success: true, source: 'cache' };
             }
+            
+            // Download directly from OSM
+            const tileBuffer = await this.downloadTileFromOSM(tile.z, tile.x, tile.y);
+            if (tileBuffer) {
+              // Save directly to cache
+              const saved = await this.saveTileToCache(tile.z, tile.x, tile.y, tileBuffer, {
+                downloadedAt: Date.now(),
+                source: 'osm-direct',
+                server: this.osmServers[this.currentServerIndex]
+              });
+              
+              if (saved) {
+                results.downloadedTiles++;
+              } else {
+                results.failedTiles++;
+                results.progress[zoom].failed++;
+              }
+            } else {
+              results.failedTiles++;
+              results.progress[zoom].failed++;
+            }
+            
             results.progress[zoom].completed++;
             
             // Log progress every 10 tiles

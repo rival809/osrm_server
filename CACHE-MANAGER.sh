@@ -34,12 +34,13 @@ get_cache_stats() {
 # Function to preload tiles for Java island
 preload_java_tiles() {
     echo ""
-    echo "🗺️  Java Island Tile Preload"
-    echo "============================"
-    echo "Predefefined bounds for Java island:"
+    echo "🗺️  Java Island Tile Preload (Direct OSM Download)"
+    echo "================================================="
+    echo "Predefined bounds for Java island:"
     echo "• Area: Java Island (West to East)"
     echo "• Bounds: 105.0°E to 114.0°E, 8.8°S to 5.9°S"
     echo "• Coverage: ~180,000 km² (Java + Madura)"
+    echo "• Method: Direct download from OSM servers → Local cache"
     echo ""
     echo "Zoom level options:"
     echo "1. Light (10-11) - ~2,500 tiles, ~95MB, ~5 min"
@@ -158,16 +159,38 @@ clean_cache() {
 # Function to monitor progress
 monitor_progress() {
     echo ""
-    echo "📊 Cache Progress Monitor"
-    echo "========================"
-    echo "Monitoring cache statistics in real-time..."
+    echo "📊 Cache Progress Monitor (Direct OSM Downloads)"
+    echo "==============================================="
+    echo "Monitoring direct OSM tile downloads and cache storage..."
     echo "Press Ctrl+C to stop monitoring"
     echo ""
     
-    # Store initial stats
-    initial_stats=$(curl -s "$BASE_URL/cache/stats" 2>/dev/null)
-    initial_count=$(echo "$initial_stats" | jq '.totalFiles // 0' 2>/dev/null || echo "0")
-    initial_size=$(echo "$initial_stats" | jq -r '.totalSize // "0 MB"' 2>/dev/null || echo "0 MB")
+    # Test connectivity and API response first
+    echo "🔍 Testing API connectivity..."
+    test_response=$(curl -s "$BASE_URL/cache/stats" 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$test_response" ]; then
+        echo "❌ Cannot connect to $BASE_URL"
+        echo "Please check if server is running and accessible"
+        return 1
+    fi
+    
+    echo "✅ API accessible"
+    echo "Raw API response sample:"
+    echo "$test_response" | head -5
+    echo ""
+    
+    # Try to parse with different methods
+    if command -v jq >/dev/null 2>&1; then
+        echo "Using jq for JSON parsing"
+        initial_count=$(echo "$test_response" | jq -r '.totalFiles // .total // .count // 0' 2>/dev/null)
+        initial_size=$(echo "$test_response" | jq -r '.totalSize // .size // "Unknown"' 2>/dev/null)
+    else
+        echo "jq not available, using basic text parsing"
+        initial_count=$(echo "$test_response" | grep -o '"totalFiles":[0-9]*' | cut -d: -f2 | head -1)
+        initial_size=$(echo "$test_response" | grep -o '"totalSize":"[^"]*"' | cut -d\" -f4 | head -1)
+        [ -z "$initial_count" ] && initial_count="0"
+        [ -z "$initial_size" ] && initial_size="Unknown"
+    fi
     
     echo "Initial: $initial_count tiles, $initial_size"
     echo "----------------------------------------"
@@ -176,24 +199,42 @@ monitor_progress() {
         # Get current stats
         current_stats=$(curl -s "$BASE_URL/cache/stats" 2>/dev/null)
         if [ $? -eq 0 ] && [ -n "$current_stats" ]; then
-            current_count=$(echo "$current_stats" | jq '.totalFiles // 0' 2>/dev/null || echo "0")
-            current_size=$(echo "$current_stats" | jq -r '.totalSize // "0 MB"' 2>/dev/null || echo "0 MB")
+            
+            # Parse stats with fallback methods
+            if command -v jq >/dev/null 2>&1; then
+                current_count=$(echo "$current_stats" | jq -r '.totalFiles // .total // .count // 0' 2>/dev/null)
+                current_size=$(echo "$current_stats" | jq -r '.totalSize // .size // "Unknown"' 2>/dev/null)
+                
+                # Show zoom level breakdown
+                zoom_breakdown=$(echo "$current_stats" | jq -r '.byZoomLevel // .zoomLevels // empty | to_entries[]? | "  Zoom \(.key): \(.value) tiles"' 2>/dev/null | head -3)
+            else
+                current_count=$(echo "$current_stats" | grep -o '"totalFiles":[0-9]*' | cut -d: -f2 | head -1)
+                current_size=$(echo "$current_stats" | grep -o '"totalSize":"[^"]*"' | cut -d\" -f4 | head -1)
+                [ -z "$current_count" ] && current_count="0"
+                [ -z "$current_size" ] && current_size="Unknown"
+                zoom_breakdown=""
+            fi
             
             # Calculate progress
-            if [ "$current_count" != "null" ] && [ "$initial_count" != "null" ]; then
-                progress=$((current_count - initial_count))
-                echo "$(date +'%H:%M:%S') | Tiles: $current_count (+$progress) | Size: $current_size"
+            if [ "$current_count" != "null" ] && [ "$current_count" -ge 0 ] 2>/dev/null; then
+                if [ "$initial_count" -ge 0 ] 2>/dev/null; then
+                    progress=$((current_count - initial_count))
+                    echo "$(date +'%H:%M:%S') | Tiles: $current_count (+$progress) | Size: $current_size"
+                else
+                    echo "$(date +'%H:%M:%S') | Tiles: $current_count | Size: $current_size"
+                fi
             else
-                echo "$(date +'%H:%M:%S') | Tiles: $current_count | Size: $current_size"
+                echo "$(date +'%H:%M:%S') | Raw response: $current_stats"
             fi
             
-            # Show breakdown by zoom level if available
-            if command -v jq >/dev/null 2>&1; then
-                echo "$current_stats" | jq -r '.byZoomLevel | to_entries[] | "  Zoom \(.key): \(.value) tiles"' 2>/dev/null | head -5
-                echo ""
+            # Show zoom breakdown if available
+            if [ -n "$zoom_breakdown" ]; then
+                echo "$zoom_breakdown"
             fi
+            echo ""
+            
         else
-            echo "$(date +'%H:%M:%S') | ❌ Unable to fetch stats"
+            echo "$(date +'%H:%M:%S') | ❌ Unable to fetch stats from $BASE_URL/cache/stats"
         fi
         
         sleep 3

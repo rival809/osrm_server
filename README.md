@@ -10,14 +10,15 @@ Service routing dan tile server untuk wilayah Jawa Barat dengan **lokal routing*
 - Data OSM Jawa Barat diproses untuk routing mobil
 - Response cepat dan reliable
 
-### **2. Smart Tile Caching**
+### **2. Smart Tile Caching (Direct OSM)**
 
-- **Preload**: Download tiles secara batch untuk area Jawa Barat
+- **Direct Preload**: Download tiles langsung dari OSM servers ke cache lokal
 - **Smart Serving**:
   - ✅ Cache hit → serve langsung dari file (~5ms)
   - ❌ Cache miss → download dari OSM → simpan → serve
-- **Persistent Storage**: Tiles disimpan di filesystem
-- **Auto Management**: TTL, cleanup, statistics
+- **Persistent Storage**: Tiles disimpan di filesystem tanpa TTL
+- **Direct Method**: Bypass server lokal, langsung OSM → Cache
+- **Manual Management**: Update hanya ketika diperlukan
 
 ## 🚀 Quick Start
 
@@ -131,20 +132,37 @@ GET /route?start=107.6191,-6.9175&end=107.6098,-6.9145
 GET /geocode?q=Bandung
 ```
 
-### Cache Management
+### Cache Management (Direct OSM)
 
 ```bash
 # Cache statistics
 GET /cache/stats
 
-# Start tile preload
+# Start direct tile preload (OSM → Cache)
 POST /cache/preload
 {
-  "zoomLevels": [10, 11, 12, 13]
+  "zoomLevels": [10, 11, 12, 13],
+  "bounds": {
+    "minLon": 105.0,
+    "maxLon": 114.0,
+    "minLat": -8.8,
+    "maxLat": -5.9
+  }
 }
 
-# Clean old cache
-DELETE /cache/clean?maxAgeHours=24
+# Preload single tile directly
+POST /cache/preload/single
+{
+  "z": 12,
+  "x": 3245,
+  "y": 1876
+}
+
+# Clean cache
+POST /cache/clean
+{
+  "type": "all"
+}
 ```
 
 ## ⚙️ Configuration

@@ -110,26 +110,74 @@ app.post('/cache/preload', async (req, res) => {
       });
     }
     
-    // Start preload process (don't wait for completion)
-    const preloadPromise = cacheManager.preloadTiles(validZooms, bounds || WEST_JAVA_BOUNDS);
+    // Start direct preload process (don't wait for completion)
+    const preloadPromise = cacheManager.preloadTilesDirectly(validZooms, bounds || WEST_JAVA_BOUNDS);
+    
+    // Calculate estimated tiles
+    let estimatedTiles = 0;
+    for (const zoom of validZooms) {
+      const tiles = cacheManager.getTilesForBounds(bounds || WEST_JAVA_BOUNDS, zoom);
+      estimatedTiles += tiles.length;
+    }
     
     // Return immediately with process info
     res.json({
       success: true,
-      message: 'Tile preload started',
+      message: 'Direct tile preload started (OSM → Cache)',
+      method: 'direct-osm',
       zoomLevels: validZooms,
       bounds: bounds || WEST_JAVA_BOUNDS,
-      estimatedTiles: validZooms.reduce((total, zoom) => {
-        const tiles = cacheManager.getTilesForBounds(bounds || WEST_JAVA_BOUNDS, zoom);
-        return total + tiles.length;
-      }, 0)
+      estimatedTiles: estimatedTiles,
+      note: 'Tiles are downloaded directly from OSM servers and cached locally'
     });
     
     // Log results when complete
     preloadPromise.then(results => {
-      console.log('✅ Preload completed:', results);
+      console.log('✅ Direct preload completed:', results);
     }).catch(error => {
-      console.error('❌ Preload failed:', error);
+      console.error('❌ Direct preload failed:', error);
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Preload single tile endpoint
+ * POST /cache/preload/single
+ */
+app.post('/cache/preload/single', async (req, res) => {
+  try {
+    const { z, x, y } = req.body;
+    
+    // Validate coordinates
+    if (typeof z !== 'number' || typeof x !== 'number' || typeof y !== 'number') {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing or invalid tile coordinates (z, x, y must be numbers)'
+      });
+    }
+    
+    if (z < 0 || z > 18) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid zoom level. Must be between 0-18'
+      });
+    }
+    
+    // Preload single tile directly
+    const result = await cacheManager.preloadTileDirectly(z, x, y);
+    
+    res.json({
+      success: result.success,
+      tile: { z, x, y },
+      source: result.source,
+      message: result.message || result.error,
+      method: 'direct-osm'
     });
     
   } catch (error) {
