@@ -23,12 +23,12 @@ class TileCacheManager {
     ];
     this.currentServerIndex = 0;
     
-    // West Java bounds
+    // Java island bounds (full coverage)
     this.westJavaBounds = {
-      minLon: 104.5,
-      minLat: -7.8,
-      maxLon: 108.8,
-      maxLat: -5.8
+      minLon: 105.0,
+      minLat: -8.8,
+      maxLon: 114.0,
+      maxLat: -5.9
     };
     
     this.initializeCacheDirectories();
@@ -215,9 +215,22 @@ class TileCacheManager {
   getTilesForBounds(bounds, zoom) {
     const tiles = [];
     
-    // Convert geo bounds to tile coordinates
-    const tileSize = 256;
-    const worldSize = tileSize * Math.pow(2, zoom);
+    // Normalize bounds properties (handle both minLon/minLng formats)
+    const normalizedBounds = {
+      minLon: bounds.minLon || bounds.minLng,
+      maxLon: bounds.maxLon || bounds.maxLng,
+      minLat: bounds.minLat,
+      maxLat: bounds.maxLat
+    };
+    
+    // Validate bounds
+    if (!normalizedBounds.minLon || !normalizedBounds.maxLon || 
+        !normalizedBounds.minLat || !normalizedBounds.maxLat) {
+      console.error('Invalid bounds:', bounds);
+      return tiles;
+    }
+    
+    console.log(`📏 Calculating tiles for zoom ${zoom}:`, normalizedBounds);
     
     function lonToTileX(lon, zoom) {
       return Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
@@ -227,10 +240,12 @@ class TileCacheManager {
       return Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
     }
     
-    const minX = lonToTileX(bounds.minLon, zoom);
-    const maxX = lonToTileX(bounds.maxLon, zoom);
-    const minY = latToTileY(bounds.maxLat, zoom);
-    const maxY = latToTileY(bounds.minLat, zoom);
+    const minX = lonToTileX(normalizedBounds.minLon, zoom);
+    const maxX = lonToTileX(normalizedBounds.maxLon, zoom);
+    const minY = latToTileY(normalizedBounds.maxLat, zoom);
+    const maxY = latToTileY(normalizedBounds.minLat, zoom);
+    
+    console.log(`📍 Tile coordinates - X: ${minX}-${maxX}, Y: ${minY}-${maxY}`);
     
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
@@ -238,6 +253,7 @@ class TileCacheManager {
       }
     }
     
+    console.log(`📦 Generated ${tiles.length} tiles for zoom ${zoom}`);
     return tiles;
   }
   
