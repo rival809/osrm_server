@@ -38,7 +38,7 @@ function Show-Menu {
     Write-Host "======================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "1. Cache Statistics" -ForegroundColor White
-    Write-Host "2. Preload Tiles (Default Zooms)" -ForegroundColor White
+    Write-Host "2. Java Island Preload (Multiple Options)" -ForegroundColor White
     Write-Host "3. Preload Tiles (Custom Zooms)" -ForegroundColor White
     Write-Host "4. Manual Update Tiles" -ForegroundColor White
     Write-Host "5. Clean All Cache" -ForegroundColor White
@@ -47,16 +47,64 @@ function Show-Menu {
     Write-Host ""
 }
 
-# Function to start tile preloading
-function Start-TilePreload {
-    param(
-        [int[]]$ZoomLevels = @(10, 11, 12, 13)
-    )
+# Function to start Java tile preloading with options
+function Start-JavaTilePreload {
+    Write-Host ""
+    Write-Host "🗺️ Java Island Tile Preload" -ForegroundColor Cyan
+    Write-Host "============================" -ForegroundColor Cyan
+    Write-Host "Predefined bounds for Java island:" -ForegroundColor White
+    Write-Host "• Area: Java Island (West to East)" -ForegroundColor Gray
+    Write-Host "• Bounds: 105.0°E to 114.0°E, 8.8°S to 5.9°S" -ForegroundColor Gray
+    Write-Host "• Coverage: ~180,000 km² (Java + Madura)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Zoom level options:" -ForegroundColor Yellow
+    Write-Host "1. Light (10-11) - ~2,500 tiles, ~95MB, ~5 min" -ForegroundColor White
+    Write-Host "2. Standard (10-12) - ~13,800 tiles, ~520MB, ~15 min" -ForegroundColor White
+    Write-Host "3. Detailed (10-13) - ~65,000 tiles, ~2.5GB, ~45 min" -ForegroundColor White
+    Write-Host "4. High Detail (10-14) - ~350K tiles, ~13GB, ~3 hours" -ForegroundColor White
+    Write-Host "5. Full Detail (10-15) - ~1.5M tiles, ~60GB, ~12 hours" -ForegroundColor White
+    Write-Host "6. Custom zoom range" -ForegroundColor White
+    Write-Host ""
+    
+    $option = Read-Host "Choose preload option (1-6)"
+    
+    switch ($option) {
+        "1" { 
+            $zoomLevels = @(10, 11)
+            Write-Host "Selected: Light preload (zoom 10-11)" -ForegroundColor Green
+        }
+        "2" { 
+            $zoomLevels = @(10, 11, 12)
+            Write-Host "Selected: Standard preload (zoom 10-12)" -ForegroundColor Green
+        }
+        "3" { 
+            $zoomLevels = @(10, 11, 12, 13)
+            Write-Host "Selected: Detailed preload (zoom 10-13)" -ForegroundColor Green
+        }
+        "4" { 
+            $zoomLevels = @(10, 11, 12, 13, 14)
+            Write-Host "Selected: High Detail preload (zoom 10-14)" -ForegroundColor Green
+        }
+        "5" { 
+            $zoomLevels = @(10, 11, 12, 13, 14, 15)
+            Write-Host "Selected: Full Detail preload (zoom 10-15)" -ForegroundColor Green
+        }
+        "6" {
+            $minZoom = Read-Host "Min Zoom Level (e.g., 10)"
+            $maxZoom = Read-Host "Max Zoom Level (e.g., 13)"
+            $zoomLevels = @($minZoom..$maxZoom)
+            Write-Host "Selected: Custom zoom $minZoom-$maxZoom" -ForegroundColor Green
+        }
+        default {
+            Write-Host "Invalid option. Using standard preload (10-12)." -ForegroundColor Yellow
+            $zoomLevels = @(10, 11, 12)
+        }
+    }
     
     Write-Host ""
-    Write-Host "Starting tile preload..." -ForegroundColor Cyan
-    Write-Host "Zoom levels: $($ZoomLevels -join ', ')" -ForegroundColor White
-    Write-Host "Area: Java, Indonesia" -ForegroundColor White
+    Write-Host "🚀 Starting Java tile preload..." -ForegroundColor Cyan
+    Write-Host "Zoom levels: $($zoomLevels -join ', ')" -ForegroundColor White
+    Write-Host "Area: Java Island, Indonesia" -ForegroundColor White
     Write-Host ""
     
     $body = @{
@@ -236,7 +284,7 @@ do {
         }
         "2" {
             if (Test-ServerRunning) {
-                Start-TilePreload -ZoomLevels @(10, 11, 12, 13)
+                Start-JavaTilePreload
             } else {
                 Write-Host "Server tidak berjalan. Jalankan server terlebih dahulu." -ForegroundColor Red
             }

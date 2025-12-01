@@ -31,20 +31,70 @@ get_cache_stats() {
     fi
 }
 
-# Function to preload tiles
-preload_tiles() {
+# Function to preload tiles for Java island
+preload_java_tiles() {
     echo ""
-    echo "📥 Preload Tiles Configuration"
-    echo "=============================="
-    echo "Enter coordinates for tile preloading:"
+    echo "🗺️  Java Island Tile Preload"
+    echo "============================"
+    echo "Predefefined bounds for Java island:"
+    echo "• Area: Java Island (West to East)"
+    echo "• Bounds: 105.0°E to 114.0°E, 8.8°S to 5.9°S"
+    echo "• Coverage: ~180,000 km² (Java + Madura)"
+    echo ""
+    echo "Zoom level options:"
+    echo "1. Light (10-11) - ~2,500 tiles, ~95MB, ~5 min"
+    echo "2. Standard (10-12) - ~13,800 tiles, ~520MB, ~15 min"  
+    echo "3. Detailed (10-13) - ~65,000 tiles, ~2.5GB, ~45 min"
+    echo "4. High Detail (10-14) - ~350K tiles, ~13GB, ~3 hours"
+    echo "5. Full Detail (10-15) - ~1.5M tiles, ~60GB, ~12 hours"
+    echo "6. Custom zoom range"
     echo ""
     
-    read -p "Min Latitude (e.g., -6.3): " minLat
-    read -p "Max Latitude (e.g., -6.1): " maxLat
-    read -p "Min Longitude (e.g., 106.7): " minLng
-    read -p "Max Longitude (e.g., 106.9): " maxLng
-    read -p "Min Zoom Level (e.g., 10): " minZoom
-    read -p "Max Zoom Level (e.g., 15): " maxZoom
+    read -p "Choose preload option (1-6): " option
+    
+    # Java island bounds
+    minLat=-8.8
+    maxLat=-5.9
+    minLng=105.0
+    maxLng=114.0
+    
+    case $option in
+        1)
+            minZoom=10
+            maxZoom=11
+            echo "Selected: Light preload (zoom 10-11)"
+            ;;
+        2)
+            minZoom=10
+            maxZoom=12
+            echo "Selected: Standard preload (zoom 10-12)"
+            ;;
+        3)
+            minZoom=10
+            maxZoom=13
+            echo "Selected: Detailed preload (zoom 10-13)"
+            ;;
+        4)
+            minZoom=10
+            maxZoom=14
+            echo "Selected: High Detail preload (zoom 10-14)"
+            ;;
+        5)
+            minZoom=10
+            maxZoom=15
+            echo "Selected: Full Detail preload (zoom 10-15)"
+            ;;
+        6)
+            read -p "Min Zoom Level (e.g., 10): " minZoom
+            read -p "Max Zoom Level (e.g., 13): " maxZoom
+            echo "Selected: Custom zoom $minZoom-$maxZoom"
+            ;;
+        *)
+            echo "Invalid option. Using standard preload (10-12)."
+            minZoom=10
+            maxZoom=12
+            ;;
+    esac
     
     echo ""
     echo "🚀 Starting tile preload..."
@@ -122,7 +172,7 @@ while true; do
     echo "📋 Main Menu"
     echo "============"
     echo "1. 📊 View cache statistics" 
-    echo "2. 📥 Preload tiles"
+    echo "2. 🗺️  Java Island Preload (Multiple Options)"
     echo "3. 🧹 Clean cache"
     echo "4. 🔄 Refresh view"
     echo "5. ❌ Exit"
@@ -139,7 +189,7 @@ while true; do
             echo ""
             ;;
         2)
-            preload_tiles
+            preload_java_tiles
             echo "Press any key to continue..."
             read -n 1 -s
             echo ""
