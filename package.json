@@ -7,8 +7,9 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "download-pbf": "node scripts/download-pbf.js",
-    "process-osrm": "node scripts/process-osrm.js",
-    "import-postgis": "node scripts/import-postgis.js"
+    "cache-manager": "powershell -ExecutionPolicy Bypass -File CACHE-MANAGER.ps1",
+    "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost:8080/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\"",
+    "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost:8080/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\""
   },
   "keywords": [
     "osrm",
@@ -20,15 +21,11 @@
   "license": "MIT",
   "dependencies": {
     "@mapbox/sphericalmercator": "^2.0.2",
-    "@resvg/resvg-js": "^2.6.2",
     "axios": "^1.6.2",
     "canvas": "^3.2.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "node-cache": "^5.1.2",
-    "pg": "^8.11.3",
-    "sharp": "^0.34.5",
-    "svg2png-wasm": "^1.4.1"
+    "node-cache": "^5.1.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

@@ -7,7 +7,7 @@ Write-Host ""
 # Test 1: Health Check
 Write-Host "1. Health Check" -ForegroundColor Yellow
 try {
-    $health = Invoke-RestMethod "http://localhost:8080/health"
+    $health = Invoke-RestMethod "http://localhost:3000/"
     Write-Host "   Status: $($health.status)" -ForegroundColor Green
     Write-Host "   Service: $($health.service)" -ForegroundColor Green
     Write-Host "   Region: $($health.region)" -ForegroundColor Green
@@ -22,7 +22,7 @@ Write-Host ""
 # Test 2: Routing
 Write-Host "2. Test Routing (Bandung area)" -ForegroundColor Yellow
 try {
-    $route = Invoke-RestMethod "http://localhost:8080/route?start=107.6191,-6.9175&end=107.6098,-6.9145"
+    $route = Invoke-RestMethod "http://localhost:3000/route?start=107.6191,-6.9175&end=107.6098,-6.9145"
     Write-Host "   Success: $($route.success)" -ForegroundColor Green
     Write-Host "   Region: $($route.region)" -ForegroundColor Green
     if ($route.data.routes) {
@@ -40,7 +40,7 @@ Write-Host ""
 # Test 3: Tiles
 Write-Host "3. Test Tile Request" -ForegroundColor Yellow
 try {
-    $tile = Invoke-WebRequest "http://localhost:8080/tiles/10/897/650.png" -UseBasicParsing
+    $tile = Invoke-WebRequest "http://localhost:3000/tiles/10/897/650.png" -UseBasicParsing
     Write-Host "   Status: $($tile.StatusCode)" -ForegroundColor Green
     Write-Host "   Content-Type: $($tile.Headers['Content-Type'])" -ForegroundColor Green
     Write-Host "   Cache: $($tile.Headers['X-Cache'])" -ForegroundColor Green
@@ -56,4 +56,4 @@ Write-Host "==================================" -ForegroundColor Cyan
 Write-Host "  All Tests Complete!" -ForegroundColor Green
 Write-Host "==================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Open in browser: http://localhost:8080" -ForegroundColor Cyan
+Write-Host "Open in browser: http://localhost:3000" -ForegroundColor Cyan

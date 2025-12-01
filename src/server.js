@@ -1,12 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const NodeCache = require('node-cache');
-const { Pool } = require('pg');
-const { Resvg } = require('@resvg/resvg-js');
 const { SphericalMercator } = require('@mapbox/sphericalmercator');
+const TileCacheManager = require('./tile-cache');
 
 // Initialize Express
 const app = express();
@@ -19,14 +15,6 @@ app.use(express.json());
 // Serve static files
 app.use(express.static('public'));
 
-// Cache untuk tiles (TTL 1 jam)
-const tileCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
-
-// PostgreSQL connection
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://osm:osmpassword@localhost:5432/osm'
-});
-
 // OSRM URL
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
 
@@ -35,27 +23,17 @@ const merc = new SphericalMercator({
   size: 256
 });
 
-/**
- * Helper: Convert SVG to PNG using resvg
- */
-async function svgToPng(svgString) {
-  try {
-    const resvg = new Resvg(svgString, {
-      background: '#f2efe9',
-      fitTo: {
-        mode: 'width',
-        value: 256,
-      },
-    });
-    
-    const pngData = resvg.render();
-    console.log('✅ SVG converted to PNG successfully');
-    return pngData.asPng();
-  } catch (error) {
-    console.error('❌ Error converting SVG to PNG:', error.message);
-    return Buffer.from(svgString, 'utf8'); // Fallback to SVG
-  }
-}
+// Initialize Tile Cache Manager
+const cacheManager = new TileCacheManager({
+  cacheDir: process.env.CACHE_DIR || './cache',
+  cacheTTL: parseInt(process.env.TILE_CACHE_TTL) || 86400000, // 24 hours
+  maxCacheSizeMB: parseInt(process.env.MAX_CACHE_SIZE_MB) || 1000, // 1GB
+  userAgent: 'OSRM-Tile-Service/1.0 (West Java Routing Service)'
+});
+
+// Configuration
+const CACHE_MODE = process.env.CACHE_MODE || 'smart'; // 'smart', 'preload', 'proxy'
+const PRELOAD_ENABLED = process.env.PRELOAD_ENABLED === 'true';
 
 // Batas wilayah Jawa Barat (approximate)
 const WEST_JAVA_BOUNDS = {
@@ -65,20 +43,169 @@ const WEST_JAVA_BOUNDS = {
   maxLat: -5.8
 };
 
-// Tile rendering mode
-const TILE_MODE = process.env.TILE_MODE || 'render'; // 'proxy' or 'render'
-
 /**
  * Health check endpoint
  */
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'OSRM Tile Service',
-    region: 'West Java (Jawa Barat)',
-    tileMode: TILE_MODE,
-    timestamp: new Date().toISOString()
-  });
+app.get('/health', async (req, res) => {
+  try {
+    const cacheStats = await cacheManager.getCacheStatistics();
+    
+    res.json({
+      status: 'ok',
+      service: 'OSRM Tile Service',
+      region: 'West Java (Jawa Barat)',
+      cacheMode: CACHE_MODE,
+      preloadEnabled: PRELOAD_ENABLED,
+      cache: {
+        totalTiles: cacheStats.totalTiles,
+        totalSizeMB: cacheStats.totalSizeMB,
+        zoomLevels: Object.keys(cacheStats.zoomLevels).length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.json({
+      status: 'ok', // Still return OK for basic health
+      service: 'OSRM Tile Service',
+      region: 'West Java (Jawa Barat)',
+      cacheMode: CACHE_MODE,
+      cacheError: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Cache statistics endpoint
+ */
+app.get('/cache/stats', async (req, res) => {
+  try {
+    const stats = await cacheManager.getCacheStatistics();
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Preload tiles endpoint
+ * POST /cache/preload
+ */
+app.post('/cache/preload', async (req, res) => {
+  try {
+    const { zoomLevels = [10, 11, 12, 13], bounds = null } = req.body;
+    
+    // Validate zoom levels
+    const validZooms = zoomLevels.filter(z => z >= 0 && z <= 18);
+    if (validZooms.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid zoom levels. Must be between 0-18'
+      });
+    }
+    
+    // Start preload process (don't wait for completion)
+    const preloadPromise = cacheManager.preloadTiles(validZooms, bounds || WEST_JAVA_BOUNDS);
+    
+    // Return immediately with process info
+    res.json({
+      success: true,
+      message: 'Tile preload started',
+      zoomLevels: validZooms,
+      bounds: bounds || WEST_JAVA_BOUNDS,
+      estimatedTiles: validZooms.reduce((total, zoom) => {
+        const tiles = cacheManager.getTilesForBounds(bounds || WEST_JAVA_BOUNDS, zoom);
+        return total + tiles.length;
+      }, 0)
+    });
+    
+    // Log results when complete
+    preloadPromise.then(results => {
+      console.log('✅ Preload completed:', results);
+    }).catch(error => {
+      console.error('❌ Preload failed:', error);
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Manual cache management endpoint
+ * POST /cache/clean
+ */
+app.post('/cache/clean', async (req, res) => {
+  try {
+    const { type = 'all' } = req.body;
+    
+    const result = await cacheManager.cleanCache(type);
+    
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * Manual tile update endpoint - force refresh from OSM
+ * POST /cache/update
+ */
+app.post('/cache/update', async (req, res) => {
+  try {
+    const { bounds, minZoom = 10, maxZoom = 15 } = req.body;
+    
+    if (!bounds) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bounds parameter required',
+        example: {
+          bounds: { minLat: -6.3, maxLat: -6.1, minLng: 106.7, maxLng: 106.9 },
+          minZoom: 10,
+          maxZoom: 15
+        }
+      });
+    }
+    
+    console.log(`🔄 Manual tile update requested for bounds:`, bounds);
+    
+    // Run update asynchronously
+    cacheManager.updateTiles(bounds, minZoom, maxZoom)
+      .then(result => {
+        console.log(`✅ Manual tile update completed: ${result.updated}/${result.total} tiles`);
+      })
+      .catch(error => {
+        console.error('❌ Manual tile update failed:', error.message);
+      });
+    
+    res.json({
+      success: true,
+      message: 'Manual tile update started',
+      bounds: bounds,
+      zoomRange: `${minZoom}-${maxZoom}`,
+      note: 'Update is running in background. Check logs for progress.'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
 
 /**
@@ -87,10 +214,10 @@ app.get('/health', (req, res) => {
  */
 app.get('/route', async (req, res) => {
   try {
-    const { start, end, alternatives, steps, geometries } = req.query;
-    
+    const { start, end, alternatives = 'false', steps = 'true', geometries = 'geojson' } = req.query;
+
     if (!start || !end) {
-      return res.status(400).json({
+      return res.status(400).json({ 
         error: 'Parameter start dan end diperlukan',
         example: '/route?start=107.6191,-6.9175&end=107.6098,-6.9145'
       });
@@ -136,7 +263,7 @@ app.get('/route', async (req, res) => {
 });
 
 /**
- * Tile endpoint - serve tiles (proxy atau render)
+ * Tile endpoint - serve cached tiles or download from OSM
  * GET /tiles/:z/:x/:y.png
  */
 app.get('/tiles/:z/:x/:y.png', async (req, res) => {
@@ -151,24 +278,8 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
       return res.status(400).json({ error: 'Zoom level harus antara 0-18' });
     }
 
-    // Cache key
-    const cacheKey = `tile_${z}_${x}_${y}`;
-    
-    // Cek cache
-    const cachedTile = tileCache.get(cacheKey);
-    if (cachedTile) {
-      res.set('Content-Type', 'image/png');
-      res.set('X-Cache', 'HIT');
-      return res.send(cachedTile);
-    }
-
     // Calculate tile bounds
     const bounds = tileToBounds(tileX, tileY, zoom);
-    
-    // Debug logging
-    console.log(`Tile ${zoom}/${tileX}/${tileY} bounds:`, bounds);
-    console.log('West Java bounds:', WEST_JAVA_BOUNDS);
-    console.log('Is in West Java:', isTileInWestJava(bounds));
 
     // Cek apakah tile dalam batas Jawa Barat
     if (!isTileInWestJava(bounds)) {
@@ -180,35 +291,41 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     }
 
     let tile;
+    let cacheStatus = 'MISS';
     
-    if (TILE_MODE === 'render') {
-      // Render dari database
-      tile = await renderTileFromDB(bounds, zoom);
-    } else {
-      // Proxy dari OSM tile server
-      tile = await proxyTileFromOSM(zoom, tileX, tileY);
+    try {
+      // Try to get from cache or download
+      const result = await cacheManager.getTile(zoom, tileX, tileY);
+      tile = result.tile;
+      cacheStatus = result.source === 'cache' ? 'HIT' : 'MISS';
+    } catch (error) {
+      console.error(`Error getting tile ${zoom}/${tileX}/${tileY}:`, error.message);
+      
+      // Fallback to empty tile
+      const emptyTile = await createEmptyTile();
+      res.set('Content-Type', 'image/png');
+      res.set('X-Cache', 'ERROR');
+      res.set('X-Error', error.message);
+      return res.send(emptyTile);
     }
 
-    // Simpan ke cache
-    tileCache.set(cacheKey, tile);
-
-    // Always serve PNG tiles
+    // Serve tile
     res.set('Content-Type', 'image/png');
-    res.set('X-Cache', 'MISS');
+    res.set('X-Cache', cacheStatus);
     res.set('X-Region', 'west-java');
     res.send(tile);
 
   } catch (error) {
-    console.error('Tile rendering error:', error.message);
+    console.error('Tile serving error:', error.message);
     
-    // Return empty tile on error
     try {
       const emptyTile = await createEmptyTile();
       res.set('Content-Type', 'image/png');
+      res.set('X-Error', 'SERVE_ERROR');
       res.send(emptyTile);
     } catch (e) {
       res.status(500).json({
-        error: 'Gagal merender tile',
+        error: 'Gagal melayani tile',
         message: error.message
       });
     }
@@ -216,8 +333,69 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
 });
 
 /**
- * Helper: Check if coordinates are in West Java bounds
+ * Geocoding endpoint - search via Nominatim
+ * GET /geocode?q=query
  */
+app.get('/geocode', async (req, res) => {
+  try {
+    const { q: query, limit = 5 } = req.query;
+    
+    if (!query) {
+      return res.status(400).json({ 
+        error: 'Parameter q (query) diperlukan',
+        example: '/geocode?q=Bandung'
+      });
+    }
+
+    // Search via Nominatim with West Java bounds
+    const nominatimUrl = 'https://nominatim.openstreetmap.org/search';
+    const params = {
+      q: query,
+      format: 'json',
+      limit: limit,
+      bounded: 1,
+      viewbox: `${WEST_JAVA_BOUNDS.minLon},${WEST_JAVA_BOUNDS.maxLat},${WEST_JAVA_BOUNDS.maxLon},${WEST_JAVA_BOUNDS.minLat}`,
+      addressdetails: 1,
+      extratags: 1,
+      namedetails: 1
+    };
+
+    const response = await axios.get(nominatimUrl, { 
+      params,
+      headers: {
+        'User-Agent': 'OSRM-Tile-Service/1.0'
+      }
+    });
+
+    // Filter results to West Java only
+    const filteredResults = response.data.filter(place => {
+      const lon = parseFloat(place.lon);
+      const lat = parseFloat(place.lat);
+      return isInWestJava(lon, lat);
+    });
+
+    res.json({
+      success: true,
+      query: query,
+      region: 'West Java',
+      count: filteredResults.length,
+      results: filteredResults
+    });
+
+  } catch (error) {
+    console.error('Geocoding error:', error.message);
+    res.status(500).json({
+      error: 'Gagal melakukan geocoding',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * Helper functions
+ */
+
+// Check if coordinates are in West Java bounds
 function isInWestJava(lon, lat) {
   return lon >= WEST_JAVA_BOUNDS.minLon && 
          lon <= WEST_JAVA_BOUNDS.maxLon &&
@@ -225,9 +403,7 @@ function isInWestJava(lon, lat) {
          lat <= WEST_JAVA_BOUNDS.maxLat;
 }
 
-/**
- * Helper: Check if tile intersects West Java
- */
+// Check if tile intersects West Java
 function isTileInWestJava(bounds) {
   return !(bounds.maxLon < WEST_JAVA_BOUNDS.minLon ||
            bounds.minLon > WEST_JAVA_BOUNDS.maxLon ||
@@ -235,11 +411,8 @@ function isTileInWestJava(bounds) {
            bounds.minLat > WEST_JAVA_BOUNDS.maxLat);
 }
 
-/**
- * Helper: Convert tile coordinates to lat/lon bounds using SphericalMercator
- */
+// Convert tile coordinates to lat/lon bounds
 function tileToBounds(x, y, z) {
-  // Use proper mercator projection with lat/lon output
   const bbox = merc.bbox(x, y, z, false, 'WGS84');
   
   return {
@@ -250,1474 +423,100 @@ function tileToBounds(x, y, z) {
   };
 }
 
-/**
- * Helper: Proxy tile from OpenStreetMap
- */
-async function proxyTileFromOSM(z, x, y) {
-  const tileUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
-  
-  const response = await axios.get(tileUrl, {
-    responseType: 'arraybuffer',
-    headers: {
-      'User-Agent': 'OSRM-Tile-Service/1.0'
-    },
-    timeout: 5000
-  });
-
-  return Buffer.from(response.data);
-}
-
-/**
- * Helper: Render tile from database using PostGIS
- */
-async function renderTileFromDB(bounds, zoom) {
-  try {
-    // COMPREHENSIVE OSM query - ALL FEATURES like real OpenStreetMap
-    const query = `
-      -- Water bodies and waterways
-      SELECT 
-        name,
-        'water' as feature_type,
-        COALESCE(natural, waterway) as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND (natural IN ('water') OR waterway IS NOT NULL)
-      
-      UNION ALL
-      
-      -- Green areas (parks, forests, grass)
-      SELECT 
-        name,
-        'green' as feature_type,
-        COALESCE(landuse, natural, leisure) as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND (landuse IN ('forest', 'grass', 'meadow', 'park', 'recreation_ground') 
-           OR natural IN ('wood', 'scrub', 'heath', 'grassland')
-           OR leisure IN ('park', 'garden', 'playground'))
-      
-      UNION ALL
-      
-      -- Built areas (residential, commercial, industrial)  
-      SELECT 
-        name,
-        'built' as feature_type,
-        landuse as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND landuse IN ('residential', 'commercial', 'industrial', 'retail', 'construction')
-      
-      UNION ALL
-      
-      -- Buildings 
-      SELECT 
-        name,
-        'building' as feature_type,
-        building as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_polygon 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND building IS NOT NULL
-      
-      UNION ALL
-      
-      -- Railway lines
-      SELECT 
-        name,
-        'railway' as feature_type,
-        railway as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_line 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND railway IS NOT NULL
-      
-      UNION ALL
-      
-      -- Roads with proper hierarchy
-      SELECT 
-        name,
-        'road' as feature_type,
-        highway as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_line 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND highway IN ('motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 
-                      'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 
-                      'residential', 'unclassified', 'service', 'living_street', 'pedestrian', 'footway', 'cycleway', 'path')
-      
-      UNION ALL
-      
-      -- Points of Interest with full categories
-      SELECT 
-        name,
-        'poi' as feature_type,
-        COALESCE(amenity, shop, tourism) as category,
-        ST_AsText(ST_Transform(way, 4326)) as geom_text,
-        ST_GeometryType(way) as geom_type
-      FROM planet_osm_point 
-      WHERE way && ST_Transform(ST_MakeEnvelope($1, $2, $3, $4, 4326), 3857)
-      AND (amenity IS NOT NULL OR shop IS NOT NULL OR tourism IS NOT NULL)
-      
-      ORDER BY 
-        CASE feature_type
-          WHEN 'water' THEN 1
-          WHEN 'green' THEN 2  
-          WHEN 'built' THEN 3
-          WHEN 'building' THEN 4
-          WHEN 'railway' THEN 5
-          WHEN 'road' THEN 6
-          WHEN 'poi' THEN 7
-        END,
-        ST_Area(way) DESC
-      LIMIT 500
-    `;
-
-    const result = await pool.query(query, [
-      bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat
-    ]);
-
-    console.log(`GEOMETRY FOUND! Query returned ${result.rows.length} roads with coordinates`);
-    
-    if (result.rows.length > 0) {
-      const featureTypes = {};
-      result.rows.forEach(f => featureTypes[f.feature_type] = (featureTypes[f.feature_type] || 0) + 1);
-      console.log(`Complete OSM data:`, featureTypes);
-      
-      // Generate COMPLETE OSM tile with all elements!
-      return await generateCompleteOSMTile(result.rows, bounds);
-    } else {
-      console.log(`No roads found for bounds: ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} to ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}`);
-      return await createEmptyTile();
-    }
-
-  } catch (error) {
-    console.error('Database rendering error:', error.message);
-    
-    // Try simple table check first
-    try {
-      // First, just see what tables exist
-      const tablesQuery = `
-        SELECT table_name FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name LIKE 'planet_osm%'
-        LIMIT 10
-      `;
-      
-      const tablesResult = await pool.query(tablesQuery);
-      console.log('Available tables:', tablesResult.rows.map(r => r.table_name).join(', '));
-      
-      // Try the most basic query possible
-      const altQuery = `
-        SELECT name, highway
-        FROM planet_osm_line 
-        WHERE highway IS NOT NULL
-        LIMIT 5
-      `;
-      
-      console.log('Trying basic query without geometry...');
-      
-      const altResult = await pool.query(altQuery);
-      
-      if (altResult.rows.length > 0) {
-        console.log(`Basic query found ${altResult.rows.length} roads:`, altResult.rows.map(r => r.name || r.highway).join(', '));
-        
-        // Get column info for all OSM tables
-        const tablesInfo = ['planet_osm_line', 'planet_osm_polygon', 'planet_osm_point'];
-        
-        for (let table of tablesInfo) {
-          try {
-            const columnsQuery = `
-              SELECT column_name, data_type FROM information_schema.columns 
-              WHERE table_name = '${table}'
-              AND table_schema = 'public'
-              ORDER BY ordinal_position
-            `;
-            
-            const columnsResult = await pool.query(columnsQuery);
-            console.log(`\n=== ${table.toUpperCase()} COLUMNS ===`);
-            console.log(columnsResult.rows.map(r => `${r.column_name}(${r.data_type})`).join(', '));
-            
-            // Check if this table has geometry column
-            const geomColumns = columnsResult.rows.filter(r => 
-              r.column_name.includes('geom') || 
-              r.column_name.includes('way') || 
-              r.data_type.includes('geometry')
-            );
-            
-            if (geomColumns.length > 0) {
-              console.log(`Geometry columns in ${table}:`, geomColumns.map(c => c.column_name).join(', '));
-              console.log('✅ PostGIS geometry found - generating real OSM tile');
-              
-              // Generate tile with real data
-              return await generateCompleteOSMTile(bounds);
-            }
-          } catch (e) {
-            console.log(`Error checking ${table}:`, e.message);
-          }
-        }
-        
-        // If no geometry found, show the mock
-        return await generateMockTileFromData(altResult.rows, bounds);
-      }
-    } catch (altError) {
-      console.error('Alternative query also failed:', altError.message);
-    }
-    
-    console.log('All database queries failed, falling back to proxy mode');
-    const tileCoords = boundsToTile(bounds, zoom);
-    return proxyTileFromOSM(zoom, tileCoords.x, tileCoords.y);
-  }
-}
-
-/**
- * Helper: Convert bounds to tile coordinates (approximate)
- */
-function boundsToTile(bounds, zoom) {
-  const n = Math.pow(2, zoom);
-  const x = Math.floor((bounds.minLon + 180) / 360 * n);
-  const y = Math.floor((1 - Math.log(Math.tan(bounds.maxLat * Math.PI / 180) + 1 / Math.cos(bounds.maxLat * Math.PI / 180)) / Math.PI) / 2 * n);
-  return { x, y };
-}
-
-/**
- * Helper: Generate comprehensive map tile from database features
- */
-async function generateSimpleTile(features, bounds) {
-  // Categorize features
-  let buildings = [];
-  let landuse = [];
-  let roads = [];
-  let points = [];
-  
-  // Process all features from database
-  features.forEach(feature => {
-    if (feature.feature_type === 'building' && feature.geom_type === 'ST_Polygon') {
-      buildings.push({
-        name: feature.name || '',
-        building: feature.building,
-        geom_text: feature.geom_text
-      });
-    } else if (feature.feature_type === 'landuse' && feature.geom_type === 'ST_Polygon') {
-      landuse.push({
-        name: feature.name || '',
-        landuse: feature.landuse,
-        geom_text: feature.geom_text
-      });
-    } else if (feature.feature_type === 'highway' && feature.geom_type === 'ST_LineString') {
-      roads.push({
-        name: feature.name || '',
-        highway: feature.highway,
-        geom_text: feature.geom_text
-      });
-    } else if (feature.feature_type === 'poi' && feature.geom_type === 'ST_Point') {
-      points.push({
-        name: feature.name || '',
-        amenity: feature.amenity,
-        geom_text: feature.geom_text
-      });
-    }
-  });
-
-  // Helper: Convert lat/lon to tile pixel coordinates (Web Mercator projection)
-  function latLonToPixel(lat, lon) {
-    // Ensure we have valid bounds
-    const lonRange = bounds.maxLon - bounds.minLon;
-    const latRange = bounds.maxLat - bounds.minLat;
-    
-    if (lonRange <= 0 || latRange <= 0) {
-      return { x: 128, y: 128 }; // Center fallback
-    }
-    
-    // Clamp coordinates to tile bounds
-    const clampedLon = Math.max(bounds.minLon, Math.min(bounds.maxLon, lon));
-    const clampedLat = Math.max(bounds.minLat, Math.min(bounds.maxLat, lat));
-    
-    // Linear mapping to 256x256 pixel space
-    const x = ((clampedLon - bounds.minLon) / lonRange) * 256;
-    const y = ((bounds.maxLat - clampedLat) / latRange) * 256; // Flip Y axis for SVG
-    
-    return { 
-      x: Math.max(0, Math.min(256, x)), 
-      y: Math.max(0, Math.min(256, y)) 
-    };
-  }
-
-  // Parse WKT geometry and convert to SVG elements
-  let landusePolygons = [];
-  let buildingPolygons = [];
-  let roadPaths = [];
-  let roadLabels = [];
-  let poiCircles = [];
-
-  // Process landuse areas (background)
-  landuse.slice(0, 20).forEach((area, idx) => {
-    if (area.geom_text && area.geom_text.startsWith('POLYGON')) {
-      try {
-        const polygon = parsePolygonWKT(area.geom_text);
-        if (polygon.length >= 3) {
-          const color = area.landuse === 'forest' ? '#90ee90' :
-                       area.landuse === 'park' ? '#c8facc' :
-                       area.landuse === 'residential' ? '#f0f0f0' :
-                       area.landuse === 'commercial' ? '#fdf4e3' :
-                       area.landuse === 'industrial' ? '#e6e6e6' : '#f5f5f5';
-          
-          const pathData = `M ${polygon[0].x} ${polygon[0].y} ` +
-            polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          landusePolygons.push(`<path d="${pathData}" fill="${color}" stroke="#ddd" stroke-width="0.5" opacity="0.7"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing landuse: ${e.message}`);
-      }
-    }
-  });
-
-  // Process buildings
-  buildings.slice(0, 100).forEach((building, idx) => {
-    if (building.geom_text && building.geom_text.startsWith('POLYGON')) {
-      try {
-        const polygon = parsePolygonWKT(building.geom_text);
-        if (polygon.length >= 3) {
-          const pathData = `M ${polygon[0].x} ${polygon[0].y} ` +
-            polygon.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          buildingPolygons.push(`<path d="${pathData}" fill="#d9d0c7" stroke="#bbb" stroke-width="0.8" opacity="0.9"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing building: ${e.message}`);
-      }
-    }
-  });
-
-  // Helper function to parse POLYGON WKT
-  function parsePolygonWKT(wkt) {
-    const coordsText = wkt.replace('POLYGON((', '').replace('))', '');
-    const coordPairs = coordsText.split(',');
-    const coords = [];
-    
-    for (let i = 0; i < Math.min(coordPairs.length, 20); i++) {
-      const pair = coordPairs[i].trim().split(' ');
-      if (pair.length >= 2) {
-        const lon = parseFloat(pair[0]);
-        const lat = parseFloat(pair[1]);
-        if (!isNaN(lon) && !isNaN(lat)) {
-          coords.push(latLonToPixel(lat, lon));
-        }
-      }
-    }
-    return coords;
-  }
-
-  roads.slice(0, 30).forEach((road, idx) => {
-    if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
-      try {
-        // Parse LINESTRING(lon lat, lon lat, ...)
-        const coordsText = road.geom_text.replace('LINESTRING(', '').replace(')', '');
-        const coordPairs = coordsText.split(',');
-        
-        const coords = [];
-        for (let i = 0; i < Math.min(coordPairs.length, 10); i++) {
-          const pair = coordPairs[i].trim().split(' ');
-          if (pair.length >= 2) {
-            const lon = parseFloat(pair[0]);
-            const lat = parseFloat(pair[1]);
-            
-            if (!isNaN(lon) && !isNaN(lat)) {
-              const pixel = latLonToPixel(lat, lon);
-              // Only add if coordinates are within tile bounds
-              if (pixel.x >= -50 && pixel.x <= 306 && pixel.y >= -50 && pixel.y <= 306) {
-                coords.push(pixel);
-              }
-            }
-          }
-        }
-
-        if (coords.length >= 2) {
-          const color = road.highway === 'motorway' ? '#1565C0' : 
-                       road.highway === 'trunk' ? '#D32F2F' : 
-                       road.highway === 'primary' ? '#F57C00' : 
-                       road.highway === 'secondary' ? '#FBC02D' : 
-                       road.highway === 'tertiary' ? '#689F38' : 
-                       road.highway === 'residential' ? '#9E9E9E' : 
-                       road.highway === 'unclassified' ? '#757575' : '#BDBDBD';
-          const width = road.highway === 'motorway' ? 5 :
-                       road.highway === 'trunk' ? 4 : 
-                       road.highway === 'primary' ? 3 : 
-                       road.highway === 'secondary' ? 2.5 : 
-                       road.highway === 'tertiary' ? 2 : 1.2;
-
-          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
-            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-
-          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.9" stroke-linecap="round"/>`);
-          
-          // Add road name label if exists
-          if (road.name && coords.length >= 2) {
-            const midPoint = coords[Math.floor(coords.length / 2)];
-            const angle = Math.atan2(coords[coords.length - 1].y - coords[0].y, coords[coords.length - 1].x - coords[0].x) * 180 / Math.PI;
-            
-            roadLabels.push(`
-              <text x="${midPoint.x}" y="${midPoint.y}" 
-                    font-family="Arial" font-size="8" fill="#333" 
-                    text-anchor="middle" transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
-                    style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
-                ${road.name}
-              </text>
-            `);
-          }
-        }
-      } catch (e) {
-        console.error(`Error parsing road geometry: ${e.message}`);
-      }
-    }
-  });
-
-  points.slice(0, 20).forEach((poi, idx) => {
-    if (poi.geom_text && poi.geom_text.startsWith('POINT')) {
-      try {
-        // Parse POINT(lon lat)
-        const match = poi.geom_text.match(/POINT\(([0-9.-]+)\s+([0-9.-]+)\)/);
-        if (match) {
-          const lon = parseFloat(match[1]);
-          const lat = parseFloat(match[2]);
-          
-          if (!isNaN(lon) && !isNaN(lat)) {
-            const pixel = latLonToPixel(lat, lon);
-            
-            // Only add if coordinates are within reasonable tile bounds
-            if (pixel.x >= 0 && pixel.x <= 256 && pixel.y >= 0 && pixel.y <= 256) {
-              const color = poi.amenity === 'restaurant' ? '#e67e22' :
-                           poi.amenity === 'hospital' ? '#27ae60' :
-                           poi.amenity === 'school' ? '#2980b9' :
-                           poi.amenity === 'fuel' ? '#f1c40f' : '#9b59b6';
-              
-              poiCircles.push(`<circle cx="${pixel.x.toFixed(1)}" cy="${pixel.y.toFixed(1)}" r="4" fill="${color}" opacity="0.8" stroke="white" stroke-width="1"/>`);
-            }
-          }
-        }
-      } catch (e) {
-        console.error(`Error parsing POI geometry: ${e.message}`);
-      }
-    }
-  });
-
-  // Create comprehensive map SVG
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <!-- Background -->
-      <rect width="256" height="256" fill="#f9f9f9"/>
-      
-      <!-- Landuse areas (drawn first, as background) -->
-      ${landusePolygons.join('\n      ')}
-      
-      <!-- Buildings (drawn second) -->
-      ${buildingPolygons.join('\n      ')}
-      
-      <!-- Roads (drawn third) -->
-      ${roadPaths.join('\n      ')}
-      
-      <!-- Road labels (drawn fourth) -->
-      ${roadLabels.join('\n      ')}
-      
-      <!-- Points of Interest (drawn on top) -->
-      ${poiCircles.join('\n      ')}
-      
-      <!-- Map info -->
-      <rect x="3" y="220" width="180" height="32" fill="rgba(255,255,255,0.95)" stroke="#bbb" stroke-width="1" rx="2"/>
-      <text x="8" y="235" font-family="Arial" font-size="8" fill="#333">
-        🏢${buildingPolygons.length} 🛣️${roadPaths.length} 📍${poiCircles.length} 🌿${landusePolygons.length}
-      </text>
-      <text x="8" y="245" font-size="7" fill="#666" font-family="monospace">
-        ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} → ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}
-      </text>
-    </svg>
-  `;
-
-  console.log(`Generated comprehensive tile: ${buildingPolygons.length} buildings, ${roadPaths.length} roads, ${poiCircles.length} POIs, ${landusePolygons.length} landuse`);
-  
-  return await svgToPng(svg);
-}
-
-/**
- * Helper: Generate simple road-only tile (fallback)
- */
-async function generateSimpleRoadTile(features, bounds) {
-  let roadPaths = [];
-  
-  features.forEach((feature, idx) => {
-    if (feature.highway && feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
-      try {
-        const coordsText = feature.geom_text.replace('LINESTRING(', '').replace(')', '');
-        const coordPairs = coordsText.split(',');
-        
-        const coords = [];
-        for (let i = 0; i < Math.min(coordPairs.length, 10); i++) {
-          const pair = coordPairs[i].trim().split(' ');
-          if (pair.length >= 2) {
-            const lon = parseFloat(pair[0]);
-            const lat = parseFloat(pair[1]);
-            if (!isNaN(lon) && !isNaN(lat)) {
-              const pixel = latLonToPixel(lat, lon, bounds);
-              coords.push(pixel);
-            }
-          }
-        }
-
-        if (coords.length >= 2) {
-          const color = feature.highway === 'primary' ? '#e74c3c' : 
-                       feature.highway === 'secondary' ? '#f39c12' : 
-                       feature.highway === 'trunk' ? '#8e44ad' : '#666';
-          const width = feature.highway === 'trunk' ? 3 : 
-                       feature.highway === 'primary' ? 2.5 : 2;
-
-          const pathData = `M ${coords[0].x} ${coords[0].y} ` + 
-            coords.slice(1).map(c => `L ${c.x} ${c.y}`).join(' ');
-
-          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" opacity="0.8"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing simple road: ${e.message}`);
-      }
-    }
-  });
-
-  function latLonToPixel(lat, lon, bounds) {
-    const lonRange = bounds.maxLon - bounds.minLon;
-    const latRange = bounds.maxLat - bounds.minLat;
-    
-    if (lonRange <= 0 || latRange <= 0) {
-      return { x: 128, y: 128 };
-    }
-    
-    const x = ((lon - bounds.minLon) / lonRange) * 256;
-    const y = ((bounds.maxLat - lat) / latRange) * 256;
-    
-    return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
-  }
-
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <rect width="256" height="256" fill="#f8f8f8"/>
-      ${roadPaths.join('\n      ')}
-      <rect x="5" y="5" width="100" height="25" fill="rgba(255,255,255,0.9)" stroke="#ccc" rx="2"/>
-      <text x="10" y="20" font-family="Arial" font-size="9" fill="#333">
-        Simple: ${roadPaths.length} roads
-      </text>
-    </svg>
-  `;
-
-  console.log(`Generated simple road tile: ${roadPaths.length} roads`);
-  return await svgToPng(svg);
-}
-
-/**
- * Helper: Generate mock tile from database data (no geometry)
- */
-async function generateMockTileFromData(features, bounds) {
-  // Create a tile showing that we have data but geometry is missing
-  const roadTypes = {};
-  features.forEach(f => {
-    if (f.highway) {
-      roadTypes[f.highway] = (roadTypes[f.highway] || 0) + 1;
-    }
-  });
-
-  const roadList = Object.entries(roadTypes)
-    .map(([type, count]) => `${type}(${count})`)
-    .join(', ');
-
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <rect width="256" height="256" fill="#f0f0f0"/>
-      
-      <!-- Mock road pattern -->
-      <line x1="50" y1="128" x2="206" y2="128" stroke="#e74c3c" stroke-width="3"/>
-      <line x1="128" y1="50" x2="128" y2="206" stroke="#3498db" stroke-width="2"/>
-      <line x1="50" y1="80" x2="206" y2="176" stroke="#f39c12" stroke-width="2"/>
-      
-      <!-- Data info -->
-      <rect x="10" y="10" width="236" height="60" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
-      <text x="20" y="30" font-family="Arial" font-size="12" fill="#333" font-weight="bold">
-        DATABASE CONNECTED! 🎉
-      </text>
-      <text x="20" y="45" font-family="Arial" font-size="10" fill="#666">
-        Found ${features.length} features in DB
-      </text>
-      <text x="20" y="58" font-family="Arial" font-size="8" fill="#888">
-        ${roadList}
-      </text>
-      
-      <!-- Status -->
-      <rect x="10" y="180" width="236" height="30" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
-      <text x="20" y="198" font-family="Arial" font-size="10" fill="#e74c3c">
-        Geometry column issue - need to fix schema
-      </text>
-    </svg>
-  `;
-
-  console.log(`Generated mock tile showing ${features.length} database features`);
-  return await svgToPng(svg);
-}
-
-/**
- * Helper: Generate full OSM-style tile with correct column names
- */
-async function generateFullOSMTile(bounds, geomColumn, mainTable) {
-  console.log(`Generating full OSM tile using ${mainTable}.${geomColumn}`);
-  
-  try {
-    // Query all features with the correct geometry column
-    const fullQuery = `
-      -- Roads
-      SELECT 
-        name,
-        highway,
-        'road' as feature_type,
-        ST_AsText(${geomColumn}) as geom_text,
-        ST_GeometryType(${geomColumn}) as geom_type
-      FROM ${mainTable}
-      WHERE ${geomColumn} && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-      AND highway IS NOT NULL
-      AND highway IN ('motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'unclassified')
-      LIMIT 100
-    `;
-    
-    const result = await pool.query(fullQuery, [bounds.minLon, bounds.minLat, bounds.maxLon, bounds.maxLat]);
-    console.log(`Full query returned ${result.rows.length} features`);
-    
-    let roadPaths = [];
-    let roadLabels = [];
-    
-    result.rows.forEach((feature, idx) => {
-      if (feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
-        try {
-          const coords = parseLineString(feature.geom_text, bounds);
-          
-          if (coords.length >= 2) {
-            // OSM-style colors
-            const color = getOSMRoadColor(feature.highway);
-            const width = getOSMRoadWidth(feature.highway);
-            
-            const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
-              coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-
-            roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" opacity="0.9"/>`);
-            
-            // Add road labels
-            if (feature.name && coords.length >= 2) {
-              const midIdx = Math.floor(coords.length / 2);
-              const midPoint = coords[midIdx];
-              
-              roadLabels.push(`
-                <text x="${midPoint.x}" y="${midPoint.y}" 
-                      font-family="Arial" font-size="8" fill="#333" 
-                      text-anchor="middle" 
-                      style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
-                  ${feature.name}
-                </text>
-              `);
-            }
-          }
-        } catch (e) {
-          console.error(`Error processing road ${idx}:`, e.message);
-        }
-      }
-    });
-
-    // Generate OSM-style SVG
-    let svg = `
-      <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-        <!-- OSM-style background -->
-        <rect width="256" height="256" fill="#f2efe9"/>
-        
-        <!-- Roads with proper styling -->
-        ${roadPaths.join('\n        ')}
-        
-        <!-- Road labels -->
-        ${roadLabels.join('\n        ')}
-        
-        <!-- OSM-style info -->
-        <rect x="3" y="3" width="150" height="30" fill="rgba(255,255,255,0.95)" stroke="#ccc" rx="2"/>
-        <text x="8" y="16" font-family="Arial" font-size="9" fill="#333" font-weight="bold">
-          OSM Local: ${roadPaths.length} roads
-        </text>
-        <text x="8" y="26" font-size="7" fill="#666" font-family="monospace">
-          ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)}
-        </text>
-      </svg>
-    `;
-
-    console.log(`Generated full OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
-    return await svgToPng(svg);
-
-  } catch (error) {
-    console.error('Error in generateFullOSMTile:', error.message);
-    throw error;
-  }
-}
-
-// 100% AUTHENTIC OpenStreetMap road styling (exact colors and widths)
-function getAuthenticOSMRoadStyle(highwayType, zoom = 14) {
-  const styles = {
-    // Major roads - exact OSM colors
-    motorway: { 
-      width: 8, casingWidth: 10, 
-      color: '#e892a2', casingColor: '#dc2a67',
-      priority: 9, labelSize: 9, labelColor: '#800080' 
-    },
-    trunk: { 
-      width: 7, casingWidth: 9,
-      color: '#f9b29c', casingColor: '#cc7722', 
-      priority: 8, labelSize: 8, labelColor: '#8B4513'
-    },
-    primary: { 
-      width: 6, casingWidth: 8,
-      color: '#fcd6a4', casingColor: '#e46d71',
-      priority: 7, labelSize: 8, labelColor: '#8B4513' 
-    },
-    secondary: {
-      width: 5, casingWidth: 7, 
-      color: '#f7fabf', casingColor: '#70372f',
-      priority: 6, labelSize: 7, labelColor: '#654321'
-    },
-    tertiary: {
-      width: 4, casingWidth: 6,
-      color: '#ffffff', casingColor: '#8f8f8f', 
-      priority: 5, labelSize: 7, labelColor: '#555555'
-    },
-    
-    // Links and ramps
-    motorway_link: { 
-      width: 5, casingWidth: 7,
-      color: '#e892a2', casingColor: '#dc2a67',
-      priority: 8, labelSize: 6, labelColor: '#800080'
-    },
-    trunk_link: {
-      width: 4, casingWidth: 6, 
-      color: '#f9b29c', casingColor: '#cc7722',
-      priority: 7, labelSize: 6, labelColor: '#8B4513'
-    },
-    
-    // Residential and local roads
-    residential: {
-      width: 3.5, casingWidth: 5,
-      color: '#ffffff', casingColor: '#bbb',
-      priority: 4, labelSize: 6, labelColor: '#555555'
-    },
-    unclassified: {
-      width: 3, casingWidth: 5, 
-      color: '#ffffff', casingColor: '#ccc',
-      priority: 3, labelSize: 6, labelColor: '#666666'
-    },
-    service: {
-      width: 2, casingWidth: 3,
-      color: '#ffffff', casingColor: '#ccc',
-      priority: 2, labelSize: 5, labelColor: '#777777'
-    },
-    
-    // Pedestrian and cycling
-    footway: {
-      width: 1, casingWidth: 0,
-      color: '#fa8072', casingColor: 'none', 
-      dashArray: '2,2', priority: 1, labelSize: 5, labelColor: '#999999'
-    },
-    cycleway: {
-      width: 1.5, casingWidth: 0,
-      color: '#0000ff', casingColor: 'none',
-      dashArray: '3,2', priority: 1, labelSize: 5, labelColor: '#0000aa'
-    },
-    path: {
-      width: 1, casingWidth: 0,
-      color: '#8B4513', casingColor: 'none',
-      dashArray: '2,3', priority: 1, labelSize: 5, labelColor: '#8B4513'
-    },
-    
-    // Default for unknown types
-    default: {
-      width: 2, casingWidth: 4,
-      color: '#ffffff', casingColor: '#999', 
-      priority: 1, labelSize: 6, labelColor: '#666666'
-    }
-  };
-  
-  return styles[highwayType] || styles.default;
-}
-
-// 100% AUTHENTIC OpenStreetMap POI styling  
-function getAuthenticPOIStyle(amenityType) {
-  const styles = {
-    // Food & Drink (brown/orange tones)
-    restaurant: { color: '#ac5d37', size: 3, icon: '🍽️', labelColor: '#8B4513', priority: 7 },
-    cafe: { color: '#ac5d37', size: 2.5, icon: '☕', labelColor: '#8B4513', priority: 6 },
-    fast_food: { color: '#d4860d', size: 2, icon: '🍔', labelColor: '#8B4513', priority: 5 },
-    pub: { color: '#ac5d37', size: 2.5, icon: '🍺', labelColor: '#8B4513', priority: 6 },
-    
-    // Transport (blue tones)
-    fuel: { color: '#447bc4', size: 3, icon: '⛽', labelColor: '#1a472a', priority: 7 },
-    parking: { color: '#447bc4', size: 2, icon: '🅿️', labelColor: '#1a472a', priority: 4 },
-    bus_station: { color: '#447bc4', size: 3, icon: '🚌', labelColor: '#1a472a', priority: 8 },
-    
-    // Education (green tones) 
-    school: { color: '#39ac39', size: 3, icon: '🏫', labelColor: '#1a472a', priority: 8 },
-    university: { color: '#39ac39', size: 4, icon: '🎓', labelColor: '#1a472a', priority: 9 },
-    
-    // Healthcare (red tones)
-    hospital: { color: '#da0092', size: 4, icon: '🏥', labelColor: '#8B0000', priority: 9 },
-    pharmacy: { color: '#da0092', size: 2.5, icon: '💊', labelColor: '#8B0000', priority: 6 },
-    
-    // Finance (purple tones)
-    bank: { color: '#734a08', size: 3, icon: '🏦', labelColor: '#4B0000', priority: 7 },
-    atm: { color: '#734a08', size: 2, icon: '💳', labelColor: '#4B0000', priority: 5 },
-    
-    // Shopping (orange/yellow tones)
-    supermarket: { color: '#ac5d37', size: 3, icon: '🛒', labelColor: '#8B4513', priority: 7 },
-    shop: { color: '#ac5d37', size: 2, icon: '🏪', labelColor: '#8B4513', priority: 5 },
-    
-    // Default for unknown POI types
-    default: { color: '#999999', size: 2, icon: '📍', labelColor: '#666666', priority: 3 }
-  };
-  
-  return styles[amenityType] || styles.default;
-}
-
-// AUTHENTIC OpenStreetMap area colors
-function getGreenColor(landuse) {
-  const colors = {
-    forest: '#add19e',
-    grass: '#cdebb0', 
-    meadow: '#cdebb0',
-    park: '#c8facc',
-    garden: '#c8facc',
-    recreation_ground: '#c8facc',
-    village_green: '#c8facc',
-    cemetery: '#aacbaf',
-    allotments: '#c9e1bf',
-    orchard: '#aedfa3',
-    vineyard: '#aedfa3'
-  };
-  return colors[landuse] || '#c8facc'; // Default park green
-}
-
-function getBuiltColor(landuse) {
-  const colors = {
-    residential: '#e0dfdf',
-    commercial: '#efc8c8', 
-    industrial: '#ebdbe8',
-    retail: '#ffd6d1',
-    construction: '#c7c7b4',
-    brownfield: '#ecba32',
-    landfill: '#b6b592',
-    quarry: '#c5c3c3',
-    military: '#f55353'
-  };
-  return colors[landuse] || '#e0dfdf'; // Default residential
-}
-
-function parseLineString(wkt, bounds) {
-  const coordsText = wkt.replace('LINESTRING(', '').replace(')', '');
-  const coordPairs = coordsText.split(',');
-  const coords = [];
-  
-  for (let i = 0; i < Math.min(coordPairs.length, 20); i++) {
-    const pair = coordPairs[i].trim().split(' ');
-    if (pair.length >= 2) {
-      const lon = parseFloat(pair[0]);
-      const lat = parseFloat(pair[1]);
-      if (!isNaN(lon) && !isNaN(lat)) {
-        const pixel = coordToPixel(lat, lon, bounds);
-        coords.push(pixel);
-      }
-    }
-  }
-  return coords;
-}
-
-function coordToPixel(lat, lon, bounds) {
-  const lonRange = bounds.maxLon - bounds.minLon;
-  const latRange = bounds.maxLat - bounds.minLat;
-  
-  if (lonRange <= 0 || latRange <= 0) {
-    return { x: 128, y: 128 };
-  }
-  
-  const x = ((lon - bounds.minLon) / lonRange) * 256;
-  const y = ((bounds.maxLat - lat) / latRange) * 256;
-  
-  return { x: Math.max(0, Math.min(256, x)), y: Math.max(0, Math.min(256, y)) };
-}
-
-function getOSMRoadColor(highway) {
-  const colors = {
-    'motorway': '#e892a2',
-    'trunk': '#f9b29c', 
-    'primary': '#fcd6a4',
-    'secondary': '#f7fabf',
-    'tertiary': '#ffffff',
-    'residential': '#ffffff',
-    'service': '#ffffff',
-    'unclassified': '#ffffff'
-  };
-  return colors[highway] || '#cccccc';
-}
-
-function getOSMRoadWidth(highway) {
-  const widths = {
-    'motorway': 5,
-    'trunk': 4,
-    'primary': 3.5,
-    'secondary': 3,
-    'tertiary': 2.5,
-    'residential': 2,
-    'service': 1.5,
-    'unclassified': 2
-  };
-  return widths[highway] || 1.5;
-}
-
-/**
- * Helper: Generate schematic tile from road data (no geometry)
- */
-async function generateSchematicTile(roads, bounds) {
-  console.log(`Generating schematic tile with ${roads.length} roads`);
-  
-  // Group roads by type
-  const roadGroups = {};
-  roads.forEach(road => {
-    if (!roadGroups[road.highway]) {
-      roadGroups[road.highway] = [];
-    }
-    roadGroups[road.highway].push(road);
-  });
-
-  let roadElements = [];
-  let labels = [];
-  
-  // Generate schematic road network
-  let yPos = 40;
-  
-  Object.entries(roadGroups).forEach(([highway, roadList]) => {
-    const color = getOSMRoadColor(highway);
-    const width = getOSMRoadWidth(highway);
-    
-    // Horizontal main road
-    roadElements.push(`
-      <line x1="20" y1="${yPos}" x2="236" y2="${yPos}" 
-            stroke="${color}" stroke-width="${width}" stroke-linecap="round" opacity="0.9"/>
-    `);
-    
-    // Branching roads
-    for (let i = 0; i < Math.min(roadList.length, 3); i++) {
-      const x = 50 + (i * 60);
-      roadElements.push(`
-        <line x1="${x}" y1="${yPos}" x2="${x + 20}" y2="${yPos + 30}" 
-              stroke="${color}" stroke-width="${width * 0.7}" stroke-linecap="round" opacity="0.7"/>
-      `);
-      
-      // Add road name if available
-      if (roadList[i].name) {
-        labels.push(`
-          <text x="${x + 10}" y="${yPos + 45}" font-family="Arial" font-size="7" 
-                fill="#333" text-anchor="middle" 
-                style="stroke: white; stroke-width: 1; paint-order: stroke;">
-            ${roadList[i].name.substring(0, 15)}
-          </text>
-        `);
-      }
-    }
-    
-    // Highway type label
-    labels.push(`
-      <text x="25" y="${yPos - 5}" font-family="Arial" font-size="9" 
-            fill="#333" font-weight="bold">
-        ${highway.toUpperCase()}
-      </text>
-    `);
-    
-    yPos += 50;
-  });
-
-  // Generate comprehensive SVG
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <!-- OSM-style background -->
-      <rect width="256" height="256" fill="#f2efe9"/>
-      
-      <!-- Title -->
-      <rect x="10" y="5" width="236" height="25" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
-      <text x="128" y="20" font-family="Arial" font-size="12" fill="#333" 
-            text-anchor="middle" font-weight="bold">
-        🗺️ OSM Database Connected - Bandung Area
-      </text>
-      
-      <!-- Schematic road network -->
-      ${roadElements.join('')}
-      
-      <!-- Road labels -->
-      ${labels.join('')}
-      
-      <!-- Info panel -->
-      <rect x="10" y="200" width="236" height="45" fill="rgba(255,255,255,0.95)" stroke="#666" rx="3"/>
-      <text x="20" y="215" font-family="Arial" font-size="10" fill="#333" font-weight="bold">
-        Database: ${roads.length} roads found
-      </text>
-      <text x="20" y="228" font-family="Arial" font-size="9" fill="#666">
-        Types: ${Object.keys(roadGroups).join(', ')}
-      </text>
-      <text x="20" y="240" font-family="Arial" font-size="8" fill="#e74c3c">
-        ⚠️ Geometry columns missing - need PostGIS import
-      </text>
-    </svg>
-  `;
-
-  console.log(`Generated schematic tile: ${Object.keys(roadGroups).length} road types`);
-  return await svgToPng(svg);
-}
-
-/**
- * Helper: Generate REAL OSM tile with actual geometry coordinates
- */
-async function generateRealOSMTile(features, bounds) {
-  console.log(`Generating REAL OSM tile with ${features.length} features and actual coordinates`);
-  
-  let roadPaths = [];
-  let roadLabels = [];
-  
-  features.forEach((feature, idx) => {
-    if (feature.geom_text && feature.geom_text.startsWith('LINESTRING')) {
-      try {
-        const coords = parseLineString(feature.geom_text, bounds);
-        
-        if (coords.length >= 2) {
-          // Real OSM colors
-          const color = getRealOSMColor(feature.highway);
-          const width = getRealOSMWidth(feature.highway);
-          
-          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
-            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-
-          roadPaths.push(`<path d="${pathData}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" opacity="0.9"/>`);
-          
-          // Add street names
-          if (feature.name && coords.length >= 3) {
-            const midIdx = Math.floor(coords.length / 2);
-            const midPoint = coords[midIdx];
-            
-            // Calculate text angle based on road direction
-            const p1 = coords[Math.max(0, midIdx - 1)];
-            const p2 = coords[Math.min(coords.length - 1, midIdx + 1)];
-            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
-            
-            roadLabels.push(`
-              <text x="${midPoint.x}" y="${midPoint.y}" 
-                    font-family="Arial" font-size="8" fill="#333" 
-                    text-anchor="middle" 
-                    transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
-                    style="font-weight: bold; stroke: white; stroke-width: 2; paint-order: stroke;">
-                ${feature.name}
-              </text>
-            `);
-          }
-        }
-      } catch (e) {
-        console.error(`Error processing feature ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // Generate proper OSM-style tile
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <!-- Real OSM background color -->
-      <rect width="256" height="256" fill="#f2efe9"/>
-      
-      <!-- Real road network with actual coordinates -->
-      ${roadPaths.join('\n      ')}
-      
-      <!-- Street name labels -->
-      ${roadLabels.join('\n      ')}
-      
-      <!-- Success indicator -->
-      <rect x="3" y="3" width="180" height="30" fill="rgba(255,255,255,0.95)" stroke="#4CAF50" stroke-width="2" rx="2"/>
-      <text x="8" y="16" font-family="Arial" font-size="9" fill="#4CAF50" font-weight="bold">
-        ✅ REAL OSM TILE - ${roadPaths.length} roads rendered
-      </text>
-      <text x="8" y="26" font-size="7" fill="#666" font-family="monospace">
-        ${bounds.minLon.toFixed(4)},${bounds.minLat.toFixed(4)} → ${bounds.maxLon.toFixed(4)},${bounds.maxLat.toFixed(4)}
-      </text>
-    </svg>
-  `;
-
-  console.log(`SUCCESS! Generated real OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
-  return await svgToPng(svg);
-}
-
-function getRealOSMColor(highway) {
-  // Real OpenStreetMap color scheme
-  const colors = {
-    'motorway': '#e892a2',      // Pink untuk highway
-    'trunk': '#f9b29c',         // Orange untuk trunk  
-    'primary': '#fcd6a4',       // Light orange untuk primary
-    'secondary': '#f7fabf',     // Yellow untuk secondary
-    'tertiary': '#ffffff',      // White untuk tertiary
-    'residential': '#ffffff',   // White untuk residential  
-    'service': '#ffffff',       // White untuk service
-    'unclassified': '#ffffff'   // White untuk unclassified
-  };
-  return colors[highway] || '#cccccc';
-}
-
-function getRealOSMWidth(highway) {
-  // Real OpenStreetMap width hierarchy
-  const widths = {
-    'motorway': 6,
-    'trunk': 5,
-    'primary': 4,
-    'secondary': 3,
-    'tertiary': 2.5,
-    'residential': 2,
-    'service': 1.5,
-    'unclassified': 2
-  };
-  return widths[highway] || 1.5;
-}
-
-/**
- * Helper: Generate 100% AUTHENTIC OpenStreetMap tile
- */
-async function generateCompleteOSMTile(features, bounds) {
-  console.log(`Generating 100% AUTHENTIC OSM tile with ${features.length} total features`);
-  
-  // Separate ALL feature types like real OSM
-  const water = features.filter(f => f.feature_type === 'water');
-  const green = features.filter(f => f.feature_type === 'green');
-  const built = features.filter(f => f.feature_type === 'built');  
-  const buildings = features.filter(f => f.feature_type === 'building');
-  const railways = features.filter(f => f.feature_type === 'railway');
-  const roads = features.filter(f => f.feature_type === 'road');
-  const pois = features.filter(f => f.feature_type === 'poi');
-  
-  let waterPolygons = [];
-  let greenPolygons = [];
-  let builtPolygons = [];
-  let buildingPolygons = [];
-  let railwayLines = [];
-  let roadPaths = [];
-  let roadLabels = [];
-  let poiMarkers = [];
-  
-  // 1. Process WATER areas (bottom layer - like real OSM)
-  water.slice(0, 5).forEach((waterArea, idx) => {
-    if (waterArea.geom_text && waterArea.geom_text.startsWith('POLYGON')) {
-      try {
-        const coords = parsePolygonWKT(waterArea.geom_text, bounds);
-        if (coords.length >= 3) {
-          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
-            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          waterPolygons.push(`<path d="${pathData}" fill="#b5d0d0" stroke="#9ac0cd" stroke-width="0.5" opacity="1"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing water ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 2. Process GREEN areas (parks, forests)
-  green.slice(0, 15).forEach((greenArea, idx) => {
-    if (greenArea.geom_text && greenArea.geom_text.startsWith('POLYGON')) {
-      try {
-        const coords = parsePolygonWKT(greenArea.geom_text, bounds);
-        if (coords.length >= 3) {
-          const color = getGreenColor(greenArea.category);
-          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
-            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          greenPolygons.push(`<path d="${pathData}" fill="${color}" stroke="#8dc56c" stroke-width="0.2" opacity="0.8"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing green ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 3. Process BUILT areas (residential, commercial, industrial)  
-  built.slice(0, 10).forEach((builtArea, idx) => {
-    if (builtArea.geom_text && builtArea.geom_text.startsWith('POLYGON')) {
-      try {
-        const coords = parsePolygonWKT(builtArea.geom_text, bounds);
-        if (coords.length >= 3) {
-          const color = getBuiltColor(builtArea.category);
-          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
-            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          builtPolygons.push(`<path d="${pathData}" fill="${color}" stroke="none" opacity="0.4"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing built ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 4. Process BUILDINGS with OSM-style rendering
-  buildings.slice(0, 100).forEach((building, idx) => {
-    if (building.geom_text && building.geom_text.startsWith('POLYGON')) {
-      try {
-        const coords = parsePolygonWKT(building.geom_text, bounds);
-        if (coords.length >= 3) {
-          const pathData = `M ${coords[0].x} ${coords[0].y} ` +
-            coords.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') + ' Z';
-          
-          // Real OSM building colors and style
-          buildingPolygons.push(`<path d="${pathData}" fill="#d9d0c7" stroke="#bbbbb0" stroke-width="0.3" opacity="1"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing building ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 5. Process RAILWAYS
-  railways.slice(0, 10).forEach((railway, idx) => {
-    if (railway.geom_text && railway.geom_text.startsWith('LINESTRING')) {
-      try {
-        const coords = parseLineString(railway.geom_text, bounds);
-        if (coords.length >= 2) {
-          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
-            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-
-          // Railway with dashed line like real OSM
-          railwayLines.push(`<path d="${pathData}" stroke="#444444" stroke-width="1.5" fill="none" stroke-dasharray="3,3" opacity="0.8"/>`);
-        }
-      } catch (e) {
-        console.error(`Error parsing railway ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 6. Process ROADS with AUTHENTIC OSM styling and hierarchy
-  roads.slice(0, 120).forEach((road, idx) => {
-    if (road.geom_text && road.geom_text.startsWith('LINESTRING')) {
-      try {
-        const coords = parseLineString(road.geom_text, bounds);
-        if (coords.length >= 2) {
-          const roadType = road.category;
-          const style = getAuthenticOSMRoadStyle(roadType);
-          
-          const pathData = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)} ` + 
-            coords.slice(1).map(c => `L ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-
-          // Casing (border) for major roads
-          if (style.casing) {
-            roadPaths.push(`<path d="${pathData}" stroke="${style.casing}" stroke-width="${style.width + 2}" fill="none" stroke-linecap="round" opacity="1"/>`);
-          }
-          
-          // Main road color
-          roadPaths.push(`<path d="${pathData}" stroke="${style.color}" stroke-width="${style.width}" fill="none" stroke-linecap="round" opacity="1"/>`);
-          
-          // Street names with proper sizing and positioning
-          if (road.name && coords.length >= 3 && style.showLabel) {
-            const midIdx = Math.floor(coords.length / 2);
-            const midPoint = coords[midIdx];
-            
-            // Calculate text rotation based on road direction  
-            const p1 = coords[Math.max(0, midIdx - 1)];
-            const p2 = coords[Math.min(coords.length - 1, midIdx + 1)];
-            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
-            
-            roadLabels.push(`
-              <text x="${midPoint.x}" y="${midPoint.y}" 
-                    font-family="DejaVu Sans, Arial" font-size="${style.fontSize}" fill="#333333" 
-                    text-anchor="middle" 
-                    transform="rotate(${angle} ${midPoint.x} ${midPoint.y})"
-                    style="font-weight: ${style.fontWeight}; stroke: white; stroke-width: 2; paint-order: stroke;">
-                ${road.name.substring(0, style.maxLength)}
-              </text>
-            `);
-          }
-        }
-      } catch (e) {
-        console.error(`Error parsing road ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // 7. Process POIs with AUTHENTIC OSM icons and styling
-  pois.slice(0, 30).forEach((poi, idx) => {
-    if (poi.geom_text && poi.geom_text.startsWith('POINT')) {
-      try {
-        const match = poi.geom_text.match(/POINT\(([0-9.-]+)\s+([0-9.-]+)\)/);
-        if (match) {
-          const lon = parseFloat(match[1]);
-          const lat = parseFloat(match[2]);
-          const pixel = coordToPixel(lat, lon, bounds);
-          
-          if (pixel.x >= 5 && pixel.x <= 251 && pixel.y >= 5 && pixel.y <= 251) {
-            const poiStyle = getAuthenticPOIStyle(poi.category);
-            
-            // POI background circle
-            poiMarkers.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="${poiStyle.size + 1}" fill="white" stroke="${poiStyle.borderColor}" stroke-width="1" opacity="0.9"/>`);
-            // POI main circle with icon color
-            poiMarkers.push(`<circle cx="${pixel.x}" cy="${pixel.y}" r="${poiStyle.size}" fill="${poiStyle.color}" opacity="1"/>`);
-            
-            // POI name label (for major POIs)
-            if (poi.name && poiStyle.showName) {
-              poiMarkers.push(`
-                <text x="${pixel.x}" y="${pixel.y + poiStyle.size + 12}" 
-                      font-family="DejaVu Sans, Arial" font-size="7" fill="#333333" 
-                      text-anchor="middle" 
-                      style="font-weight: bold; stroke: white; stroke-width: 1.5; paint-order: stroke;">
-                  ${poi.name.substring(0, 15)}
-                </text>
-              `);
-            }
-          }
-        }
-      } catch (e) {
-        console.error(`Error parsing POI ${idx}:`, e.message);
-      }
-    }
-  });
-
-  // Generate 100% AUTHENTIC OpenStreetMap SVG with proper layering
-  let svg = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-      <!-- Authentic OSM background color -->
-      <rect width="256" height="256" fill="#f2efe9"/>
-      
-      <!-- Layer 1: Water (bottom layer) -->
-      ${waterPolygons.join('\n      ')}
-      
-      <!-- Layer 2: Green areas (parks, forests) -->
-      ${greenPolygons.join('\n      ')}
-      
-      <!-- Layer 3: Built areas (residential, commercial zones) -->  
-      ${builtPolygons.join('\n      ')}
-      
-      <!-- Layer 4: Buildings -->  
-      ${buildingPolygons.join('\n      ')}
-      
-      <!-- Layer 5: Railways -->
-      ${railwayLines.join('\n      ')}
-      
-      <!-- Layer 6: Roads (with casing) -->
-      ${roadPaths.join('\n      ')}
-      
-      <!-- Layer 7: Road labels -->
-      ${roadLabels.join('\n      ')}
-      
-      <!-- Layer 8: POI markers (top layer) -->
-      ${poiMarkers.join('\n      ')}
-      
-      <!-- Minimal info (no green box to match real OSM) -->
-      <text x="5" y="250" font-family="Arial" font-size="6" fill="#999999" opacity="0.7">
-        © Local OSM Data
-      </text>
-    </svg>
-  `;
-
-  const stats = {
-    water: waterPolygons.length,
-    green: greenPolygons.length, 
-    built: builtPolygons.length,
-    buildings: buildingPolygons.length,
-    railways: railwayLines.length,
-    roads: roadPaths.length / 2, // Divided by 2 because of casing
-    pois: poiMarkers.length / 2  // Divided by 2 because of background circles
-  };
-
-  console.log(`100% AUTHENTIC OSM tile:`, stats);
-  return await svgToPng(svg);
-}
-
-function parsePolygonWKT(wkt, bounds) {
-  const coordsText = wkt.replace('POLYGON((', '').replace('))', '');
-  const coordPairs = coordsText.split(',');
-  const coords = [];
-  
-  for (let i = 0; i < Math.min(coordPairs.length, 15); i++) {
-    const pair = coordPairs[i].trim().split(' ');
-    if (pair.length >= 2) {
-      const lon = parseFloat(pair[0]);
-      const lat = parseFloat(pair[1]);
-      if (!isNaN(lon) && !isNaN(lat)) {
-        coords.push(coordToPixel(lat, lon, bounds));
-      }
-    }
-  }
-  return coords;
-}
-
-function getLanduseColor(landuse) {
-  const colors = {
-    'forest': '#8dc56c',
-    'park': '#c8facc', 
-    'grass': '#cdebb0',
-    'residential': '#f0f0f0',
-    'commercial': '#fdf4e3',
-    'industrial': '#e6e6e6',
-    'water': '#b5d0d0'
-  };
-  return colors[landuse] || '#f5f5f5';
-}
-
-function getPOIColor(amenity) {
-  const colors = {
-    'restaurant': '#d73027',
-    'hospital': '#2b83ba', 
-    'school': '#fdae61',
-    'fuel': '#fee08b',
-    'bank': '#4575b4',
-    'pharmacy': '#91bfdb'
-  };
-  return colors[amenity] || '#9b59b6';
-}
-
-/**
- * Helper: Create empty tile (simple 256x256 SVG)
- */
+// Create empty/transparent tile
 async function createEmptyTile() {
-  // Simple 256x256 light gray SVG tile
-  const emptySVG = `
-    <svg width="256" height="256" xmlns="http://www.w3.org/2000/svg">
-      <rect width="256" height="256" fill="#f0f0f0"/>
-      <text x="128" y="128" text-anchor="middle" font-family="Arial" font-size="12" fill="#ccc">
-        Outside Region
-      </text>
-      <text x="128" y="145" text-anchor="middle" font-family="Arial" font-size="10" fill="#ddd">
-        West Java Only
-      </text>
-    </svg>
-  `;
-  return await svgToPng(emptySVG);
+  try {
+    // Create a simple transparent PNG
+    const { createCanvas } = require('canvas');
+    const canvas = createCanvas(256, 256);
+    const ctx = canvas.getContext('2d');
+    
+    // Fill with light gray color to indicate "no data"
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, 0, 256, 256);
+    
+    // Add text
+    ctx.fillStyle = '#cccccc';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Outside', 128, 120);
+    ctx.fillText('West Java', 128, 140);
+    
+    return canvas.toBuffer('image/png');
+  } catch (error) {
+    // Fallback: return a minimal PNG buffer
+    console.warn('Canvas not available, using fallback empty tile');
+    return Buffer.from([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+      0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+      0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0x1D, 0x01, 0x01, 0x00, 0x00, 0xFF,
+      0xFF, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, 0x00,
+      0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+    ]);
+  }
 }
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 OSRM Tile Service running on port ${PORT}`);
-  console.log(`📍 Region: West Java (Jawa Barat)`);
-  console.log(`🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
-  console.log(`🛣️  Route: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
-  console.log(`🎨 Tile Mode: ${TILE_MODE}`);
-  if (TILE_MODE === 'render') {
-    console.log(`🗄️  Database: PostgreSQL + PostGIS`);
-  } else {
-    console.log(`🌐 Source: OpenStreetMap proxy`);
+// Start preload if enabled
+if (PRELOAD_ENABLED) {
+  console.log('🔄 Preload is enabled, starting background tile preload...');
+  
+  // Start preload after server starts
+  setTimeout(async () => {
+    try {
+      const defaultZooms = [10, 11, 12];
+      console.log(`🚀 Starting automatic preload for zoom levels: ${defaultZooms.join(', ')}`);
+      
+      const results = await cacheManager.preloadTiles(defaultZooms, WEST_JAVA_BOUNDS);
+      console.log('✅ Automatic preload completed:', {
+        totalTiles: results.totalTiles,
+        downloadedTiles: results.downloadedTiles,
+        cachedTiles: results.cachedTiles,
+        failedTiles: results.failedTiles,
+        durationMinutes: Math.round(results.duration / 60000)
+      });
+    } catch (error) {
+      console.error('❌ Automatic preload failed:', error.message);
+    }
+  }, 5000); // Wait 5 seconds after server start
+}
+
+// Periodic cache cleanup (every 6 hours)
+setInterval(async () => {
+  try {
+    console.log('🧹 Running periodic cache cleanup...');
+    const cleaned = await cacheManager.cleanCache();
+    if (cleaned > 0) {
+      console.log(`✅ Cleaned ${cleaned} old cache entries`);
+    }
+  } catch (error) {
+    console.error('❌ Cache cleanup failed:', error.message);
   }
+}, 6 * 60 * 60 * 1000); // 6 hours
+
+/**
+ * Start server
+ */
+app.listen(PORT, () => {
+  console.log('='.repeat(50));
+  console.log('🚀 OSRM Tile Service Started');
+  console.log('='.repeat(50));
+  console.log(`📍 Port: ${PORT}`);
+  console.log(`🗺️  Region: West Java`);
+  console.log(`💾 Cache Mode: ${CACHE_MODE}`);
+  console.log(`🔄 Preload Enabled: ${PRELOAD_ENABLED}`);
+  console.log(`📁 Cache Directory: ${cacheManager.cacheDir}`);
   console.log('');
+  console.log('📡 Endpoints:');
+  console.log(`   🏥 Health: http://localhost:${PORT}/health`);
+  console.log(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
+  console.log(`   🛣️  Routes: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
+  console.log(`   🔍 Geocode: http://localhost:${PORT}/geocode?q=query`);
+  console.log(`   📊 Cache Stats: http://localhost:${PORT}/cache/stats`);
+  console.log(`   🔄 Preload: POST http://localhost:${PORT}/cache/preload`);
   console.log('');
-  console.log('💡 Endpoints:');
-  console.log('   - GET /health - Health check');
-  console.log('   - GET /route?start=lon,lat&end=lon,lat - Routing');
-  console.log('   - GET /tiles/{z}/{x}/{y}.png - Map tiles');
-  console.log('');
-  console.log('🌐 Open browser: http://localhost:' + PORT);
+  console.log('🌐 Web UI: http://localhost:' + PORT);
+  console.log('='.repeat(50));
 });
+
+module.exports = app;

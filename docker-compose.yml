@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  # OSRM Backend untuk routing mobil
+  # OSRM Backend untuk routing mobil lokal
   osrm-backend:
     image: ghcr.io/project-osrm/osrm-backend:v6.0.0
     container_name: osrm-backend
@@ -11,26 +11,7 @@ services:
       - "5000:5000"
     command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
     restart: unless-stopped
-    networks:
-      - osrm-network
-
-  # PostgreSQL + PostGIS untuk tile rendering dari database
-  postgis:
-    image: postgis/postgis:15-3.3
-    container_name: postgis
-    environment:
-      POSTGRES_DB: osm
-      POSTGRES_USER: osm
-      POSTGRES_PASSWORD: osmpassword
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
-    volumes:
-      - ./data/postgis:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    restart: unless-stopped
-    networks:
-      - osrm-network
 
 networks:
-  osrm-network:
+  default:
     driver: bridge

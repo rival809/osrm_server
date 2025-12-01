@@ -23,14 +23,14 @@ $osrmExists = Test-Path "data\java-latest.osrm"
 
 if (-not $pbfExists) {
     Write-Host "⚠️  Data OSM belum didownload" -ForegroundColor Yellow
-    Write-Host "   Jalankan: npm run download-pbf" -ForegroundColor Yellow
+    Write-Host "   Jalankan: .\scripts\download-pbf.ps1" -ForegroundColor Yellow
 } else {
     Write-Host "✅ PBF file exists" -ForegroundColor Green
 }
 
 if (-not $osrmExists) {
     Write-Host "⚠️  Data OSRM belum diproses" -ForegroundColor Yellow
-    Write-Host "   Jalankan: .\scripts\process-osrm.ps1" -ForegroundColor Yellow
+    Write-Host "   Jalankan: .\scripts\process-osrm-v6.ps1" -ForegroundColor Yellow
 } else {
     Write-Host "✅ OSRM files exist" -ForegroundColor Green
 }

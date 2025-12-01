@@ -12,15 +12,10 @@ yarn-error.log*
 data/*.osm.pbf
 data/*.osrm
 data/*.osrm.*
-data/postgis/
 
-# Cache
+# Cache (persistent tile storage)
 cache/*
 !cache/.gitkeep
-
-# Tiles cache
-tiles/*
-!tiles/.gitkeep
 
 # Environment variables
 .env
