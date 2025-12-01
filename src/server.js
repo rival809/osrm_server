@@ -455,26 +455,10 @@ async function renderTileFromDB(bounds, zoom) {
             
             if (geomColumns.length > 0) {
               console.log(`Geometry columns in ${table}:`, geomColumns.map(c => c.column_name).join(', '));
+              console.log('✅ PostGIS geometry found - generating real OSM tile');
               
-              // Try to get actual data with the found geometry column
-              const geomCol = geomColumns[0].column_name;
-              const testQuery = `
-                SELECT name, highway, ${geomCol} IS NOT NULL as has_geom,
-                       ST_AsText(${geomCol}) as geom_text
-                FROM ${table} 
-                WHERE highway IS NOT NULL
-                AND ${geomCol} IS NOT NULL
-                LIMIT 3
-              `;
-              
-              const testResult = await pool.query(testQuery);
-              if (testResult.rows.length > 0) {
-                console.log(`SUCCESS! Found geometry data in ${table}.${geomCol}`);
-                console.log('Sample:', testResult.rows[0]);
-                
-                // Now render with correct column
-                return await generateFullOSMTile(bounds, geomCol, table);
-              }
+              // Generate tile with real data
+              return await generateCompleteOSMTile(bounds);
             }
           } catch (e) {
             console.log(`Error checking ${table}:`, e.message);
