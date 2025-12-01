@@ -6,7 +6,7 @@ echo "🗂️  OSRM Tile Cache Manager"
 echo "=========================="
 echo ""
 
-BASE_URL="http://localhost:3000"
+BASE_URL="http://3.107.98.189:8080"
 
 # Function to check if server is running
 check_server() {

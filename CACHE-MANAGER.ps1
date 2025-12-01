@@ -4,7 +4,7 @@
 # Check if server is running
 function Test-ServerRunning {
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:3000/health" -Method GET -TimeoutSec 2
+        $response = Invoke-RestMethod -Uri "http://3.107.98.189:8080/health" -Method GET -TimeoutSec 2
         return $true
     } catch {
         return $false
@@ -14,7 +14,7 @@ function Test-ServerRunning {
 # Function to get cache statistics
 function Get-CacheStats {
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:3000/cache/stats" -Method GET -TimeoutSec 10
+        $response = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 10
         Write-Host ""
         Write-Host "==== CACHE STATISTICS ====" -ForegroundColor Cyan
         Write-Host "Total Tiles: $($response.totalFiles)" -ForegroundColor White
@@ -71,7 +71,7 @@ function Start-TilePreload {
 
     try {
         Write-Host "Sending preload request..." -ForegroundColor Yellow
-        $response = Invoke-RestMethod -Uri "http://localhost:3000/cache/preload" -Method POST -Body $body -ContentType "application/json" -TimeoutSec 300
+        $response = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/preload" -Method POST -Body $body -ContentType "application/json" -TimeoutSec 300
         
         Write-Host ""
         Write-Host "Preload completed!" -ForegroundColor Green
@@ -104,7 +104,7 @@ function Clean-Cache {
     try {
         Write-Host ""
         Write-Host "Cleaning cache..." -ForegroundColor Cyan
-        $response = Invoke-RestMethod -Uri "http://localhost:3000/cache/clean" -Method POST -TimeoutSec 30
+        $response = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/clean" -Method POST -TimeoutSec 30
         
         Write-Host "Cache cleaned successfully!" -ForegroundColor Green
         Write-Host "Removed files: $($response.removedCount)" -ForegroundColor White
@@ -193,7 +193,7 @@ function Update-TilesManual {
     } | ConvertTo-Json -Depth 3
 
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:3000/cache/update" -Method POST -Body $body -ContentType "application/json" -TimeoutSec 300
+        $response = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/update" -Method POST -Body $body -ContentType "application/json" -TimeoutSec 300
         
         if ($response.success) {
             Write-Host ""
@@ -216,7 +216,7 @@ do {
 
     # Cek status server
     if (Test-ServerRunning) {
-        Write-Host "Server Status: RUNNING (Port 3000)" -ForegroundColor Green
+        Write-Host \"Server Status: RUNNING (http://3.107.98.189:8080)\" -ForegroundColor Green
     } else {
         Write-Host "Server Status: NOT RUNNING" -ForegroundColor Red
     }
