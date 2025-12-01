@@ -164,6 +164,11 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
 
     // Calculate tile bounds
     const bounds = tileToBounds(tileX, tileY, zoom);
+    
+    // Debug logging
+    console.log(`Tile ${zoom}/${tileX}/${tileY} bounds:`, bounds);
+    console.log('West Java bounds:', WEST_JAVA_BOUNDS);
+    console.log('Is in West Java:', isTileInWestJava(bounds));
 
     // Cek apakah tile dalam batas Jawa Barat
     if (!isTileInWestJava(bounds)) {
