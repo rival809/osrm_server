@@ -6,7 +6,7 @@ const path = require('path');
 const NodeCache = require('node-cache');
 const { Pool } = require('pg');
 const { Resvg } = require('@resvg/resvg-js');
-const SphericalMercator = require('@mapbox/sphericalmercator');
+const { SphericalMercator } = require('@mapbox/sphericalmercator');
 
 // Initialize Express
 const app = express();
