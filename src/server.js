@@ -239,8 +239,8 @@ function isTileInWestJava(bounds) {
  * Helper: Convert tile coordinates to lat/lon bounds using SphericalMercator
  */
 function tileToBounds(x, y, z) {
-  // Use proper mercator projection
-  const bbox = merc.bbox(x, y, z, false, '900913');
+  // Use proper mercator projection with lat/lon output
+  const bbox = merc.bbox(x, y, z, false, 'WGS84');
   
   return {
     minLon: bbox[0],
