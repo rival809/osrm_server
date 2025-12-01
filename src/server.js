@@ -5,6 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { Pool } = require('pg');
+const { Resvg } = require('@resvg/resvg-js');
+const SphericalMercator = require('@mapbox/sphericalmercator');
 
 // Initialize Express
 const app = express();
@@ -27,6 +29,33 @@ const pool = new Pool({
 
 // OSRM URL
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
+
+// Initialize SphericalMercator for proper tile calculations
+const merc = new SphericalMercator({
+  size: 256
+});
+
+/**
+ * Helper: Convert SVG to PNG using resvg
+ */
+async function svgToPng(svgString) {
+  try {
+    const resvg = new Resvg(svgString, {
+      background: '#f2efe9',
+      fitTo: {
+        mode: 'width',
+        value: 256,
+      },
+    });
+    
+    const pngData = resvg.render();
+    console.log('✅ SVG converted to PNG successfully');
+    return pngData.asPng();
+  } catch (error) {
+    console.error('❌ Error converting SVG to PNG:', error.message);
+    return Buffer.from(svgString, 'utf8'); // Fallback to SVG
+  }
+}
 
 // Batas wilayah Jawa Barat (approximate)
 const WEST_JAVA_BOUNDS = {
@@ -128,11 +157,7 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     // Cek cache
     const cachedTile = tileCache.get(cacheKey);
     if (cachedTile) {
-      if (TILE_MODE === 'render') {
-        res.set('Content-Type', 'image/svg+xml');
-      } else {
-        res.set('Content-Type', 'image/png');
-      }
+      res.set('Content-Type', 'image/png');
       res.set('X-Cache', 'HIT');
       return res.send(cachedTile);
     }
@@ -144,7 +169,7 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     if (!isTileInWestJava(bounds)) {
       // Return empty tile jika di luar Jawa Barat
       const emptyTile = await createEmptyTile();
-      res.set('Content-Type', 'image/svg+xml');
+      res.set('Content-Type', 'image/png');
       res.set('X-Region', 'outside');
       return res.send(emptyTile);
     }
@@ -162,12 +187,8 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     // Simpan ke cache
     tileCache.set(cacheKey, tile);
 
-    // Set correct content type based on tile mode
-    if (TILE_MODE === 'render') {
-      res.set('Content-Type', 'image/svg+xml');
-    } else {
-      res.set('Content-Type', 'image/png');
-    }
+    // Always serve PNG tiles
+    res.set('Content-Type', 'image/png');
     res.set('X-Cache', 'MISS');
     res.set('X-Region', 'west-java');
     res.send(tile);
@@ -210,20 +231,17 @@ function isTileInWestJava(bounds) {
 }
 
 /**
- * Helper: Convert tile coordinates to lat/lon bounds (standard slippy map)
+ * Helper: Convert tile coordinates to lat/lon bounds using SphericalMercator
  */
 function tileToBounds(x, y, z) {
-  const n = Math.pow(2, z);
-  const lonMin = (x / n) * 360 - 180;
-  const lonMax = ((x + 1) / n) * 360 - 180;
-  const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI;
-  const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+  // Use proper mercator projection
+  const bbox = merc.bbox(x, y, z, false, '900913');
   
   return {
-    minLon: lonMin,
-    minLat: latMin,
-    maxLon: lonMax,
-    maxLat: latMax
+    minLon: bbox[0],
+    minLat: bbox[1], 
+    maxLon: bbox[2],
+    maxLat: bbox[3]
   };
 }
 
@@ -737,7 +755,7 @@ async function generateSimpleTile(features, bounds) {
 
   console.log(`Generated comprehensive tile: ${buildingPolygons.length} buildings, ${roadPaths.length} roads, ${poiCircles.length} POIs, ${landusePolygons.length} landuse`);
   
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 /**
@@ -809,7 +827,7 @@ async function generateSimpleRoadTile(features, bounds) {
   `;
 
   console.log(`Generated simple road tile: ${roadPaths.length} roads`);
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 /**
@@ -858,7 +876,7 @@ async function generateMockTileFromData(features, bounds) {
   `;
 
   console.log(`Generated mock tile showing ${features.length} database features`);
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 /**
@@ -950,7 +968,7 @@ async function generateFullOSMTile(bounds, geomColumn, mainTable) {
     `;
 
     console.log(`Generated full OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
-    return Buffer.from(svg, 'utf8');
+    return await svgToPng(svg);
 
   } catch (error) {
     console.error('Error in generateFullOSMTile:', error.message);
@@ -1272,7 +1290,7 @@ async function generateSchematicTile(roads, bounds) {
   `;
 
   console.log(`Generated schematic tile: ${Object.keys(roadGroups).length} road types`);
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 /**
@@ -1350,7 +1368,7 @@ async function generateRealOSMTile(features, bounds) {
   `;
 
   console.log(`SUCCESS! Generated real OSM tile: ${roadPaths.length} roads, ${roadLabels.length} labels`);
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 function getRealOSMColor(highway) {
@@ -1628,7 +1646,7 @@ async function generateCompleteOSMTile(features, bounds) {
   };
 
   console.log(`100% AUTHENTIC OSM tile:`, stats);
-  return Buffer.from(svg, 'utf8');
+  return await svgToPng(svg);
 }
 
 function parsePolygonWKT(wkt, bounds) {
@@ -1690,7 +1708,7 @@ async function createEmptyTile() {
       </text>
     </svg>
   `;
-  return Buffer.from(emptySVG, 'utf8');
+  return await svgToPng(emptySVG);
 }
 
 // Start server
