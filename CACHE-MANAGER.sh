@@ -127,7 +127,7 @@ clean_cache() {
     echo "3. Clean old tiles (keep recent)"
     echo ""
     
-    read -p "Choose option (1-3): " choice
+    read -p "Choose option (1-5): " choice
     
     case $choice in
         1)
@@ -153,6 +153,51 @@ clean_cache() {
             ;;
     esac
     echo ""
+}
+
+# Function to monitor progress
+monitor_progress() {
+    echo ""
+    echo "📊 Cache Progress Monitor"
+    echo "========================"
+    echo "Monitoring cache statistics in real-time..."
+    echo "Press Ctrl+C to stop monitoring"
+    echo ""
+    
+    # Store initial stats
+    initial_stats=$(curl -s "$BASE_URL/cache/stats" 2>/dev/null)
+    initial_count=$(echo "$initial_stats" | jq '.totalFiles // 0' 2>/dev/null || echo "0")
+    initial_size=$(echo "$initial_stats" | jq -r '.totalSize // "0 MB"' 2>/dev/null || echo "0 MB")
+    
+    echo "Initial: $initial_count tiles, $initial_size"
+    echo "----------------------------------------"
+    
+    while true; do
+        # Get current stats
+        current_stats=$(curl -s "$BASE_URL/cache/stats" 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$current_stats" ]; then
+            current_count=$(echo "$current_stats" | jq '.totalFiles // 0' 2>/dev/null || echo "0")
+            current_size=$(echo "$current_stats" | jq -r '.totalSize // "0 MB"' 2>/dev/null || echo "0 MB")
+            
+            # Calculate progress
+            if [ "$current_count" != "null" ] && [ "$initial_count" != "null" ]; then
+                progress=$((current_count - initial_count))
+                echo "$(date +'%H:%M:%S') | Tiles: $current_count (+$progress) | Size: $current_size"
+            else
+                echo "$(date +'%H:%M:%S') | Tiles: $current_count | Size: $current_size"
+            fi
+            
+            # Show breakdown by zoom level if available
+            if command -v jq >/dev/null 2>&1; then
+                echo "$current_stats" | jq -r '.byZoomLevel | to_entries[] | "  Zoom \(.key): \(.value) tiles"' 2>/dev/null | head -5
+                echo ""
+            fi
+        else
+            echo "$(date +'%H:%M:%S') | ❌ Unable to fetch stats"
+        fi
+        
+        sleep 3
+    done
 }
 
 # Main menu loop

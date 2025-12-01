@@ -39,11 +39,12 @@ function Show-Menu {
     Write-Host ""
     Write-Host "1. Cache Statistics" -ForegroundColor White
     Write-Host "2. Java Island Preload (Multiple Options)" -ForegroundColor White
-    Write-Host "3. Preload Tiles (Custom Zooms)" -ForegroundColor White
-    Write-Host "4. Manual Update Tiles" -ForegroundColor White
-    Write-Host "5. Clean All Cache" -ForegroundColor White
-    Write-Host "6. Start Server" -ForegroundColor White
-    Write-Host "7. Exit" -ForegroundColor White
+    Write-Host "3. Monitor Progress (Real-time)" -ForegroundColor White
+    Write-Host "4. Preload Tiles (Custom Zooms)" -ForegroundColor White
+    Write-Host "5. Manual Update Tiles" -ForegroundColor White
+    Write-Host "6. Clean All Cache" -ForegroundColor White
+    Write-Host "7. Start Server" -ForegroundColor White
+    Write-Host "8. Exit" -ForegroundColor White
     Write-Host ""
 }
 
@@ -163,6 +164,53 @@ function Clean-Cache {
     }
 }
 
+# Function to monitor progress
+function Monitor-Progress {
+    Write-Host ""
+    Write-Host "📊 Cache Progress Monitor" -ForegroundColor Cyan
+    Write-Host "========================" -ForegroundColor Cyan
+    Write-Host "Monitoring cache statistics in real-time..." -ForegroundColor White
+    Write-Host "Press Ctrl+C to stop monitoring" -ForegroundColor Yellow
+    Write-Host ""
+    
+    try {
+        # Get initial stats
+        $initialStats = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 5
+        $initialCount = $initialStats.totalFiles
+        $initialSize = $initialStats.totalSize
+        
+        Write-Host "Initial: $initialCount tiles, $initialSize" -ForegroundColor Gray
+        Write-Host "----------------------------------------" -ForegroundColor Gray
+        
+        while ($true) {
+            try {
+                $currentStats = Invoke-RestMethod -Uri "http://3.107.98.189:8080/cache/stats" -Method GET -TimeoutSec 5
+                $currentCount = $currentStats.totalFiles
+                $currentSize = $currentStats.totalSize
+                $progress = $currentCount - $initialCount
+                
+                $timestamp = Get-Date -Format "HH:mm:ss"
+                Write-Host "$timestamp | Tiles: $currentCount (+$progress) | Size: $currentSize" -ForegroundColor White
+                
+                # Show breakdown by zoom level
+                if ($currentStats.byZoomLevel) {
+                    $currentStats.byZoomLevel.PSObject.Properties | Sort-Object Name | Select-Object -First 5 | ForEach-Object {
+                        Write-Host "  Zoom $($_.Name): $($_.Value) tiles" -ForegroundColor Gray
+                    }
+                }
+                Write-Host ""
+            } catch {
+                $timestamp = Get-Date -Format "HH:mm:ss"
+                Write-Host "$timestamp | ❌ Unable to fetch stats" -ForegroundColor Red
+            }
+            
+            Start-Sleep 3
+        }
+    } catch {
+        Write-Host "Error starting progress monitor: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
 # Function to update tiles manually
 function Update-TilesManual {
     Write-Host ""
@@ -272,7 +320,7 @@ do {
     Write-Host ""
     Show-Menu
 
-    $choice = Read-Host "Masukkan pilihan (1-7)"
+    $choice = Read-Host "Masukkan pilihan (1-8)"
 
     switch ($choice) {
         "1" {
@@ -290,6 +338,13 @@ do {
             }
         }
         "3" {
+            if (Test-ServerRunning) {
+                Monitor-Progress
+            } else {
+                Write-Host "Server tidak berjalan. Jalankan server terlebih dahulu." -ForegroundColor Red
+            }
+        }
+        "4" {
             if (Test-ServerRunning) {
                 Write-Host "Masukkan zoom levels (contoh: 8,9,10,11): " -NoNewline -ForegroundColor Yellow
                 $zoomInput = Read-Host
@@ -309,21 +364,21 @@ do {
                 Write-Host "Server tidak berjalan. Jalankan server terlebih dahulu." -ForegroundColor Red
             }
         }
-        "4" {
+        "5" {
             if (Test-ServerRunning) {
                 Update-TilesManual
             } else {
                 Write-Host "Server tidak berjalan. Jalankan server terlebih dahulu." -ForegroundColor Red
             }
         }
-        "5" {
+        "6" {
             if (Test-ServerRunning) {
                 Clean-Cache -Type "all"
             } else {
                 Write-Host "Server tidak berjalan. Jalankan server terlebih dahulu." -ForegroundColor Red
             }
         }
-        "6" {
+        "7" {
             if (-not (Test-ServerRunning)) {
                 Write-Host "Starting server..." -ForegroundColor Cyan
                 Write-Host "Tekan Ctrl+C untuk stop server" -ForegroundColor Yellow
@@ -333,19 +388,19 @@ do {
                 Write-Host "Server sudah berjalan." -ForegroundColor Yellow
             }
         }
-        "7" {
+        "8" {
             Write-Host "Goodbye!" -ForegroundColor Green
             break
         }
         default {
-            Write-Host "Pilihan tidak valid. Pilih 1-7." -ForegroundColor Red
+            Write-Host "Pilihan tidak valid. Pilih 1-8." -ForegroundColor Red
         }
     }
     
-    if ($choice -ne "7" -and $choice -ne "6") {
+    if ($choice -ne "8" -and $choice -ne "7") {
         Write-Host ""
         Write-Host "Tekan Enter untuk melanjutkan..." -ForegroundColor Gray
         Read-Host
     }
     
-} while ($choice -ne "7")
+} while ($choice -ne "8")
