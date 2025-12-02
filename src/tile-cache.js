@@ -13,6 +13,7 @@ class TileCacheManager {
     this.cacheDir = options.cacheDir || './cache';
     this.maxCacheSizeMB = options.maxCacheSizeMB || 1000; // 1GB
     this.userAgent = options.userAgent || 'OSRM-Tile-Cache-Service/1.0';
+    this.logger = options.logger || console; // Use provided logger or fallback to console
     
     // OSM tile servers for load balancing
     this.osmServers = [
@@ -110,7 +111,7 @@ class TileCacheManager {
       await fs.writeFile(metaPath, JSON.stringify(tileMetadata, null, 2));
       return true;
     } catch (error) {
-      console.error(`Error saving tile ${z}/${x}/${y} to cache:`, error.message);
+      this.logger.error(`Error saving tile ${z}/${x}/${y} to cache:`, { error: error.message, stack: error.stack });
       return false;
     }
   }

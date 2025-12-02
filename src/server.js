@@ -1,16 +1,54 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const helmet = require('helmet');
+const compression = require('compression');
+const { body, query, validationResult } = require('express-validator');
 const { SphericalMercator } = require('@mapbox/sphericalmercator');
 const TileCacheManager = require('./tile-cache');
+const logger = require('./logger');
+const {
+  globalLimiter,
+  routeLimiter,
+  tileLimiter,
+  cacheLimiter,
+  preloadLimiter
+} = require('./rateLimiter');
+const MemoryMonitor = require('./memoryMonitor');
 
 // Initialize Express
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Enable CORS
-app.use(cors());
-app.use(express.json());
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com"],
+      scriptSrc: ["'self'", "unpkg.com"],
+      imgSrc: ["'self'", "data:", "*.openstreetmap.org"],
+      connectSrc: ["'self'"]
+    }
+  }
+}));
+
+// Compression middleware
+app.use(compression());
+
+// Enable CORS with production settings
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.ALLOWED_ORIGINS?.split(',') || false
+    : true,
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// Body parsing with limits
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files
 app.use(express.static('public'));
@@ -23,12 +61,27 @@ const merc = new SphericalMercator({
   size: 256
 });
 
+// Initialize Memory Monitor
+const memoryMonitor = new MemoryMonitor({
+  maxMemoryMB: parseInt(process.env.MAX_MEMORY_MB) || 10000, // 10GB
+  warningThresholdPercent: 80,
+  criticalThresholdPercent: 90,
+  interval: 30000 // 30 seconds
+});
+
+// Start memory monitoring in production
+if (process.env.NODE_ENV === 'production') {
+  memoryMonitor.start();
+  logger.info('Memory monitoring started');
+}
+
 // Initialize Tile Cache Manager
 const cacheManager = new TileCacheManager({
   cacheDir: process.env.CACHE_DIR || './cache',
   cacheTTL: parseInt(process.env.TILE_CACHE_TTL) || 86400000, // 24 hours
   maxCacheSizeMB: parseInt(process.env.MAX_CACHE_SIZE_MB) || 1000, // 1GB
-  userAgent: 'OSRM-Tile-Service/1.0 (Java Island Routing Service)'
+  userAgent: 'OSRM-Tile-Service/1.0 (Java Island Routing Service)',
+  logger: logger // Pass logger to cache manager
 });
 
 // Configuration
@@ -43,12 +96,33 @@ const JAVA_ISLAND_BOUNDS = {
   maxLat: -5.9
 };
 
+// Apply global rate limiting to all routes except health
+app.use('/api', globalLimiter);
+app.use('/route', routeLimiter);
+app.use('/tiles', tileLimiter);
+app.use('/cache', cacheLimiter);
+
+// Validation middleware
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    logger.warn('Validation errors:', { errors: errors.array(), ip: req.ip });
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array()
+    });
+  }
+  next();
+};
+
 /**
- * Health check endpoint
+ * Health check endpoint (no rate limiting)
  */
 app.get('/health', async (req, res) => {
   try {
     const cacheStats = await cacheManager.getCacheStatistics();
+    const memoryStats = memoryMonitor.getMemoryStats();
     
     res.json({
       status: 'ok',
@@ -57,6 +131,11 @@ app.get('/health', async (req, res) => {
       mode: 'offline',
       cacheMode: CACHE_MODE,
       preloadEnabled: PRELOAD_ENABLED,
+      memory: {
+        current: memoryStats.current,
+        percent: memoryStats.percent,
+        status: memoryStats.percent > 90 ? 'critical' : memoryStats.percent > 80 ? 'warning' : 'ok'
+      },
       cache: {
         totalTiles: cacheStats.totalTiles,
         totalSizeMB: cacheStats.totalSizeMB,
@@ -259,19 +338,30 @@ app.post('/cache/update', async (req, res) => {
 });
 
 /**
- * Routing endpoint - proxy ke OSRM backend
+ * Routing endpoint with validation - proxy ke OSRM backend
  * GET /route?start=lon,lat&end=lon,lat
  */
-app.get('/route', async (req, res) => {
+app.get('/route', [
+  query('start')
+    .notEmpty()
+    .matches(/^-?\d+\.?\d*,-?\d+\.?\d*$/)
+    .withMessage('Start coordinates must be in format: lon,lat'),
+  query('end')
+    .notEmpty()
+    .matches(/^-?\d+\.?\d*,-?\d+\.?\d*$/)
+    .withMessage('End coordinates must be in format: lon,lat'),
+  handleValidationErrors
+], async (req, res) => {
+  const startTime = Date.now();
   try {
     const { start, end, alternatives = 'false', steps = 'true', geometries = 'geojson' } = req.query;
-
-    if (!start || !end) {
-      return res.status(400).json({ 
-        error: 'Parameter start dan end diperlukan',
-        example: '/route?start=107.6191,-6.9175&end=107.6098,-6.9145'
-      });
-    }
+    
+    logger.info('Route request received', {
+      start, 
+      end, 
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
 
     // Parse coordinates
     const [startLon, startLat] = start.split(',').map(parseFloat);
@@ -297,18 +387,41 @@ app.get('/route', async (req, res) => {
     // Request ke OSRM
     const response = await axios.get(osrmUrl, { params });
 
+    const responseTime = Date.now() - startTime;
+    
+    logger.info('Route request completed', {
+      start,
+      end,
+      responseTime: `${responseTime}ms`,
+      distance: response.data.routes?.[0]?.distance,
+      duration: response.data.routes?.[0]?.duration
+    });
+
     res.json({
       success: true,
       region: 'Java Island',
       mode: 'offline',
+      responseTime: `${responseTime}ms`,
       data: response.data
     });
 
   } catch (error) {
-    console.error('Routing error:', error.message);
+    const responseTime = Date.now() - startTime;
+    
+    logger.error('Routing error', {
+      error: error.message,
+      stack: error.stack,
+      start,
+      end,
+      responseTime: `${responseTime}ms`,
+      ip: req.ip
+    });
+    
     res.status(500).json({
-      error: 'Gagal mendapatkan rute',
-      message: error.message
+      success: false,
+      error: 'Failed to calculate route',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      responseTime: `${responseTime}ms`
     });
   }
 });
@@ -479,28 +592,43 @@ setInterval(async () => {
   }
 }, 6 * 60 * 60 * 1000); // 6 hours
 
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down gracefully');
+  memoryMonitor.stop();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received, shutting down gracefully');
+  memoryMonitor.stop();
+  process.exit(0);
+});
+
 /**
  * Start server
  */
-app.listen(PORT, () => {
-  console.log('='.repeat(50));
-  console.log('🚀 OSRM Tile Service Started');
-  console.log('='.repeat(50));
-  console.log(`📍 Port: ${PORT}`);
-  console.log(`🗺️  Region: Java Island (Full Local)`);
-  console.log(`💾 Cache Mode: ${CACHE_MODE}`);
-  console.log(`🔄 Preload Enabled: ${PRELOAD_ENABLED}`);
-  console.log(`📁 Cache Directory: ${cacheManager.cacheDir}`);
-  console.log('');
-  console.log('📡 Endpoints (Full Local):');
-  console.log(`   🏥 Health: http://localhost:${PORT}/health`);
-  console.log(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
-  console.log(`   🛣️  Routes: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
-  console.log(`   📊 Cache Stats: http://localhost:${PORT}/cache/stats`);
-  console.log(`   🔄 Preload: POST http://localhost:${PORT}/cache/preload`);
-  console.log('');
-  console.log('🌐 Web UI: http://localhost:' + PORT);
-  console.log('='.repeat(50));
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info('='.repeat(50));
+  logger.info(`🚀 OSRM Tile Service Started (Production Ready)`);
+  logger.info('='.repeat(50));
+  logger.info(`📍 Server: http://0.0.0.0:${PORT}`);
+  logger.info(`🌍 Region: Java Island (Full Coverage)`);
+  logger.info(`🔧 Mode: Full Local (No External Dependencies)`);
+  logger.info(`💾 Cache: Persistent file-based storage`);
+  logger.info(`🛡️  Security: Helmet, Rate Limiting, Validation`);
+  logger.info(`📊 Monitoring: Memory tracking, Structured logging`);
+  logger.info(`📁 Cache Directory: ${cacheManager.cacheDir}`);
+  logger.info('');
+  logger.info('📡 Available endpoints:');
+  logger.info(`   🏥 Health: http://localhost:${PORT}/health`);
+  logger.info(`   🛣️  Routes: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
+  logger.info(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
+  logger.info(`   📊 Cache Stats: http://localhost:${PORT}/cache/stats`);
+  logger.info(`   🔄 Preload: POST http://localhost:${PORT}/cache/preload`);
+  logger.info('');
+  logger.info('🌐 Web UI: http://localhost:' + PORT);
+  logger.info('='.repeat(50));
 });
 
 module.exports = app;

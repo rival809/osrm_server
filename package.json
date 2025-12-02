@@ -5,12 +5,13 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "NODE_ENV=production node --expose-gc src/server.js",
     "dev": "nodemon src/server.js",
     "download-pbf": "node scripts/download-pbf.js",
     "cache-manager": "powershell -ExecutionPolicy Bypass -File CACHE-MANAGER.ps1",
     "docker-manager": "powershell -ExecutionPolicy Bypass -File DOCKER-MANAGER.ps1",
-    "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost:3000/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\""",
-    "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost:3000/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\""",
+    "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost:3000/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\"",
+    "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost:3000/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\"",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
@@ -29,9 +30,15 @@
     "@mapbox/sphericalmercator": "^2.0.2",
     "axios": "^1.6.2",
     "canvas": "^3.2.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "node-cache": "^5.1.2"
+    "express-rate-limit": "^8.2.1",
+    "express-validator": "^7.3.1",
+    "express-winston": "^4.2.0",
+    "helmet": "^8.1.0",
+    "node-cache": "^5.1.2",
+    "winston": "^3.18.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

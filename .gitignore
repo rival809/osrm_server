@@ -7,6 +7,8 @@ server.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+!logs/.gitkeep
 
 # Data files (OSM PBF & OSRM processed files)
 data/*.osm.pbf
