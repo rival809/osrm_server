@@ -635,7 +635,7 @@ function Start-JavaTilePreload {
         "6" {
             $minZoom = Read-Host "Min Zoom Level (e.g., 10)"
             $maxZoom = Read-Host "Max Zoom Level (e.g., 13)"
-            $zoomLevels = @($minZoom..$maxZoom)
+            $zoomLevels = @([int]$minZoom..[int]$maxZoom)
             Write-Host "Selected: Custom zoom $minZoom-$maxZoom" -ForegroundColor Green
         }
         default {
