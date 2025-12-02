@@ -658,24 +658,46 @@ function Start-JavaTilePreload {
     
     # Generate tile URLs
     Write-Host "🔗 Generating tile URLs..." -ForegroundColor Yellow
-    $tileUrls = Get-TileUrls -MinLat $minLat -MaxLat $maxLat -MinLng $minLng -MaxLng $maxLng -ZoomLevels $zoomLevels
+    $allTileUrls = Get-TileUrls -MinLat $minLat -MaxLat $maxLat -MinLng $minLng -MaxLng $maxLng -ZoomLevels $zoomLevels
     
-    Write-Host "📊 Total tiles to download: $($tileUrls.Count)" -ForegroundColor Cyan
+    Write-Host "📊 Generated $($allTileUrls.Count) tile URLs" -ForegroundColor White
+    
+    # Check which files are already complete
+    Write-Host "🔍 Checking existing downloads..." -ForegroundColor Yellow
+    $completedCount = 0
+    $pendingUrls = @()
+    
+    foreach ($url in $allTileUrls) {
+        if (Test-FileComplete -Url $url) {
+            $completedCount++
+        } else {
+            $pendingUrls += $url
+        }
+    }
+    
+    Write-Host "✅ Already completed: $completedCount tiles" -ForegroundColor Green
+    Write-Host "📥 Need to download: $($pendingUrls.Count) tiles" -ForegroundColor Cyan
+    
+    if ($pendingUrls.Count -eq 0) {
+        Write-Host "🎉 All tiles already downloaded! Nothing to do." -ForegroundColor Green
+        return
+    }
+    
     Write-Host "⚙️ Concurrency: 5 simultaneous downloads" -ForegroundColor Gray
     Write-Host "🔄 Retry policy: 3 attempts per tile with backoff" -ForegroundColor Gray
     Write-Host "📁 Cache location: $Global:CacheDir" -ForegroundColor Gray
     Write-Host ""
     
-    $confirm = Read-Host "Continue with download? (y/N)"
+    $confirm = Read-Host "Continue with downloading $($pendingUrls.Count) remaining tiles? (y/N)"
     if ($confirm.ToLower() -ne "y") {
         Write-Host "Download cancelled." -ForegroundColor Yellow
         return
     }
     
-    # Start batch download with resume
+    # Start batch download with resume (only pending URLs)
     $startTime = Get-Date
     try {
-        $results = Invoke-BatchResumeDownload -Urls $tileUrls -Concurrency 5 -TimeoutSec 30 -MaxRetries 3
+        $results = Invoke-BatchResumeDownload -Urls $pendingUrls -Concurrency 5 -TimeoutSec 30 -MaxRetries 3
         
         $endTime = Get-Date
         $duration = $endTime - $startTime
@@ -685,9 +707,11 @@ function Start-JavaTilePreload {
         
         Write-Host ""
         Write-Host "🎉 Java tile preload completed!" -ForegroundColor Green
-        Write-Host "✅ Successful downloads: $successful" -ForegroundColor Green
+        Write-Host "✅ New downloads: $successful" -ForegroundColor Green
+        Write-Host "✅ Already had: $completedCount" -ForegroundColor Green
+        Write-Host "✅ Total tiles: $($completedCount + $successful)" -ForegroundColor White
         Write-Host "❌ Failed downloads: $failed" -ForegroundColor Red
-        Write-Host "⏱️ Total time: $($duration.ToString('hh\:mm\:ss'))" -ForegroundColor White
+        Write-Host "⏱️ Download time: $($duration.ToString('hh\:mm\:ss'))" -ForegroundColor White
         Write-Host "📁 Files saved to: $Global:CacheDir" -ForegroundColor Gray
         Write-Host ""
         
