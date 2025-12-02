@@ -78,23 +78,28 @@ get_metadata_path() {
     echo "$METADATA_DIR/$key.json"
 }
 
-# Function to check if file is complete
+# Function to check if file is complete (optimized)
 is_file_complete() {
     local url="$1"
     local cache_file=$(get_cache_file_path "$url")
     local meta_file=$(get_metadata_path "$url")
     
-    if [[ ! -f "$cache_file" ]] || [[ ! -f "$meta_file" ]]; then
+    # Quick check - if cache file doesn't exist, return false immediately
+    if [[ ! -f "$cache_file" ]]; then
         return 1
     fi
     
-    # Check if metadata shows completed
-    local completed=$(jq -r '.completed // false' "$meta_file" 2>/dev/null)
-    if [[ "$completed" != "true" ]]; then
+    # Quick check - if metadata doesn't exist, return false immediately
+    if [[ ! -f "$meta_file" ]]; then
         return 1
     fi
     
-    return 0
+    # Quick grep check instead of jq (faster for simple check)
+    if grep -q '"completed":true' "$meta_file" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Function to download with resume support
@@ -381,18 +386,67 @@ preload_java_tiles() {
     
     echo "📊 Generated ${#tile_urls[@]} tile URLs"
     
-    # Check which files are already complete
-    echo "🔍 Checking existing downloads..."
-    local completed_count=0
-    local pending_urls=()
-    
-    for url in "${tile_urls[@]}"; do
-        if is_file_complete "$url"; then
-            ((completed_count++))
+    # Give user option to skip checking if they have many files
+    if [[ ${#tile_urls[@]} -gt 10000 ]]; then
+        echo ""
+        echo "⚠️  Large number of URLs detected (${#tile_urls[@]} tiles)"
+        echo "🔍 Checking existing downloads may take several minutes..."
+        echo ""
+        echo "Options:"
+        echo "1. Check existing files first (recommended, but slower)"
+        echo "2. Skip checking and download all (faster start, but may re-download)"
+        echo ""
+        read -p "Choose option (1 or 2): " check_option
+        
+        if [[ "$check_option" == "2" ]]; then
+            echo "⚡ Skipping file check, will rely on resume download logic..."
+            pending_urls=("${tile_urls[@]}")
+            completed_count=0
         else
-            pending_urls+=("$url")
+            echo "🔍 Checking existing downloads..."
+            echo "📊 Total URLs to check: ${#tile_urls[@]}"
+            
+            local completed_count=0
+            local pending_urls=()
+            local check_count=0
+            
+            # Show progress every 500 checks for large sets
+            for url in "${tile_urls[@]}"; do
+                ((check_count++))
+                if [[ $((check_count % 500)) -eq 0 ]]; then
+                    local progress=$(echo "scale=1; $check_count * 100 / ${#tile_urls[@]}" | bc -l)
+                    echo "🔍 Checking progress: [$progress%] $check_count/${#tile_urls[@]}"
+                fi
+                
+                if is_file_complete "$url"; then
+                    ((completed_count++))
+                else
+                    pending_urls+=("$url")
+                fi
+            done
         fi
-    done
+    else
+        # For smaller sets, always check
+        echo "🔍 Checking existing downloads..."
+        
+        local completed_count=0
+        local pending_urls=()
+        local check_count=0
+        
+        for url in "${tile_urls[@]}"; do
+            ((check_count++))
+            if [[ $((check_count % 1000)) -eq 0 ]]; then
+                local progress=$(echo "scale=1; $check_count * 100 / ${#tile_urls[@]}" | bc -l)
+                echo "🔍 Checking progress: [$progress%] $check_count/${#tile_urls[@]}"
+            fi
+            
+            if is_file_complete "$url"; then
+                ((completed_count++))
+            else
+                pending_urls+=("$url")
+            fi
+        done
+    fi
     
     echo "✅ Already completed: $completed_count tiles"
     echo "📥 Need to download: ${#pending_urls[@]} tiles"
