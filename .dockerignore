@@ -1,0 +1,59 @@
+# Node modules
+node_modules
+npm-debug.log*
+
+# Cache files (will be mounted as volume)
+cache/*
+!cache/.gitkeep
+
+# Log files
+logs
+*.log
+
+# Temporary files
+tmp
+temp
+.tmp
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git files
+.git
+.gitignore
+
+# Docker files
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+!README.md
+
+# Scripts that are not needed in container
+*.ps1
+*.sh
+scripts/*.ps1
+scripts/*.sh
+
+# Test files
+test
+tests
+__tests__
+
+# Coverage reports
+coverage
+.nyc_output
+
+# Environment files (will be passed as env vars)
+.env
+.env.local
+.env.production

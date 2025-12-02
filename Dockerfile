@@ -15,17 +15,32 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
+# Create cache directory with proper permissions
+RUN mkdir -p /app/cache/tiles /app/cache/metadata /app/cache/preload && \
+    chmod -R 755 /app/cache
+
 # Copy package files
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm install
+RUN npm install --production
 
 # Copy application files
 COPY . .
 
-# Expose port
-EXPOSE 8080
+# Create non-root user for security
+RUN groupadd -r osrmuser && useradd -r -g osrmuser osrmuser && \
+    chown -R osrmuser:osrmuser /app
 
-# Start application
-CMD ["node", "src/server.js"]
+# Switch to non-root user
+USER osrmuser
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Start application with npm start
+CMD ["npm", "start"]

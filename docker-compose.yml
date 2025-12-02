@@ -11,7 +11,42 @@ services:
       - "5000:5000"
     command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
     restart: unless-stopped
+    networks:
+      - osrm-network
+
+  # Tile Cache Service (npm start)
+  tile-cache:
+    build: .
+    container_name: osrm-tile-cache
+    volumes:
+      - ./cache:/app/cache
+      - ./data:/app/data
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - OSRM_URL=http://osrm-backend:5000
+      - CACHE_DIR=/app/cache
+      - CACHE_MODE=smart
+      - PRELOAD_ENABLED=false
+      - MAX_CACHE_SIZE_MB=2000
+    depends_on:
+      - osrm-backend
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
-  default:
+  osrm-network:
     driver: bridge
+
+volumes:
+  cache-data:
+    driver: local

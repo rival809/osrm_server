@@ -28,19 +28,19 @@ const cacheManager = new TileCacheManager({
   cacheDir: process.env.CACHE_DIR || './cache',
   cacheTTL: parseInt(process.env.TILE_CACHE_TTL) || 86400000, // 24 hours
   maxCacheSizeMB: parseInt(process.env.MAX_CACHE_SIZE_MB) || 1000, // 1GB
-  userAgent: 'OSRM-Tile-Service/1.0 (West Java Routing Service)'
+  userAgent: 'OSRM-Tile-Service/1.0 (Java Island Routing Service)'
 });
 
 // Configuration
 const CACHE_MODE = process.env.CACHE_MODE || 'smart'; // 'smart', 'preload', 'proxy'
 const PRELOAD_ENABLED = process.env.PRELOAD_ENABLED === 'true';
 
-// Batas wilayah Jawa Barat (approximate)
-const WEST_JAVA_BOUNDS = {
-  minLon: 104.5,
-  minLat: -7.8,
-  maxLon: 108.8,
-  maxLat: -5.8
+// Batas wilayah Java Island (full coverage)
+const JAVA_ISLAND_BOUNDS = {
+  minLon: 105.0,
+  minLat: -8.8,
+  maxLon: 114.0,
+  maxLat: -5.9
 };
 
 /**
@@ -52,8 +52,9 @@ app.get('/health', async (req, res) => {
     
     res.json({
       status: 'ok',
-      service: 'OSRM Tile Service',
-      region: 'West Java (Jawa Barat)',
+      service: 'OSRM Tile Service (Full Local)',
+      region: 'Java Island',
+      mode: 'offline',
       cacheMode: CACHE_MODE,
       preloadEnabled: PRELOAD_ENABLED,
       cache: {
@@ -67,7 +68,7 @@ app.get('/health', async (req, res) => {
     res.json({
       status: 'ok', // Still return OK for basic health
       service: 'OSRM Tile Service',
-      region: 'West Java (Jawa Barat)',
+      region: 'Java Island',
       cacheMode: CACHE_MODE,
       cacheError: error.message,
       timestamp: new Date().toISOString()
@@ -111,12 +112,12 @@ app.post('/cache/preload', async (req, res) => {
     }
     
     // Start direct preload process (don't wait for completion)
-    const preloadPromise = cacheManager.preloadTilesDirectly(validZooms, bounds || WEST_JAVA_BOUNDS);
+    const preloadPromise = cacheManager.preloadTilesDirectly(validZooms, bounds || JAVA_ISLAND_BOUNDS);
     
     // Calculate estimated tiles
     let estimatedTiles = 0;
     for (const zoom of validZooms) {
-      const tiles = cacheManager.getTilesForBounds(bounds || WEST_JAVA_BOUNDS, zoom);
+      const tiles = cacheManager.getTilesForBounds(bounds || JAVA_ISLAND_BOUNDS, zoom);
       estimatedTiles += tiles.length;
     }
     
@@ -125,10 +126,11 @@ app.post('/cache/preload', async (req, res) => {
       success: true,
       message: 'Direct tile preload started (OSM → Cache)',
       method: 'direct-osm',
+      mode: 'offline-ready',
       zoomLevels: validZooms,
-      bounds: bounds || WEST_JAVA_BOUNDS,
+      bounds: bounds || JAVA_ISLAND_BOUNDS,
       estimatedTiles: estimatedTiles,
-      note: 'Tiles are downloaded directly from OSM servers and cached locally'
+      note: 'Tiles are downloaded directly from OSM servers and cached locally for offline use'
     });
     
     // Log results when complete
@@ -279,7 +281,7 @@ app.get('/route', async (req, res) => {
     if (!isInWestJava(startLon, startLat) || !isInWestJava(endLon, endLat)) {
       return res.status(400).json({
         error: 'Koordinat harus berada di wilayah Jawa Barat',
-        bounds: WEST_JAVA_BOUNDS
+        bounds: JAVA_ISLAND_BOUNDS
       });
     }
 
@@ -297,7 +299,8 @@ app.get('/route', async (req, res) => {
 
     res.json({
       success: true,
-      region: 'West Java',
+      region: 'Java Island',
+      mode: 'offline',
       data: response.data
     });
 
@@ -330,7 +333,7 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     const bounds = tileToBounds(tileX, tileY, zoom);
 
     // Cek apakah tile dalam batas Jawa Barat
-    if (!isTileInWestJava(bounds)) {
+    if (!isTileInJavaIsland(bounds)) {
       // Return empty tile jika di luar Jawa Barat
       const emptyTile = await createEmptyTile();
       res.set('Content-Type', 'image/png');
@@ -380,83 +383,17 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
   }
 });
 
-/**
- * Geocoding endpoint - search via Nominatim
- * GET /geocode?q=query
- */
-app.get('/geocode', async (req, res) => {
-  try {
-    const { q: query, limit = 5 } = req.query;
-    
-    if (!query) {
-      return res.status(400).json({ 
-        error: 'Parameter q (query) diperlukan',
-        example: '/geocode?q=Bandung'
-      });
-    }
-
-    // Search via Nominatim with West Java bounds
-    const nominatimUrl = 'https://nominatim.openstreetmap.org/search';
-    const params = {
-      q: query,
-      format: 'json',
-      limit: limit,
-      bounded: 1,
-      viewbox: `${WEST_JAVA_BOUNDS.minLon},${WEST_JAVA_BOUNDS.maxLat},${WEST_JAVA_BOUNDS.maxLon},${WEST_JAVA_BOUNDS.minLat}`,
-      addressdetails: 1,
-      extratags: 1,
-      namedetails: 1
-    };
-
-    const response = await axios.get(nominatimUrl, { 
-      params,
-      headers: {
-        'User-Agent': 'OSRM-Tile-Service/1.0'
-      }
-    });
-
-    // Filter results to West Java only
-    const filteredResults = response.data.filter(place => {
-      const lon = parseFloat(place.lon);
-      const lat = parseFloat(place.lat);
-      return isInWestJava(lon, lat);
-    });
-
-    res.json({
-      success: true,
-      query: query,
-      region: 'West Java',
-      count: filteredResults.length,
-      results: filteredResults
-    });
-
-  } catch (error) {
-    console.error('Geocoding error:', error.message);
-    res.status(500).json({
-      error: 'Gagal melakukan geocoding',
-      message: error.message
-    });
-  }
-});
 
 /**
  * Helper functions
  */
 
-// Check if coordinates are in West Java bounds
-function isInWestJava(lon, lat) {
-  return lon >= WEST_JAVA_BOUNDS.minLon && 
-         lon <= WEST_JAVA_BOUNDS.maxLon &&
-         lat >= WEST_JAVA_BOUNDS.minLat && 
-         lat <= WEST_JAVA_BOUNDS.maxLat;
-}
-
-// Check if tile intersects West Java
-function isTileInWestJava(bounds) {
-  return !(bounds.maxLon < WEST_JAVA_BOUNDS.minLon ||
-           bounds.minLon > WEST_JAVA_BOUNDS.maxLon ||
-           bounds.maxLat < WEST_JAVA_BOUNDS.minLat ||
-           bounds.minLat > WEST_JAVA_BOUNDS.maxLat);
+// Check if tile intersects Java Island
+function isTileInJavaIsland(bounds) {
+  return !(bounds.maxLon < JAVA_ISLAND_BOUNDS.minLon ||
+           bounds.minLon > JAVA_ISLAND_BOUNDS.maxLon ||
+           bounds.maxLat < JAVA_ISLAND_BOUNDS.minLat ||
+           bounds.minLat > JAVA_ISLAND_BOUNDS.maxLat);
 }
 
 // Convert tile coordinates to lat/lon bounds
@@ -488,7 +425,7 @@ async function createEmptyTile() {
     ctx.font = '12px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('Outside', 128, 120);
-    ctx.fillText('West Java', 128, 140);
+    ctx.fillText('Java Island', 128, 140);
     
     return canvas.toBuffer('image/png');
   } catch (error) {
@@ -515,7 +452,7 @@ if (PRELOAD_ENABLED) {
       const defaultZooms = [10, 11, 12];
       console.log(`🚀 Starting automatic preload for zoom levels: ${defaultZooms.join(', ')}`);
       
-      const results = await cacheManager.preloadTiles(defaultZooms, WEST_JAVA_BOUNDS);
+      const results = await cacheManager.preloadTiles(defaultZooms, JAVA_ISLAND_BOUNDS);
       console.log('✅ Automatic preload completed:', {
         totalTiles: results.totalTiles,
         downloadedTiles: results.downloadedTiles,
@@ -550,16 +487,15 @@ app.listen(PORT, () => {
   console.log('🚀 OSRM Tile Service Started');
   console.log('='.repeat(50));
   console.log(`📍 Port: ${PORT}`);
-  console.log(`🗺️  Region: West Java`);
+  console.log(`🗺️  Region: Java Island (Full Local)`);
   console.log(`💾 Cache Mode: ${CACHE_MODE}`);
   console.log(`🔄 Preload Enabled: ${PRELOAD_ENABLED}`);
   console.log(`📁 Cache Directory: ${cacheManager.cacheDir}`);
   console.log('');
-  console.log('📡 Endpoints:');
+  console.log('📡 Endpoints (Full Local):');
   console.log(`   🏥 Health: http://localhost:${PORT}/health`);
   console.log(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png`);
   console.log(`   🛣️  Routes: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
-  console.log(`   🔍 Geocode: http://localhost:${PORT}/geocode?q=query`);
   console.log(`   📊 Cache Stats: http://localhost:${PORT}/cache/stats`);
   console.log(`   🔄 Preload: POST http://localhost:${PORT}/cache/preload`);
   console.log('');
