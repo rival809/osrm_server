@@ -28,12 +28,12 @@ RUN npm install --production
 # Copy application files
 COPY . .
 
-# Create non-root user for security
-RUN groupadd -r osrmuser && useradd -r -g osrmuser osrmuser && \
-    chown -R osrmuser:osrmuser /app
+# Create non-root user for security (commented out for volume permission issues)
+# RUN groupadd -r osrmuser && useradd -r -g osrmuser osrmuser && \
+#     chown -R osrmuser:osrmuser /app
 
-# Switch to non-root user
-USER osrmuser
+# Switch to non-root user (commented out - runs as root for volume access)
+# USER osrmuser
 
 # Expose port (configurable via environment variable)
 EXPOSE 8080
