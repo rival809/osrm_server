@@ -76,6 +76,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Initialize Tile Cache Manager
+logger.info('Initializing Tile Cache Manager...');
 const cacheManager = new TileCacheManager({
   cacheDir: process.env.CACHE_DIR || './cache',
   cacheTTL: parseInt(process.env.TILE_CACHE_TTL) || 86400000, // 24 hours
@@ -83,6 +84,7 @@ const cacheManager = new TileCacheManager({
   userAgent: 'OSRM-Tile-Service/1.0 (Java Island Routing Service)',
   logger: logger // Pass logger to cache manager
 });
+logger.info('Tile Cache Manager initialized');
 
 // Configuration
 const CACHE_MODE = process.env.CACHE_MODE || 'smart'; // 'smart', 'preload', 'proxy'

@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Create cache directory with proper permissions
-RUN mkdir -p /app/cache/tiles /app/cache/metadata /app/cache/preload && \
-    chmod -R 755 /app/cache
+# Create cache and logs directories with proper permissions
+RUN mkdir -p /app/cache/tiles /app/cache/metadata /app/cache/preload /app/logs && \
+    chmod -R 755 /app/cache /app/logs
 
 # Copy package files
 COPY package*.json ./
@@ -35,8 +35,8 @@ RUN groupadd -r osrmuser && useradd -r -g osrmuser osrmuser && \
 # Switch to non-root user
 USER osrmuser
 
-# Expose port
-EXPOSE 3000
+# Expose port (configurable via environment variable)
+EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
