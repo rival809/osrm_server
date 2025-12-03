@@ -369,13 +369,13 @@ app.get('/route', [
     const [startLon, startLat] = start.split(',').map(parseFloat);
     const [endLon, endLat] = end.split(',').map(parseFloat);
 
-    // Validasi koordinat dalam batas Jawa Barat
-    if (!isInWestJava(startLon, startLat) || !isInWestJava(endLon, endLat)) {
-      return res.status(400).json({
-        error: 'Koordinat harus berada di wilayah Jawa Barat',
-        bounds: JAVA_ISLAND_BOUNDS
-      });
-    }
+    // Validasi koordinat dalam batas Jawa (disabled - function not defined)
+    // if (!isInWestJava(startLon, startLat) || !isInWestJava(endLon, endLat)) {
+    //   return res.status(400).json({
+    //     error: 'Koordinat harus berada di wilayah Jawa Barat',
+    //     bounds: JAVA_ISLAND_BOUNDS
+    //   });
+    // }
 
     // Build OSRM URL
     const osrmUrl = `${OSRM_URL}/route/v1/driving/${startLon},${startLat};${endLon},${endLat}`;
