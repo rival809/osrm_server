@@ -84,12 +84,34 @@ function Install-Chocolatey {
 function Install-Prerequisites {
     Write-Section "PREREQUISITES INSTALLATION"
     
-    # Check admin rights
-    if (-not (Test-AdminRights)) {
+    # First check if prerequisites are already installed
+    $nodeInstalled = $false
+    $dockerInstalled = $false
+    
+    try {
+        $nodeVersion = node --version 2>$null
+        if ($nodeVersion) {
+            $nodeInstalled = $true
+        }
+    } catch { }
+    
+    try {
+        $dockerVersion = docker --version 2>$null
+        if ($dockerVersion) {
+            $dockerInstalled = $true
+        }
+    } catch { }
+    
+    # Check admin rights only if installations are needed
+    if (-not ($nodeInstalled -and $dockerInstalled) -and -not (Test-AdminRights)) {
         Write-Warning "Some installations require administrator rights"
         Write-Host "Please run as administrator or install manually:" -ForegroundColor Yellow
-        Write-Host "  - Docker Desktop: https://desktop.docker.com/win/stable/Docker%20Desktop%20Installer.exe"
-        Write-Host "  - Node.js LTS: https://nodejs.org/"
+        if (-not $nodeInstalled) {
+            Write-Host "  - Node.js LTS: https://nodejs.org/"
+        }
+        if (-not $dockerInstalled) {
+            Write-Host "  - Docker Desktop: https://desktop.docker.com/win/stable/Docker%20Desktop%20Installer.exe"
+        }
         Write-Host ""
         
         $continue = Read-Host "Continue with current permissions? (y/N)"
