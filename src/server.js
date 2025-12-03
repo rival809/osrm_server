@@ -420,6 +420,11 @@ app.get('/route', [
   } catch (error) {
     const responseTime = Date.now() - startTime;
     
+    // Debug: print full error
+    console.error('ROUTING ERROR DETAIL:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
     logger.error('Routing error', {
       error: error.message,
       stack: error.stack,
