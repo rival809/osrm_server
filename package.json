@@ -9,13 +9,12 @@
     "dev": "nodemon src/server.js",
     "download-pbf": "node scripts/download-pbf.js",
     "cache-manager": "powershell -ExecutionPolicy Bypass -File CACHE-MANAGER.ps1",
-    "docker-manager": "powershell -ExecutionPolicy Bypass -File DOCKER-MANAGER.ps1",
-    "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost:3000/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\"",
-    "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost:3000/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\"",
+    "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\"",
+    "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\"",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f tile-cache",
+    "docker:logs": "docker-compose logs -f osrm-api-1 osrm-api-2",
     "docker:status": "docker-compose ps"
   },
   "keywords": [

@@ -371,10 +371,30 @@ function Process-OSRMData {
     # Check if all required OSRM files exist (MLD algorithm requirements)
     $requiredFiles = @(
         "data\java-latest.osrm",
+        "data\java-latest.osrm.cells",
+        "data\java-latest.osrm.cell_metrics",
+        "data\java-latest.osrm.cnbg",
+        "data\java-latest.osrm.cnbg_to_ebg",
         "data\java-latest.osrm.datasource_names",
+        "data\java-latest.osrm.ebg_nodes",
         "data\java-latest.osrm.edges",
+        "data\java-latest.osrm.enw",
+        "data\java-latest.osrm.fileIndex",
         "data\java-latest.osrm.geometry",
-        "data\java-latest.osrm.fileIndex"
+        "data\java-latest.osrm.icd",
+        "data\java-latest.osrm.maneuver_overrides",
+        "data\java-latest.osrm.mldgr",
+        "data\java-latest.osrm.names",
+        "data\java-latest.osrm.nbg_nodes",
+        "data\java-latest.osrm.partition",
+        "data\java-latest.osrm.properties",
+        "data\java-latest.osrm.restrictions",
+        "data\java-latest.osrm.timestamp",
+        "data\java-latest.osrm.tld",
+        "data\java-latest.osrm.tls",
+        "data\java-latest.osrm.turn_duration_penalties",
+        "data\java-latest.osrm.turn_penalties_index",
+        "data\java-latest.osrm.turn_weight_penalties"
     )
     
     $allFilesExist = $true
