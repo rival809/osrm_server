@@ -41,6 +41,7 @@ class TileCacheManager {
   
   // Initialize cache directory structure
   initializeCacheDirectories() {
+    this.logger.info('initializeCacheDirectories: Started');
     const dirs = [
       this.cacheDir,
       path.join(this.cacheDir, 'tiles'),
@@ -48,11 +49,19 @@ class TileCacheManager {
       path.join(this.cacheDir, 'preload')
     ];
     
-    for (const dir of dirs) {
+    this.logger.info(`initializeCacheDirectories: Creating ${dirs.length} directories`);
+    for (let i = 0; i < dirs.length; i++) {
+      const dir = dirs[i];
+      this.logger.info(`initializeCacheDirectories: Checking dir [${i}]: ${dir}`);
       if (!fsSync.existsSync(dir)) {
+        this.logger.info(`initializeCacheDirectories: Creating dir [${i}]: ${dir}`);
         fsSync.mkdirSync(dir, { recursive: true });
+        this.logger.info(`initializeCacheDirectories: Created dir [${i}]: ${dir}`);
+      } else {
+        this.logger.info(`initializeCacheDirectories: Dir [${i}] exists: ${dir}`);
       }
     }
+    this.logger.info('initializeCacheDirectories: Completed');
   }
   
   // Generate cache file paths
