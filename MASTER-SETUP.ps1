@@ -3,14 +3,14 @@
 # ========================================================================
 # 
 # This script handles EVERYTHING from fresh clone to production deployment:
-# ✅ Prerequisites check & auto-install
-# ✅ Environment setup
-# ✅ OSM data download & processing  
-# ✅ OSRM backend setup
-# ✅ Tile cache preloading
-# ✅ Production deployment
-# ✅ Health checks & validation
-# ✅ Error recovery & troubleshooting
+# - Prerequisites check & auto-install
+# - Environment setup
+# - OSM data download & processing  
+# - OSRM backend setup
+# - Tile cache preloading
+# - Production deployment
+# - Health checks & validation
+# - Error recovery & troubleshooting
 
 param(
     [string]$Mode = "interactive",  # interactive, auto, production
@@ -32,23 +32,23 @@ function Write-Section {
 
 function Write-Step {
     param([string]$Step, [string]$Description)
-    Write-Host "🔹 $Step" -ForegroundColor Yellow
+    Write-Host "[*] $Step" -ForegroundColor Yellow
     Write-Host "   $Description" -ForegroundColor Gray
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✅ $Message" -ForegroundColor Green
+    Write-Host "[+] $Message" -ForegroundColor Green
 }
 
 function Write-Warning {
     param([string]$Message)
-    Write-Host "⚠️ $Message" -ForegroundColor Yellow
+    Write-Host "[!] $Message" -ForegroundColor Yellow
 }
 
 function Write-Error {
     param([string]$Message)
-    Write-Host "❌ $Message" -ForegroundColor Red
+    Write-Host "[-] $Message" -ForegroundColor Red
 }
 
 function Test-AdminRights {
@@ -408,25 +408,25 @@ function Test-Deployment {
 function Show-CompletionSummary {
     Write-Section "SETUP COMPLETE" "Green"
     
-    Write-Host "🎉 OSRM Service is now fully deployed and ready!" -ForegroundColor Green
+    Write-Host "[SUCCESS] OSRM Service is now fully deployed and ready!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "📍 Available Services:" -ForegroundColor Cyan
-    Write-Host "   • API Server:     http://localhost:8080" -ForegroundColor White
-    Write-Host "   • OSRM Backend:   http://localhost:5000" -ForegroundColor White
-    Write-Host "   • Web Interface:  http://localhost:8080" -ForegroundColor White
+    Write-Host "Available Services:" -ForegroundColor Cyan
+    Write-Host "   * API Server:     http://localhost:8080" -ForegroundColor White
+    Write-Host "   * OSRM Backend:   http://localhost:5000" -ForegroundColor White
+    Write-Host "   * Web Interface:  http://localhost:8080" -ForegroundColor White
     Write-Host ""
-    Write-Host "🎮 Management Commands:" -ForegroundColor Cyan
-    Write-Host "   • Start:          .\START.ps1" -ForegroundColor White
-    Write-Host "   • Stop:           .\STOP.ps1" -ForegroundColor White
-    Write-Host "   • Cache Manager:  .\CACHE-MANAGER.ps1" -ForegroundColor White
-    Write-Host "   • Docker Manager: .\DOCKER-MANAGER.ps1" -ForegroundColor White
+    Write-Host "Management Commands:" -ForegroundColor Cyan
+    Write-Host "   * Start:          .\START.ps1" -ForegroundColor White
+    Write-Host "   * Stop:           .\STOP.ps1" -ForegroundColor White
+    Write-Host "   * Cache Manager:  .\CACHE-MANAGER.ps1" -ForegroundColor White
+    Write-Host "   * Docker Manager: .\DOCKER-MANAGER.ps1" -ForegroundColor White
     Write-Host ""
-    Write-Host "📊 Next Steps:" -ForegroundColor Cyan
+    Write-Host "Next Steps:" -ForegroundColor Cyan
     Write-Host "   1. Run cache preload: .\CACHE-MANAGER.ps1 (option 2)" -ForegroundColor White
     Write-Host "   2. Test routing: http://localhost:8080" -ForegroundColor White
     Write-Host "   3. Monitor with: docker-compose logs -f" -ForegroundColor White
     Write-Host ""
-    Write-Host "💡 For production deployment, see DEPLOYMENT.md" -ForegroundColor Yellow
+    Write-Host "For production deployment, see DEPLOYMENT.md" -ForegroundColor Yellow
 }
 
 # Main execution
@@ -435,12 +435,12 @@ function Main {
     Write-Host "Complete End-to-End Setup for Windows" -ForegroundColor White
     Write-Host ""
     Write-Host "This script will:" -ForegroundColor Cyan
-    Write-Host "  ✅ Install prerequisites (Node.js, Docker)" -ForegroundColor Gray
-    Write-Host "  ✅ Setup environment and dependencies" -ForegroundColor Gray
-    Write-Host "  ✅ Download Java Island OSM data (~800MB)" -ForegroundColor Gray
-    Write-Host "  ✅ Process OSRM routing data (10-20 min)" -ForegroundColor Gray
-    Write-Host "  ✅ Start all services" -ForegroundColor Gray
-    Write-Host "  ✅ Test deployment" -ForegroundColor Gray
+    Write-Host "  - Install prerequisites (Node.js, Docker)" -ForegroundColor Gray
+    Write-Host "  - Setup environment and dependencies" -ForegroundColor Gray
+    Write-Host "  - Download Java Island OSM data (~800MB)" -ForegroundColor Gray
+    Write-Host "  - Process OSRM routing data (10-20 min)" -ForegroundColor Gray
+    Write-Host "  - Start all services" -ForegroundColor Gray
+    Write-Host "  - Test deployment" -ForegroundColor Gray
     Write-Host ""
     
     if ($Mode -eq "interactive") {
