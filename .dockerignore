@@ -6,6 +6,10 @@ npm-debug.log*
 cache/*
 !cache/.gitkeep
 
+# Data files (will be mounted as volume - large OSRM files)
+data/*
+!data/.gitkeep
+
 # Log files
 logs
 *.log
