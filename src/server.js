@@ -355,9 +355,9 @@ app.get('/route', [
   handleValidationErrors
 ], async (req, res) => {
   const startTime = Date.now();
+  const { start, end, alternatives = 'false', steps = 'true', geometries = 'geojson' } = req.query;
+  
   try {
-    const { start, end, alternatives = 'false', steps = 'true', geometries = 'geojson' } = req.query;
-    
     logger.info('Route request received', {
       start, 
       end, 
