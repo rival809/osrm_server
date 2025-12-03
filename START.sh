@@ -42,7 +42,6 @@ fi
 
 # Check essential OSRM MLD files
 OSRM_FILES=(
-    "data/java-latest.osrm"
     "data/java-latest.osrm.fileIndex"
     "data/java-latest.osrm.cells"
     "data/java-latest.osrm.partition"
