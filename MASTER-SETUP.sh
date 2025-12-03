@@ -163,6 +163,35 @@ install_prerequisites() {
         print_success "System packages already available"
     fi
     
+    # Verify curl or wget for downloads (at least one required)
+    print_step "Checking download utilities" "curl or wget required"
+    local has_curl=false
+    local has_wget=false
+    
+    if command -v curl &> /dev/null; then
+        has_curl=true
+        CURL_VERSION=$(curl --version 2>/dev/null | head -n1)
+        echo "   ${GREEN}✓${NC} curl available: $CURL_VERSION"
+    fi
+    
+    if command -v wget &> /dev/null; then
+        has_wget=true
+        WGET_VERSION=$(wget --version 2>/dev/null | head -n1)
+        echo "   ${GREEN}✓${NC} wget available: $WGET_VERSION"
+    fi
+    
+    if [ "$has_curl" = true ] || [ "$has_wget" = true ]; then
+        if [ "$has_curl" = true ]; then
+            print_success "Download tools ready (curl preferred for faster downloads)"
+        else
+            print_success "Download tools ready (wget available)"
+        fi
+    else
+        print_error "Neither curl nor wget found!"
+        print_warning "At least one is required for downloading OSM data"
+        return 1
+    fi
+    
     # Install Node.js if not installed
     if [ "$node_installed" = false ]; then
         install_nodejs || return 1
@@ -288,25 +317,45 @@ download_osm_data() {
     # Create data directory if it doesn't exist
     mkdir -p data
     
-    if wget --progress=bar --show-progress -O "$data_file" "$url"; then
-        print_success "OSM data downloaded successfully"
-        return 0
-    else
-        print_error "Failed to download OSM data"
-        print_warning "You can download manually from: $url"
-        return 1
+    # Try curl first (usually faster and better progress display)
+    if command -v curl &> /dev/null; then
+        echo "${CYAN}Using curl for download...${NC}"
+        echo "Starting download..."
+        echo ""
+        
+        if curl -L --progress-bar -o "$data_file" "$url"; then
+            echo ""
+            print_success "OSM data downloaded successfully"
+            local size_mb=$(du -m "$data_file" | cut -f1)
+            echo "   File size: ${size_mb}MB"
+            return 0
+        else
+            print_warning "curl download failed, trying wget..."
+        fi
     fi
+    
+    # Fallback to wget
+    if command -v wget &> /dev/null; then
+        echo "${CYAN}Using wget for download...${NC}"
+        
+        if wget --progress=bar:force --show-progress -O "$data_file" "$url" 2>&1; then
+            print_success "OSM data downloaded successfully"
+            return 0
+        else
+            print_error "Failed to download OSM data"
+            print_warning "You can download manually from: $url"
+            return 1
+        fi
+    fi
+    
+    print_error "Neither curl nor wget found. Please install one of them."
+    print_warning "You can download manually from: $url"
+    return 1
 }
 
 # Process OSRM data
 process_osrm_data() {
     print_section "OSRM DATA PROCESSING"
-    
-    local osrm_file="data/java-latest.osrm"
-    if [ -f "$osrm_file" ]; then
-        print_success "OSRM data already processed"
-        return 0
-    fi
     
     local pbf_file="data/java-latest.osm.pbf"
     if [ ! -f "$pbf_file" ]; then
@@ -314,30 +363,72 @@ process_osrm_data() {
         return 1
     fi
     
+    # Check if all required OSRM files exist (MLD algorithm requirements)
+    local required_files=(
+        "data/java-latest.osrm"
+        "data/java-latest.osrm.datasource_names"
+        "data/java-latest.osrm.edges"
+        "data/java-latest.osrm.geometry"
+        "data/java-latest.osrm.fileIndex"
+    )
+    
+    local all_files_exist=true
+    for file in "${required_files[@]}"; do
+        if [ ! -f "$file" ]; then
+            all_files_exist=false
+            break
+        fi
+    done
+    
+    if [ "$all_files_exist" = true ]; then
+        print_success "OSRM data already processed and complete"
+        return 0
+    fi
+    
+    # Clean up any incomplete/old OSRM files
+    print_step "Cleaning up old OSRM files" "Removing incomplete data"
+    local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
+    if [ $old_count -gt 0 ]; then
+        find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
+        echo "   Removed $old_count old file(s)"
+    fi
+    
     print_step "Processing OSM data for routing" "This may take 10-20 minutes"
+    echo ""
+    
+    local absolute_data_dir="$(pwd)/data"
+    local osrm_image="ghcr.io/project-osrm/osrm-backend:v6.0.0"
     
     # Extract
-    print_warning "Step 1/3: Extracting..."
-    if ! docker run --rm -t -v "$(pwd)/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf; then
+    echo -e "${CYAN}Step 1/3: Extracting...${NC}"
+    echo -e "${GRAY}   This will take 5-10 minutes...${NC}"
+    if ! docker run -t -v "${absolute_data_dir}:/data" $osrm_image osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf; then
         print_error "Extract failed"
         return 1
     fi
+    print_success "Extract completed"
     
     # Partition
-    print_warning "Step 2/3: Partitioning..."
-    if ! docker run --rm -t -v "$(pwd)/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-partition /data/java-latest.osrm; then
+    echo -e "${CYAN}Step 2/3: Partitioning...${NC}"
+    echo -e "${GRAY}   This will take 3-5 minutes...${NC}"
+    if ! docker run -t -v "${absolute_data_dir}:/data" $osrm_image osrm-partition /data/java-latest.osrm; then
         print_error "Partition failed"
         return 1
     fi
+    print_success "Partition completed"
     
     # Customize
-    print_warning "Step 3/3: Customizing..."
-    if ! docker run --rm -t -v "$(pwd)/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-customize /data/java-latest.osrm; then
+    echo -e "${CYAN}Step 3/3: Customizing...${NC}"
+    echo -e "${GRAY}   This will take 2-5 minutes...${NC}"
+    if ! docker run -t -v "${absolute_data_dir}:/data" $osrm_image osrm-customize /data/java-latest.osrm; then
         print_error "Customize failed"
         return 1
     fi
+    print_success "Customize completed"
     
-    print_success "OSRM data processing completed"
+    echo ""
+    print_success "OSRM data processing completed successfully!"
+    echo -e "${GRAY}   All required files have been generated${NC}"
     return 0
 }
 

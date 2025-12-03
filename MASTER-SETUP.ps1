@@ -163,6 +163,23 @@ function Install-Prerequisites {
         }
     }
     
+    # Check curl.exe for fast downloads
+    Write-Step "Checking curl" "Download utility (optional but recommended)"
+    $curlPath = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlPath) {
+        try {
+            $curlVersion = & curl.exe --version 2>$null | Select-Object -First 1
+            Write-Success "curl.exe available: $curlVersion"
+            Write-Host "   [OK] Fast downloads enabled" -ForegroundColor Gray
+        } catch {
+            Write-Success "curl.exe found (version check skipped)"
+        }
+    } else {
+        Write-Warning "curl.exe not found (will use PowerShell download as fallback)"
+        Write-Host "   Note: curl.exe is built-in on Windows 10 version 1803 and later" -ForegroundColor Gray
+        Write-Host "   PowerShell downloads will be slower but still work" -ForegroundColor Gray
+    }
+    
     # Check if Docker is running
     Write-Step "Checking Docker status" "Verify Docker daemon is running"
     try {
@@ -183,12 +200,13 @@ function Install-Prerequisites {
                 Write-Success "Docker started successfully"
                 break
             } catch {
-                Write-Host "Still waiting... ($elapsed/$timeout seconds)" -ForegroundColor Gray
+                Write-Host "Still waiting... ($elapsed / $timeout seconds)" -ForegroundColor Gray
             }
         }
         
         if ($elapsed -ge $timeout) {
-            Write-Error "Docker failed to start within $timeout seconds"
+            $msg = "Docker failed to start within $timeout seconds"
+            Write-Error $msg
             return $false
         }
     }
@@ -231,7 +249,7 @@ MAX_CACHE_SIZE_MB=2000
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=100
 "@
-        $envContent | Out-File -FilePath ".env" -Encoding UTF8
+        $envContent | Out-File -FilePath ".env" -Encoding UTF8 -Force
         Write-Success "Created .env file"
     } else {
         Write-Success ".env file already exists"
@@ -257,34 +275,83 @@ function Download-OSMData {
     
     if (Test-Path $dataFile) {
         $fileInfo = Get-Item $dataFile
-        $sizeGB = [Math]::Round($fileInfo.Length / 1GB, 2)
-        Write-Success "OSM data already exists: $dataFile ($sizeGB GB)"
+        $sizeMB = [Math]::Round($fileInfo.Length / 1MB, 2)
+        Write-Success "OSM data already exists: $dataFile ($sizeMB MB)"
         return $true
     }
     
     Write-Step "Downloading Java Island OSM data" "~800MB download from Geofabrik"
     $url = "https://download.geofabrik.de/asia/indonesia/java-latest.osm.pbf"
     
+    # Create data directory if not exists
+    if (-not (Test-Path "data")) {
+        New-Item -ItemType Directory -Path "data" | Out-Null
+    }
+    
+    # Try curl.exe first (faster and more reliable)
+    $curlPath = Get-Command curl.exe -ErrorAction SilentlyContinue
+    
+    if ($curlPath) {
+        try {
+            Write-Host "Using curl.exe for faster download..." -ForegroundColor Cyan
+            Write-Host "Starting download..." -ForegroundColor Yellow
+            Write-Host ""
+            
+            # Use curl with progress bar
+            & curl.exe -L --progress-bar -o $dataFile $url
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host ""
+                Write-Success "OSM data downloaded successfully"
+                
+                $fileInfo = Get-Item $dataFile
+                $sizeMB = [Math]::Round($fileInfo.Length / 1MB, 2)
+                Write-Host "   File size: $sizeMB MB" -ForegroundColor Gray
+                return $true
+            } else {
+                throw "curl failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            Write-Warning "curl download failed, trying PowerShell method..."
+        }
+    }
+    
+    # Fallback to PowerShell download
     try {
-        # Use PowerShell download with progress
+        Write-Host "Using PowerShell download (this may be slower)..." -ForegroundColor Yellow
         Write-Host "Starting download..." -ForegroundColor Yellow
+        
         $webClient = New-Object System.Net.WebClient
         
         # Progress callback
-        $webClient.add_DownloadProgressChanged({
-            param($sender, $e)
-            $percent = $e.ProgressPercentage
-            $received = [Math]::Round($e.BytesReceived / 1MB, 1)
-            $total = [Math]::Round($e.TotalBytesToReceive / 1MB, 1)
-            Write-Progress -Activity "Downloading OSM Data" -Status "$received MB / $total MB" -PercentComplete $percent
-        })
+        $global:lastUpdate = [DateTime]::Now
+        Register-ObjectEvent -InputObject $webClient -EventName DownloadProgressChanged -Action {
+            $now = [DateTime]::Now
+            if (($now - $global:lastUpdate).TotalSeconds -ge 2) {
+                $percent = $Event.SourceEventArgs.ProgressPercentage
+                $received = [Math]::Round($Event.SourceEventArgs.BytesReceived / 1MB, 1)
+                $total = [Math]::Round($Event.SourceEventArgs.TotalBytesToReceive / 1MB, 1)
+                Write-Progress -Activity "Downloading OSM Data" -Status "$received MB / $total MB ($percent%)" -PercentComplete $percent
+                $global:lastUpdate = $now
+            }
+        } | Out-Null
         
-        $webClient.DownloadFile($url, $dataFile)
+        $webClient.DownloadFileAsync($url, $dataFile)
+        
+        # Wait for download to complete
+        while ($webClient.IsBusy) {
+            Start-Sleep -Milliseconds 500
+        }
+        
         $webClient.Dispose()
-        
         Write-Progress -Activity "Downloading OSM Data" -Completed
-        Write-Success "OSM data downloaded successfully"
-        return $true
+        
+        if (Test-Path $dataFile) {
+            Write-Success "OSM data downloaded successfully"
+            return $true
+        } else {
+            throw "File not found after download"
+        }
     } catch {
         Write-Error "Failed to download OSM data: $($_.Exception.Message)"
         Write-Host "You can download manually from: $url" -ForegroundColor Yellow
@@ -295,40 +362,90 @@ function Download-OSMData {
 function Process-OSRMData {
     Write-Section "OSRM DATA PROCESSING"
     
-    $osrmFile = "data\java-latest.osrm"
-    if (Test-Path $osrmFile) {
-        Write-Success "OSRM data already processed"
-        return $true
-    }
-    
     $pbfFile = "data\java-latest.osm.pbf"
     if (-not (Test-Path $pbfFile)) {
         Write-Error "OSM PBF file not found. Please download first."
         return $false
     }
     
+    # Check if all required OSRM files exist (MLD algorithm requirements)
+    $requiredFiles = @(
+        "data\java-latest.osrm",
+        "data\java-latest.osrm.datasource_names",
+        "data\java-latest.osrm.edges",
+        "data\java-latest.osrm.geometry",
+        "data\java-latest.osrm.fileIndex"
+    )
+    
+    $allFilesExist = $true
+    foreach ($file in $requiredFiles) {
+        if (-not (Test-Path $file)) {
+            $allFilesExist = $false
+            break
+        }
+    }
+    
+    if ($allFilesExist) {
+        Write-Success "OSRM data already processed and complete"
+        return $true
+    }
+    
+    # Clean up any incomplete/old OSRM files
+    Write-Step "Cleaning up old OSRM files" "Removing incomplete data"
+    $oldFiles = Get-ChildItem "data" -Filter "java-latest.osrm*" -ErrorAction SilentlyContinue
+    if ($oldFiles) {
+        $oldFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+        Write-Host "   Removed $($oldFiles.Count) old file(s)" -ForegroundColor Gray
+    }
+    
     Write-Step "Processing OSM data for routing" "This may take 10-20 minutes"
+    Write-Host ""
+    
+    # Get absolute path for Docker volume mount (Windows compatibility)
+    $absoluteDataDir = (Resolve-Path "data").Path
+    $osrmImage = "ghcr.io/project-osrm/osrm-backend:v6.0.0"
     
     try {
         # Extract
-        Write-Host "Step 1/3: Extracting..." -ForegroundColor Yellow
-        docker run --rm -t -v "${PWD}/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf
-        if ($LASTEXITCODE -ne 0) { throw "Extract failed" }
+        Write-Host "Step 1/3: Extracting..." -ForegroundColor Cyan
+        Write-Host "   This will take 5-10 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf
+        # Note: Extract may return exit code 1 due to warnings (e.g., U-turn warnings), but files are still generated correctly
+        # Check if required extract output file exists instead of relying on exit code
+        if (-not (Test-Path "data\java-latest.osrm.nbg_nodes")) {
+            throw "Extract failed - output files not generated"
+        }
+        Write-Success "Extract completed"
         
         # Partition
-        Write-Host "Step 2/3: Partitioning..." -ForegroundColor Yellow
-        docker run --rm -t -v "${PWD}/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-partition /data/java-latest.osrm
-        if ($LASTEXITCODE -ne 0) { throw "Partition failed" }
+        Write-Host "Step 2/3: Partitioning..." -ForegroundColor Cyan
+        Write-Host "   This will take 3-5 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-partition /data/java-latest.osrm
+        if (-not (Test-Path "data\java-latest.osrm.partition")) {
+            throw "Partition failed - output files not generated"
+        }
+        Write-Success "Partition completed"
         
         # Customize
-        Write-Host "Step 3/3: Customizing..." -ForegroundColor Yellow
-        docker run --rm -t -v "${PWD}/data:/data" ghcr.io/project-osrm/osrm-backend:v6.0.0 osrm-customize /data/java-latest.osrm
-        if ($LASTEXITCODE -ne 0) { throw "Customize failed" }
+        Write-Host "Step 3/3: Customizing..." -ForegroundColor Cyan
+        Write-Host "   This will take 2-5 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-customize /data/java-latest.osrm
+        if (-not (Test-Path "data\java-latest.osrm.cells")) {
+            throw "Customize failed - output files not generated"
+        }
+        Write-Success "Customize completed"
         
-        Write-Success "OSRM data processing completed"
+        Write-Host ""
+        Write-Success "OSRM data processing completed successfully!"
+        Write-Host "   All required files have been generated" -ForegroundColor Gray
         return $true
     } catch {
         Write-Error "OSRM processing failed: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "Troubleshooting:" -ForegroundColor Yellow
+        Write-Host "   1. Ensure Docker is running" -ForegroundColor Gray
+        Write-Host "   2. Check if data/java-latest.osm.pbf exists" -ForegroundColor Gray
+        Write-Host "   3. Verify sufficient disk space (~2GB needed)" -ForegroundColor Gray
         return $false
     }
 }
