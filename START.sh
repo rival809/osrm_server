@@ -40,7 +40,14 @@ if [ ! -f "$PBF_FILE" ]; then
     exit 1
 fi
 
-OSRM_FILES=("data/java-latest.osrm" "data/java-latest.osrm.hsgr" "data/java-latest.osrm.ch")
+# Check essential OSRM MLD files
+OSRM_FILES=(
+    "data/java-latest.osrm"
+    "data/java-latest.osrm.fileIndex"
+    "data/java-latest.osrm.cells"
+    "data/java-latest.osrm.partition"
+    "data/java-latest.osrm.mldgr"
+)
 MISSING_FILES=()
 for file in "${OSRM_FILES[@]}"; do
     if [ ! -f "$file" ]; then
@@ -51,7 +58,7 @@ done
 if [ ${#MISSING_FILES[@]} -gt 0 ]; then
     echo "❌ OSRM processed files missing:"
     printf '   %s\n' "${MISSING_FILES[@]}"
-    echo "   Run: ./scripts/process-osrm-v6.sh"
+    echo "   Run: ./MASTER-SETUP.sh"
     exit 1
 fi
 

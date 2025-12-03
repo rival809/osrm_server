@@ -30,9 +30,29 @@ if (-not $pbfExists) {
 
 if (-not $osrmExists) {
     Write-Host "⚠️  Data OSRM belum diproses" -ForegroundColor Yellow
-    Write-Host "   Jalankan: .\scripts\process-osrm-v6.ps1" -ForegroundColor Yellow
+    Write-Host "   Jalankan: .\MASTER-SETUP.ps1" -ForegroundColor Yellow
 } else {
-    Write-Host "✅ OSRM files exist" -ForegroundColor Green
+    # Check essential MLD files
+    $mldFiles = @(
+        "data\java-latest.osrm.fileIndex",
+        "data\java-latest.osrm.cells",
+        "data\java-latest.osrm.partition",
+        "data\java-latest.osrm.mldgr"
+    )
+    $missingMld = $false
+    foreach ($file in $mldFiles) {
+        if (-not (Test-Path $file)) {
+            $missingMld = $true
+            break
+        }
+    }
+    
+    if ($missingMld) {
+        Write-Host "⚠️  OSRM files incomplete (MLD files missing)" -ForegroundColor Yellow
+        Write-Host "   Jalankan: .\MASTER-SETUP.ps1" -ForegroundColor Yellow
+    } else {
+        Write-Host "✅ OSRM files exist and complete" -ForegroundColor Green
+    }
 }
 
 # Start services
