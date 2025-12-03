@@ -68,10 +68,14 @@ docker run -t -v "${PWD}/data:/data" osrm/osrm-backend \
 cat > .env << EOF
 NODE_ENV=production
 PORT=8080
-DATABASE_URL=postgresql://osm:CHANGE_THIS_PASSWORD@postgis:5432/osm
 OSRM_URL=http://osrm-backend:5000
-TILE_MODE=proxy
 CACHE_DIR=/cache
+CACHE_MODE=smart
+PRELOAD_ENABLED=false
+TILE_CACHE_TTL=86400000
+MAX_CACHE_SIZE_MB=2000
+RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=100
 EOF
 
 # Secure permissions
@@ -97,13 +101,13 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
-      - tile-server
+      - osrm-api
     restart: always
     networks:
       - osrm-network
 
   # API Server (2 replicas for load balancing)
-  tile-server:
+  osrm-api:
     build: .
     deploy:
       replicas: 2
@@ -116,19 +120,20 @@ services:
       - ./cache:/cache
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
+      - PORT=8080
       - OSRM_URL=http://osrm-backend:5000
-      - TILE_MODE=${TILE_MODE}
+      - CACHE_DIR=/cache
+      - CACHE_MODE=smart
+      - MAX_CACHE_SIZE_MB=2000
     depends_on:
       - osrm-backend
-      - postgis
     restart: always
     networks:
       - osrm-network
 
   # OSRM Backend
   osrm-backend:
-    image: osrm/osrm-backend:latest
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
     container_name: osrm-backend
     volumes:
       - ./data:/data:ro
@@ -142,31 +147,9 @@ services:
     networks:
       - osrm-network
 
-  # PostgreSQL + PostGIS
-  postgis:
-    image: postgis/postgis:15-3.3
-    container_name: postgis
-    environment:
-      POSTGRES_DB: osm
-      POSTGRES_USER: osm
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgis-data:/var/lib/postgresql/data
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-    restart: always
-    networks:
-      - osrm-network
-
 networks:
   osrm-network:
     driver: bridge
-
-volumes:
-  postgis-data:
-    driver: local
 ```
 
 ### 6. Nginx Configuration
@@ -182,7 +165,7 @@ events {
 http {
     upstream api_servers {
         least_conn;
-        server tile-server:8080;
+        server osrm-api:8080;
     }
 
     # Rate limiting
@@ -260,37 +243,7 @@ docker-compose ps
 docker-compose logs -f tile-server
 ```
 
-### 9. Import PostGIS Data (Optional)
-
-```bash
-# Wait for PostgreSQL to be ready
-sleep 10
-
-# Import OSM data to PostGIS (1-2 hours)
-docker run --rm \
-    --network osrm_service_osrm-network \
-    -v "${PWD}/data:/data" \
-    iboates/osm2pgsql:latest \
-    osm2pgsql \
-    --create --slim --drop \
-    --cache 2000 \
-    --number-processes 4 \
-    --hstore \
-    --style /usr/share/osm2pgsql/default.style \
-    --multi-geometry \
-    --host postgis \
-    --port 5432 \
-    --database osm \
-    --username osm \
-    --password ${POSTGRES_PASSWORD} \
-    /data/java-latest.osm.pbf
-
-# After import complete, switch to render mode
-sed -i 's/TILE_MODE=proxy/TILE_MODE=render/' .env
-docker-compose restart tile-server
-```
-
-### 10. Monitoring Setup
+### 9. Monitoring Setup
 
 ```bash
 # Install monitoring tools
@@ -318,20 +271,7 @@ sudo ufw allow 443/tcp  # HTTPS
 sudo ufw enable
 ```
 
-### 2. Database Security
-
-```bash
-# Generate strong password
-POSTGRES_PASSWORD=$(openssl rand -base64 32)
-
-# Update .env file
-echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD" >> .env
-
-# Restart database
-docker-compose restart postgis
-```
-
-### 3. API Authentication (TODO)
+### 2. API Authentication (TODO)
 
 Add JWT or API key authentication to production deployment.
 
@@ -350,24 +290,7 @@ docker image prune -a
 
 ## Backup Strategy
 
-### 1. Database Backup
-
-```bash
-# Daily backup script
-cat > /home/osrm/backup.sh << 'EOF'
-#!/bin/bash
-DATE=$(date +%Y%m%d_%H%M%S)
-docker exec postgis pg_dump -U osm osm | gzip > /backups/db_$DATE.sql.gz
-find /backups -name "db_*.sql.gz" -mtime +7 -delete
-EOF
-
-chmod +x /home/osrm/backup.sh
-
-# Cron job (daily at 2 AM)
-echo "0 2 * * * /home/osrm/backup.sh" | crontab -
-```
-
-### 2. Data Backup
+### 1. Data Backup
 
 ```bash
 # Backup OSRM processed data
@@ -379,20 +302,7 @@ tar -czf data-backup.tar.gz data/*.osrm*
 
 ## Performance Tuning
 
-### 1. PostgreSQL Tuning
-
-Edit `docker-compose.yml`:
-
-```yaml
-postgis:
-  environment:
-    POSTGRES_SHARED_BUFFERS: 2GB
-    POSTGRES_EFFECTIVE_CACHE_SIZE: 6GB
-    POSTGRES_WORK_MEM: 50MB
-    POSTGRES_MAINTENANCE_WORK_MEM: 512MB
-```
-
-### 2. OSRM Tuning
+### 1. OSRM Tuning
 
 ```yaml
 osrm-backend:
@@ -404,10 +314,10 @@ osrm-backend:
     /data/java-latest.osrm
 ```
 
-### 3. Node.js Tuning
+### 2. Node.js Tuning
 
 ```yaml
-tile-server:
+osrm-api:
   environment:
     - NODE_OPTIONS=--max-old-space-size=1536
 ```
@@ -432,16 +342,6 @@ docker stats
 
 # Restart containers
 docker-compose restart
-```
-
-### Slow Queries
-
-```bash
-# Check PostgreSQL logs
-docker logs postgis | grep "slow query"
-
-# Add indexes
-docker exec -it postgis psql -U osm -c "CREATE INDEX idx_way ON planet_osm_line USING GIST(way);"
 ```
 
 ### OSRM Not Responding

@@ -1,52 +1,159 @@
 version: "3.8"
 
 services:
-  # OSRM Backend untuk routing mobil lokal
-  osrm-backend:
-    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
-    container_name: osrm-backend
-    volumes:
-      - ./data:/data
+  # Nginx Reverse Proxy & Load Balancer
+  nginx:
+    image: nginx:alpine
+    container_name: osrm-nginx
     ports:
-      - "5000:5000"
-    command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
-    restart: unless-stopped
-    networks:
-      - osrm-network
-
-  # Tile Cache Service (npm start)
-  tile-cache:
-    build: .
-    container_name: osrm-tile-cache
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./cache:/app/cache
-      - ./data:/app/data
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - OSRM_URL=http://osrm-backend:5000
-      - CACHE_DIR=/app/cache
-      - CACHE_MODE=smart
-      - PRELOAD_ENABLED=false
-      - MAX_CACHE_SIZE_MB=2000
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+      - nginx-logs:/var/log/nginx
     depends_on:
-      - osrm-backend
+      - osrm-api-1
+      - osrm-api-2
     restart: unless-stopped
     networks:
       - osrm-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost/health",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
+  # OSRM Backend for routing
+  osrm-backend:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: osrm-backend
+    volumes:
+      - ./data:/data:ro
+    command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+        reservations:
+          memory: 2G
+          cpus: "1.0"
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:5000/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # API Server Instance 1
+  osrm-api-1:
+    build: .
+    container_name: osrm-api-1
+    volumes:
+      - ./cache:/app/cache
+      - ./data:/app/data:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - OSRM_URL=http://osrm-backend:5000
+      - CACHE_DIR=/app/cache
+      - CACHE_MODE=smart
+      - PRELOAD_ENABLED=false
+      - MAX_CACHE_SIZE_MB=1000
+      - TILE_CACHE_TTL=604800000
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=100
+      - NODE_OPTIONS=--max-old-space-size=1536
+    depends_on:
+      - osrm-backend
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # API Server Instance 2 (for load balancing)
+  osrm-api-2:
+    build: .
+    container_name: osrm-api-2
+    volumes:
+      - ./cache:/app/cache
+      - ./data:/app/data:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - OSRM_URL=http://osrm-backend:5000
+      - CACHE_DIR=/app/cache
+      - CACHE_MODE=smart
+      - PRELOAD_ENABLED=false
+      - MAX_CACHE_SIZE_MB=1000
+      - TILE_CACHE_TTL=604800000
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=100
+      - NODE_OPTIONS=--max-old-space-size=1536
+    depends_on:
+      - osrm-backend
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+          cpus: "0.25"
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
 networks:
   osrm-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
 
 volumes:
-  cache-data:
+  nginx-cache:
+    driver: local
+  nginx-logs:
     driver: local
