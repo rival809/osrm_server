@@ -386,8 +386,18 @@ app.get('/route', [
       overview: 'full'
     };
 
-    // Request ke OSRM
-    const response = await axios.get(osrmUrl, { params });
+    logger.info('Requesting OSRM backend', { osrmUrl, params });
+
+    // Request ke OSRM with timeout
+    const response = await axios.get(osrmUrl, { 
+      params,
+      timeout: 30000 // 30 seconds timeout
+    });
+
+    logger.info('OSRM backend responded', { 
+      status: response.status,
+      dataSize: JSON.stringify(response.data).length 
+    });
 
     const responseTime = Date.now() - startTime;
     
