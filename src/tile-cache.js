@@ -15,6 +15,8 @@ class TileCacheManager {
     this.userAgent = options.userAgent || 'OSRM-Tile-Cache-Service/1.0';
     this.logger = options.logger || console; // Use provided logger or fallback to console
     
+    this.logger.info('TileCacheManager constructor started');
+    
     // OSM tile servers for load balancing
     this.osmServers = [
       'https://tile.openstreetmap.org',
@@ -32,7 +34,9 @@ class TileCacheManager {
       maxLat: -5.9
     };
     
+    this.logger.info('Calling initializeCacheDirectories...');
     this.initializeCacheDirectories();
+    this.logger.info('TileCacheManager constructor completed');
   }
   
   // Initialize cache directory structure
