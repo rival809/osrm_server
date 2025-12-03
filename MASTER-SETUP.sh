@@ -119,18 +119,17 @@ install_nodejs() {
 install_docker() {
     print_step "Installing Docker" "Container platform"
     print_warning "Docker not found, installing..."
-        
-        # Install Docker using convenience script
-        curl -fsSL https://get.docker.com -o get-docker.sh
-        sudo sh get-docker.sh
-        rm get-docker.sh
-        
-        # Add current user to docker group
-        sudo usermod -aG docker $USER
-        
-        print_success "Docker installed"
-        print_warning "You may need to log out and back in for Docker group membership to take effect"
-    fi
+    
+    # Install Docker using convenience script
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    rm get-docker.sh
+    
+    # Add current user to docker group
+    sudo usermod -aG docker $USER
+    
+    print_success "Docker installed"
+    print_warning "You may need to log out and back in for Docker group membership to take effect"
 }
 
 # Install prerequisites
