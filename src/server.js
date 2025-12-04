@@ -20,17 +20,10 @@ const MemoryMonitor = require('./memoryMonitor');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Security middleware
+// Security middleware (CSP disabled for external resources)
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com", "https://unpkg.com"],
-      scriptSrc: ["'self'", "unpkg.com", "https://unpkg.com"],
-      imgSrc: ["'self'", "data:", "*.openstreetmap.org", "https://*.tile.openstreetmap.org"],
-      connectSrc: ["'self'", "*.openstreetmap.org", "https://*.tile.openstreetmap.org"]
-    }
-  }
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
 }));
 
 // Compression middleware
