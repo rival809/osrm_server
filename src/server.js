@@ -25,10 +25,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com"],
-      scriptSrc: ["'self'", "unpkg.com"],
-      imgSrc: ["'self'", "data:", "*.openstreetmap.org"],
-      connectSrc: ["'self'"]
+      styleSrc: ["'self'", "'unsafe-inline'", "unpkg.com", "https://unpkg.com"],
+      scriptSrc: ["'self'", "unpkg.com", "https://unpkg.com"],
+      imgSrc: ["'self'", "data:", "*.openstreetmap.org", "https://*.tile.openstreetmap.org"],
+      connectSrc: ["'self'", "*.openstreetmap.org", "https://*.tile.openstreetmap.org"]
     }
   }
 }));
