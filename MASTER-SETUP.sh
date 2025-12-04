@@ -120,16 +120,33 @@ install_docker() {
     print_step "Installing Docker" "Container platform"
     print_warning "Docker not found, installing..."
     
-    # Install Docker using convenience script
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-    rm get-docker.sh
+    # Install prerequisites
+    sudo apt update
+    sudo apt install -y ca-certificates curl
+    sudo install -m 0755 -d /etc/apt/keyrings
+    
+    # Add Docker's official GPG key
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    
+    # Add Docker repository
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Install Docker Engine and plugins
+    sudo apt update
+    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     
     # Add current user to docker group
     sudo usermod -aG docker $USER
     
     print_success "Docker installed"
-    print_warning "You may need to log out and back in for Docker group membership to take effect"
+    print_warning "Applying docker group membership..."
+    
+    # Apply group changes immediately
+    newgrp docker
 }
 
 # Install prerequisites
@@ -208,18 +225,18 @@ install_prerequisites() {
         DOCKER_VERSION=$(docker --version)
         print_success "Docker already installed: $DOCKER_VERSION"
         
-        # Check Docker Compose
-        if command -v docker-compose &> /dev/null; then
-            print_success "Docker Compose already installed"
+        # Check Docker Compose (plugin or standalone)
+        if docker compose version &> /dev/null; then
+            COMPOSE_VERSION=$(docker compose version)
+            print_success "Docker Compose plugin installed: $COMPOSE_VERSION"
+        elif command -v docker-compose &> /dev/null; then
+            COMPOSE_VERSION=$(docker-compose --version)
+            print_success "Docker Compose standalone installed: $COMPOSE_VERSION"
         else
-            print_warning "Installing Docker Compose..."
-            if command -v apt-get &> /dev/null; then
-                sudo apt-get install -y docker-compose
-            elif command -v yum &> /dev/null; then
-                sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-                sudo chmod +x /usr/local/bin/docker-compose
-            fi
-            print_success "Docker Compose installed"
+            print_warning "Docker Compose not found, installing plugin..."
+            sudo apt-get update
+            sudo apt-get install -y docker-compose-plugin
+            print_success "Docker Compose plugin installed"
         fi
         
         # Check if Docker is running

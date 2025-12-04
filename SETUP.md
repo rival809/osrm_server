@@ -97,14 +97,27 @@ curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
 sudo apt install -y nodejs
 
 # Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+sudo apt update
+sudo apt install -y ca-certificates curl
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# Add Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine and plugins
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Add user to docker group
 sudo usermod -aG docker $USER
 
-# Install Docker Compose
-sudo apt install docker-compose -y
-
-# Logout and login
+# Apply group changes immediately
+newgrp docker
 ```
 
 ### 2. Download OSM Data
@@ -206,6 +219,74 @@ rm data/java-latest.osm.pbf
 # Set to at least 6GB
 
 # Or process on Linux server with more RAM
+```
+
+### Add Swap Space (Linux - 4GB)
+
+If processing fails due to memory, add swap space:
+
+```bash
+# 1. Check current swap
+free -h
+
+# 2. Create swap file (4GB)
+sudo fallocate -l 4G /swapfile
+
+# 3. Set permissions
+sudo chmod 600 /swapfile
+
+# 4. Setup swap
+sudo mkswap /swapfile
+
+# 5. Enable swap
+sudo swapon /swapfile
+
+# 6. Verify
+free -h
+# Should show 4G swap
+
+# 7. Make permanent (add to /etc/fstab)
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 8. Optimize swappiness (optional)
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+```
+
+To resize existing swap (e.g., from 4GB to 8GB):
+
+```bash
+# 1. Disable current swap
+sudo swapoff /swapfile
+
+# 2. Remove old swap file
+sudo rm /swapfile
+
+# 3. Create new swap file (8GB)
+sudo fallocate -l 8G /swapfile
+
+# 4. Set permissions
+sudo chmod 600 /swapfile
+
+# 5. Setup new swap
+sudo mkswap /swapfile
+
+# 6. Enable swap
+sudo swapon /swapfile
+
+# 7. Verify new size
+free -h
+# Should show 8G swap
+
+# Note: /etc/fstab already has the entry, no need to add again
+```
+
+To remove swap later:
+
+```bash
+sudo swapoff /swapfile
+sudo rm /swapfile
+# Remove line from /etc/fstab
 ```
 
 ### Port Already in Use
