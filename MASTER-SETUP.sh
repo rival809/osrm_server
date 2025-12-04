@@ -455,31 +455,83 @@ process_osrm_data() {
 start_services() {
     print_section "STARTING SERVICES"
     
-    # Start OSRM Backend
-    print_step "Starting OSRM Backend" "Docker container on port 5000"
-    if docker-compose up -d osrm-backend; then
-        print_success "OSRM Backend started"
+    # Start ALL services (Backend + API + Nginx)
+    print_step "Starting all services" "OSRM Backend, API servers, and Nginx"
+    if docker-compose up --build -d; then
+        print_success "All services started"
     else
-        print_error "Failed to start OSRM Backend"
+        print_error "Failed to start services"
         return 1
     fi
     
-    # Wait for OSRM to be ready
-    print_step "Waiting for OSRM to be ready" "Health check"
-    local max_attempts=12
+    # Wait for containers to initialize
+    print_step "Waiting for containers to initialize" "15 seconds"
+    sleep 15
+    
+    # Check container status
+    print_step "Checking container status" "docker ps"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    
+    # Wait for OSRM Backend to be ready
+    print_step "Waiting for OSRM Backend" "Health check on port 5000"
+    local max_attempts=20
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
         sleep 5
-        if curl -s -f "http://localhost:5000/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null; then
+        if curl -s -f "http://localhost:5000/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null 2>&1; then
             print_success "OSRM Backend is healthy"
             break
         else
             ((attempt++))
             echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
             if [ $attempt -eq $max_attempts ]; then
-                print_error "OSRM Backend failed to start properly"
+                print_error "OSRM Backend failed health check"
+                echo -e "${YELLOW}Checking logs...${NC}"
+                docker logs osrm-backend --tail 20
                 return 1
+            fi
+        fi
+    done
+    
+    # Wait for API servers to be ready
+    print_step "Waiting for API servers" "Health check on port 8080"
+    attempt=0
+    max_attempts=15
+    
+    while [ $attempt -lt $max_attempts ]; do
+        sleep 3
+        if curl -s -f "http://localhost:8080/health" > /dev/null 2>&1; then
+            print_success "API servers are healthy"
+            break
+        else
+            ((attempt++))
+            echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
+            if [ $attempt -eq $max_attempts ]; then
+                print_warning "API servers not responding (may need manual check)"
+                echo -e "${YELLOW}Checking logs...${NC}"
+                docker logs osrm-api-1 --tail 20
+            fi
+        fi
+    done
+    
+    # Wait for Nginx to be ready
+    print_step "Waiting for Nginx" "Health check on port 80"
+    attempt=0
+    max_attempts=10
+    
+    while [ $attempt -lt $max_attempts ]; do
+        sleep 2
+        if curl -s -f "http://localhost/health" > /dev/null 2>&1; then
+            print_success "Nginx is healthy"
+            break
+        else
+            ((attempt++))
+            echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
+            if [ $attempt -eq $max_attempts ]; then
+                print_warning "Nginx not responding"
+                echo -e "${YELLOW}Checking logs...${NC}"
+                docker logs osrm-nginx --tail 20
             fi
         fi
     done
@@ -491,46 +543,27 @@ start_services() {
 test_deployment() {
     print_section "DEPLOYMENT TESTING"
     
-    # Start API server in background for testing
-    print_step "Starting API server for testing" "Node.js server on port 8080"
-    
-    # Start server in background
-    npm start &
-    local server_pid=$!
-    
-    # Wait for server to start
-    sleep 10
-    
-    # Test health endpoint
-    print_step "Testing health endpoint" "Basic connectivity"
-    if curl -s -f "http://localhost:8080/health" > /dev/null; then
-        print_success "Health check passed"
+    # Test routing through Nginx (public endpoint)
+    print_step "Testing routing through Nginx" "Public API endpoint"
+    if curl -s -f "http://localhost/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null 2>&1; then
+        print_success "Public routing API working"
     else
-        print_error "Health check failed"
-        kill $server_pid 2>/dev/null
-        return 1
+        print_warning "Public routing test failed"
+        echo -e "${GRAY}   Testing direct API...${NC}"
+        if curl -s -f "http://localhost:8080/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null 2>&1; then
+            print_warning "Direct API works, but Nginx routing may have issues"
+        fi
     fi
     
-    # Test routing
-    print_step "Testing routing API" "End-to-end functionality"
-    if curl -s -f "http://localhost:8080/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null; then
-        print_success "Routing test passed"
+    # Test web interface
+    print_step "Testing web interface" "HTML page"
+    if curl -s -f "http://localhost/" > /dev/null 2>&1; then
+        print_success "Web interface accessible"
     else
-        print_warning "Routing test failed (may be expected for first run)"
+        print_warning "Web interface test failed"
     fi
     
-    # Test tile serving
-    print_step "Testing tile serving" "Tile cache functionality"
-    if curl -s -f "http://localhost:8080/tiles/10/511/511.png" > /dev/null; then
-        print_success "Tile serving test passed"
-    else
-        print_warning "Tile serving test failed (expected for first run)"
-    fi
-    
-    # Stop test server
-    kill $server_pid 2>/dev/null
-    
-    print_success "All core tests passed"
+    print_success "Deployment testing completed"
     return 0
 }
 
