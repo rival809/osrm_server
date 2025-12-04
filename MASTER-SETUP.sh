@@ -441,18 +441,26 @@ process_osrm_data() {
                 return 0
             fi
             print_warning "Reprocessing OSRM data..."
+            
+            # Clean up existing files for reprocessing
+            print_step "Cleaning up existing OSRM files" "Preparing for reprocessing"
+            local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
+            if [ $old_count -gt 0 ]; then
+                find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
+                echo "   Removed $old_count file(s)"
+            fi
         else
             print_success "Using existing OSRM data (auto mode)"
             return 0
         fi
-    fi
-    
-    # Clean up any incomplete/old OSRM files
-    print_step "Cleaning up old OSRM files" "Removing incomplete data"
-    local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
-    if [ $old_count -gt 0 ]; then
-        find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
-        echo "   Removed $old_count old file(s)"
+    else
+        # Clean up any incomplete/old OSRM files
+        print_step "Cleaning up incomplete OSRM files" "Removing partial data"
+        local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
+        if [ $old_count -gt 0 ]; then
+            find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
+            echo "   Removed $old_count incomplete file(s)"
+        fi
     fi
     
     print_step "Processing OSM data for routing" "This may take 10-20 minutes"
