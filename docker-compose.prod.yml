@@ -2,12 +2,12 @@ version: "3.8"
 
 # Production Override Configuration
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This override is optimized for AWS EC2 with 16GB RAM and 8 vCPUs
+# Total memory allocation: ~13.5GB (Backend 6G + API1 3G + API2 3G + Nginx 512M + System 3GB)
 
 services:
   nginx:
-    environment:
-      - NGINX_WORKER_PROCESSES=auto
-      - NGINX_WORKER_CONNECTIONS=2048
     deploy:
       resources:
         limits:
@@ -26,8 +26,8 @@ services:
 
   osrm-api-1:
     environment:
-      - MAX_CACHE_SIZE_MB=2000
-      - PRELOAD_ENABLED=true
+      - MAX_CACHE_SIZE_MB=1500
+      - PRELOAD_ENABLED=false # Keep false for faster startup
       - NODE_OPTIONS=--max-old-space-size=2048
     deploy:
       resources:
@@ -37,8 +37,8 @@ services:
 
   osrm-api-2:
     environment:
-      - MAX_CACHE_SIZE_MB=2000
-      - PRELOAD_ENABLED=true
+      - MAX_CACHE_SIZE_MB=1500
+      - PRELOAD_ENABLED=false # Keep false for faster startup
       - NODE_OPTIONS=--max-old-space-size=2048
     deploy:
       resources:

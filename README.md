@@ -39,13 +39,27 @@ git clone <repo-url>
 cd osrm_server
 chmod +x *.sh scripts/*.sh
 
-# 2. Automated setup
+# 2. Automated data preparation (downloads OSM + processes OSRM files)
 ./MASTER-SETUP.sh
+# Note: This script only prepares data, does not start services
 
-# 3. Start services
-./START.sh
+# 3. Apply docker group (optional, to avoid sudo)
+newgrp docker
+# Or logout/login to apply group membership
 
-# 4. Access at http://localhost:80
+# 4. Build and start services
+docker-compose build --no-cache    # Development
+docker-compose up -d
+
+# Or for production with higher resources:
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 5. Check service status
+docker-compose ps
+docker-compose logs -f
+
+# 6. Access at http://localhost:80
 ```
 
 ## 🛠️ Management Scripts
@@ -115,16 +129,121 @@ Internet
 
 ## 🚀 Production Deployment
 
-See **[PRODUCTION.md](PRODUCTION.md)** for complete guide:
+See **[PRODUCTION.md](PRODUCTION.md)** for complete guide.
+
+### Docker Compose Modes
+
+Docker Compose supports **config layering** - you can merge multiple config files to create different deployment modes.
+
+#### 📁 Configuration Files:
+
+- **`docker-compose.yml`** - Base configuration (complete & standalone)
+
+  - Contains all services, volumes, networks
+  - Can run independently for development
+  - Lower resource limits (2-4GB per service)
+
+- **`docker-compose.prod.yml`** - Production overrides (addon only)
+  - Contains only changes/enhancements
+  - CANNOT run alone (must be merged with base)
+  - Higher resource limits (3-6GB per service)
+  - Environment variable overrides
+
+#### 🔄 How Override Works:
+
+When using `-f` flag multiple times, Docker merges configs:
+
+```
+Base Config + Override Config = Final Config
+```
+
+Properties in override file **replace** matching properties in base file.
+
+---
+
+**Development Mode** (Default - Lower Resources):
 
 ```bash
-# Quick production deploy
-cd /opt/osrm-service
-./deploy-production.sh
-
-# Or manual
-docker-compose up -d --build
+# Uses only docker-compose.yml
+docker-compose build --no-cache
+docker-compose up -d
 ```
+
+**Production Mode** (Higher Resources - Optimized for 16GB RAM):
+
+```bash
+# Merges docker-compose.yml + docker-compose.prod.yml
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+#### 📊 Resource Allocation Comparison:
+
+| Mode     | Backend    | API-1        | API-2        | Cache/API | Total RAM |
+| -------- | ---------- | ------------ | ------------ | --------- | --------- |
+| **Dev**  | 4GB, 2 CPU | 2GB, 1 CPU   | 2GB, 1 CPU   | 1000MB    | ~8.5GB    |
+| **Prod** | 6GB, 3 CPU | 3GB, 1.5 CPU | 3GB, 1.5 CPU | 1500MB    | ~12.5GB   |
+
+#### ⚙️ What Gets Overridden in Production:
+
+| Service          | Property Overridden | Dev Value | Prod Value |
+| ---------------- | ------------------- | --------- | ---------- |
+| **osrm-api-1**   | Memory Limit        | 2GB       | 3GB        |
+|                  | CPU Limit           | 1.0       | 1.5        |
+|                  | MAX_CACHE_SIZE_MB   | 1000      | 1500       |
+|                  | NODE_OPTIONS        | 1536      | 2048       |
+| **osrm-api-2**   | (Same as API-1)     | (Same)    | (Same)     |
+| **osrm-backend** | Memory Limit        | 4GB       | 6GB        |
+|                  | CPU Limit           | 2.0       | 3.0        |
+|                  | Memory Reservation  | -         | 4GB        |
+| **nginx**        | Memory Limit        | -         | 512MB      |
+|                  | CPU Limit           | -         | 0.5        |
+
+#### 🎯 Quick Commands:
+
+```bash
+# Development (base config only)
+docker-compose up -d
+
+# Production (base + override merged)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Stop services (works for both modes)
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Check status
+docker-compose ps
+```
+
+#### 💡 Understanding the System:
+
+**Why two files?**
+
+- **DRY Principle**: No config duplication
+- **Maintainability**: Change base → affects all modes
+- **Flexibility**: Easy to add more environments (staging, testing)
+
+**Common Misconceptions:**
+
+- ❌ "They are different configs" → ✅ They merge together
+- ❌ "Prod file is complete" → ✅ Prod file only has overrides
+- ❌ "Must choose one" → ✅ Dev uses base only, Prod uses both
+
+**Analogy:**
+
+```
+Base Config (docker-compose.yml) = Complete outfit 👕👖👟
+                                    Can wear alone ✅
+
+Prod Override (.prod.yml)        = Winter jacket 🧥
+                                    Can't wear alone ❌
+                                    Wear over base outfit ✅
+```
+
+---
 
 ## ❓ Troubleshooting
 
@@ -144,9 +263,16 @@ docker-compose ps
 # Check data file exists
 ls -la data/java-latest.osm.pbf
 
+# Check OSRM processed files (should have 26 files)
+ls -la data/java-latest.osrm*
+
 # Re-download if needed
 .\scripts\download-pbf.ps1  # Windows
 ./scripts/download-pbf.sh   # Linux
+
+# Reprocess OSRM data
+# MASTER-SETUP.sh will ask if you want to reprocess if ≥3 files exist
+./MASTER-SETUP.sh
 ```
 
 ### Port Already in Use
@@ -169,6 +295,21 @@ docker stats
 
 # Restart services
 docker-compose restart
+
+# Or switch to development mode (lower resources)
+docker-compose down
+docker-compose up -d  # Without prod override
+```
+
+### Docker Images Missing (ContainerConfig Error)
+
+```bash
+# Error: 'ContainerConfig' or 'No such image'
+# Solution: Rebuild images from scratch
+
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
 ---
