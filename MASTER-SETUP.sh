@@ -401,6 +401,7 @@ process_osrm_data() {
         "data/java-latest.osrm.cnbg"
         "data/java-latest.osrm.cnbg_to_ebg"
         "data/java-latest.osrm.datasource_names"
+        "data/java-latest.osrm.ebg"
         "data/java-latest.osrm.ebg_nodes"
         "data/java-latest.osrm.edges"
         "data/java-latest.osrm.enw"
@@ -423,22 +424,34 @@ process_osrm_data() {
     )
     
     local all_files_exist=true
+    local found_count=0
     for file in "${required_files[@]}"; do
-        if [ ! -f "$file" ]; then
+        if [ -f "$file" ]; then
+            ((found_count++))
+        else
             all_files_exist=false
-            break
         fi
     done
     
-    if [ "$all_files_exist" = true ]; then
-        print_success "OSRM data already processed and complete (26 files found)"
+    # If at least 3 OSRM files exist, ask user before reprocessing
+    if [ $found_count -ge 3 ]; then
+        if [ "$all_files_exist" = true ]; then
+            print_success "OSRM data already processed and complete ($found_count of 26 files found)"
+        else
+            print_warning "OSRM data partially processed: found $found_count of 26 files"
+        fi
         
         if [ "$MODE" = "interactive" ]; then
             echo ""
             read -p "Do you want to reprocess OSRM data? (y/N): " reprocess
             if [ "$reprocess" != "y" ] && [ "$reprocess" != "Y" ]; then
-                print_success "Skipping OSRM processing, using existing data"
-                return 0
+                if [ "$all_files_exist" = true ]; then
+                    print_success "Skipping OSRM processing, using existing data"
+                    return 0
+                else
+                    print_warning "Continuing with incomplete data (may cause errors)"
+                    return 0
+                fi
             fi
             print_warning "Reprocessing OSRM data..."
             
@@ -450,16 +463,27 @@ process_osrm_data() {
                 echo "   Removed $old_count file(s)"
             fi
         else
-            print_success "Using existing OSRM data (auto mode)"
-            return 0
+            if [ "$all_files_exist" = true ]; then
+                print_success "Using existing OSRM data (auto mode)"
+                return 0
+            else
+                print_warning "Incomplete data found, will reprocess (auto mode)"
+            fi
         fi
     else
+        # Less than 3 files, auto clean and reprocess
+        if [ $found_count -gt 0 ]; then
+            print_warning "Found only $found_count OSRM file(s), will clean and reprocess"
+        fi
+        
         # Clean up any incomplete/old OSRM files
-        print_step "Cleaning up incomplete OSRM files" "Removing partial data"
-        local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
-        if [ $old_count -gt 0 ]; then
-            find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
-            echo "   Removed $old_count incomplete file(s)"
+        if [ $found_count -gt 0 ]; then
+            print_step "Cleaning up incomplete OSRM files" "Removing partial data"
+            local old_count=$(find data -name "java-latest.osrm*" -type f 2>/dev/null | wc -l)
+            if [ $old_count -gt 0 ]; then
+                find data -name "java-latest.osrm*" -type f -delete 2>/dev/null
+                echo "   Removed $old_count incomplete file(s)"
+            fi
         fi
     fi
     
@@ -629,25 +653,36 @@ test_deployment() {
 show_completion_summary() {
     print_section "SETUP COMPLETE" 
     
-    echo -e "${GREEN}[SUCCESS] OSRM Service is now fully deployed and ready!${NC}"
+    echo -e "${GREEN}[SUCCESS] OSRM data preparation completed!${NC}"
     echo ""
-    echo -e "${CYAN}Available Services:${NC}"
-    echo -e "${NC}   * API Server:     http://localhost:8080${NC}"
-    echo -e "${NC}   * OSRM Backend:   http://localhost:5000${NC}"
-    echo -e "${NC}   * Web Interface:  http://localhost:8080${NC}"
+    echo -e "${CYAN}What's Ready:${NC}"
+    echo -e "${NC}   ✓ Prerequisites installed (Node.js, Docker)${NC}"
+    echo -e "${NC}   ✓ Environment configured${NC}"
+    echo -e "${NC}   ✓ OSM data downloaded${NC}"
+    echo -e "${NC}   ✓ OSRM routing data processed${NC}"
+    echo ""
+    echo -e "${CYAN}Next Steps - Start Services Manually:${NC}"
+    echo -e "${NC}   1. Apply docker group (avoid sudo):${NC}"
+    echo -e "${NC}      newgrp docker${NC}"
+    echo -e "${NC}      ${GRAY}Or logout/login to apply group membership${NC}"
+    echo ""
+    echo -e "${NC}   2. Build and start services:${NC}"
+    echo -e "${NC}      docker-compose build --no-cache${NC}"
+    echo -e "${NC}      docker-compose up -d${NC}"
+    echo ""
+    echo -e "${NC}   3. Check service status:${NC}"
+    echo -e "${NC}      docker-compose ps${NC}"
+    echo -e "${NC}      docker-compose logs -f${NC}"
     echo ""
     echo -e "${CYAN}Management Commands:${NC}"
     echo -e "${NC}   * Start:          ./START.sh${NC}"
     echo -e "${NC}   * Stop:           ./STOP.sh${NC}"
     echo -e "${NC}   * Cache Manager:  ./CACHE-MANAGER.sh${NC}"
-    echo -e "${NC}   * Docker Manager: ./DOCKER-MANAGER.sh${NC}"
     echo ""
-    echo -e "${CYAN}Next Steps:${NC}"
-    echo -e "${NC}   1. Apply docker group (avoid sudo): newgrp docker${NC}"
-    echo -e "${NC}   2. Or logout/login to apply group membership${NC}"
-    echo -e "${NC}   3. Run cache preload: ./CACHE-MANAGER.sh (option 2)${NC}"
-    echo -e "${NC}   4. Test routing: http://localhost:80${NC}"
-    echo -e "${NC}   5. Monitor with: docker-compose logs -f${NC}"
+    echo -e "${CYAN}Available Endpoints (after services start):${NC}"
+    echo -e "${NC}   * Public API:     http://localhost${NC}"
+    echo -e "${NC}   * Direct API:     http://localhost:8080${NC}"
+    echo -e "${NC}   * OSRM Backend:   http://localhost:5000${NC}"
     echo ""
     echo -e "${YELLOW}For production deployment, see PRODUCTION.md${NC}"
 }
@@ -662,8 +697,7 @@ main() {
     echo -e "${GRAY}  - Setup environment and dependencies${NC}"
     echo -e "${GRAY}  - Download Java Island OSM data (~800MB)${NC}"
     echo -e "${GRAY}  - Process OSRM routing data (10-20 min)${NC}"
-    echo -e "${GRAY}  - Start all services${NC}"
-    echo -e "${GRAY}  - Test deployment${NC}"
+    echo -e "${GRAY}  - Prepare for manual service deployment${NC}"
     echo ""
     
     if [ "$MODE" = "interactive" ]; then
@@ -679,16 +713,8 @@ main() {
     setup_environment || { print_error "Environment setup failed"; exit 1; }
     download_osm_data || { print_error "OSM data download failed"; exit 1; }
     process_osrm_data || { print_error "OSRM data processing failed"; exit 1; }
-    start_services || { print_error "Services startup failed"; exit 1; }
-    test_deployment || { print_error "Deployment testing failed"; exit 1; }
     
     show_completion_summary
-    
-    if [ "$MODE" = "interactive" ]; then
-        echo ""
-        read -p "Press Enter to start the API server: "
-        npm start
-    fi
 }
 
 # Check if script is being sourced or executed
