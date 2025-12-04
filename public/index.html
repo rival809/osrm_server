@@ -156,15 +156,14 @@
         // Initialize map - center on Bandung
         const map = L.map('map').setView([-6.9175, 107.6191], 13);
         
-        // Use OSM tiles directly for now (local tiles have issues)
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        // Use local tiles through Nginx
+        L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18,
-            minZoom: 8,
-            subdomains: ['a', 'b', 'c']
+            minZoom: 8
         }).addTo(map);
         
-        console.log('Map initialized with OSM tiles');
+        console.log('Map initialized with local tiles:', `${API_URL}/tiles/{z}/{x}/{y}.png`);
 
         let startMarker = null;
         let endMarker = null;
