@@ -462,14 +462,14 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     // Calculate tile bounds
     const bounds = tileToBounds(tileX, tileY, zoom);
 
-    // Cek apakah tile dalam batas Jawa Barat
-    if (!isTileInJavaIsland(bounds)) {
-      // Return empty tile jika di luar Jawa Barat
-      const emptyTile = await createEmptyTile();
-      res.set('Content-Type', 'image/png');
-      res.set('X-Region', 'outside');
-      return res.send(emptyTile);
-    }
+    // Cek apakah tile dalam batas Jawa Barat (disabled for testing)
+    // if (!isTileInJavaIsland(bounds)) {
+    //   // Return empty tile jika di luar Jawa Barat
+    //   const emptyTile = await createEmptyTile();
+    //   res.set('Content-Type', 'image/png');
+    //   res.set('X-Region', 'outside');
+    //   return res.send(emptyTile);
+    // }
 
     let tile;
     let cacheStatus = 'MISS';
