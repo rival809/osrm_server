@@ -142,11 +142,13 @@ install_docker() {
     # Add current user to docker group
     sudo usermod -aG docker $USER
     
-    print_success "Docker installed"
-    print_warning "Applying docker group membership..."
+    # Enable and start Docker service
+    sudo systemctl enable docker
+    sudo systemctl start docker
     
-    # Apply group changes immediately
-    newgrp docker
+    print_success "Docker installed"
+    print_warning "Group membership updated - you may need to logout/login for docker group to take effect"
+    print_warning "Script will continue using sudo for docker commands..."
 }
 
 # Install prerequisites
@@ -602,11 +604,13 @@ show_completion_summary() {
     echo -e "${NC}   * Docker Manager: ./DOCKER-MANAGER.sh${NC}"
     echo ""
     echo -e "${CYAN}Next Steps:${NC}"
-    echo -e "${NC}   1. Run cache preload: ./CACHE-MANAGER.sh (option 2)${NC}"
-    echo -e "${NC}   2. Test routing: http://localhost:8080${NC}"
-    echo -e "${NC}   3. Monitor with: docker-compose logs -f${NC}"
+    echo -e "${NC}   1. Apply docker group (avoid sudo): newgrp docker${NC}"
+    echo -e "${NC}   2. Or logout/login to apply group membership${NC}"
+    echo -e "${NC}   3. Run cache preload: ./CACHE-MANAGER.sh (option 2)${NC}"
+    echo -e "${NC}   4. Test routing: http://localhost:80${NC}"
+    echo -e "${NC}   5. Monitor with: docker-compose logs -f${NC}"
     echo ""
-    echo -e "${YELLOW}For production deployment, see DEPLOYMENT.md${NC}"
+    echo -e "${YELLOW}For production deployment, see PRODUCTION.md${NC}"
 }
 
 # Main execution

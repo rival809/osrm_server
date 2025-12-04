@@ -116,8 +116,16 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin d
 # Add user to docker group
 sudo usermod -aG docker $USER
 
-# Apply group changes immediately
-newgrp docker
+# Enable and start Docker
+sudo systemctl enable docker
+sudo systemctl start docker
+
+# Verify Docker is running
+docker --version
+sudo docker ps
+
+# Note: You may need to logout/login for docker group to take effect
+# Until then, use 'sudo docker' commands
 ```
 
 ### 2. Download OSM Data
@@ -184,6 +192,47 @@ TILE_CACHE_TTL=604800000
 ```bash
 # Windows: Start Docker Desktop application
 # Linux: sudo systemctl start docker
+```
+
+### Uninstall Docker (Linux)
+
+If you need to completely remove Docker and start fresh:
+
+```bash
+# 1. Stop all containers
+docker stop $(docker ps -aq) 2>/dev/null
+
+# 2. Remove all containers
+docker rm $(docker ps -aq) 2>/dev/null
+
+# 3. Remove all images
+docker rmi $(docker images -q) 2>/dev/null
+
+# 4. Stop Docker service
+sudo systemctl stop docker
+sudo systemctl stop docker.socket
+
+# 5. Uninstall Docker packages
+sudo apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt-get autoremove -y
+
+# 6. Remove Docker data and configuration
+sudo rm -rf /var/lib/docker
+sudo rm -rf /var/lib/containerd
+sudo rm -rf /etc/docker
+sudo rm -rf ~/.docker
+
+# 7. Remove Docker group
+sudo groupdel docker 2>/dev/null
+
+# 8. Clean up APT sources
+sudo rm -f /etc/apt/sources.list.d/docker.list
+sudo rm -f /etc/apt/keyrings/docker.asc
+
+# 9. Verify removal
+docker --version 2>/dev/null && echo "Docker still installed" || echo "Docker completely removed"
+
+# 10. Now you can reinstall Docker using the steps in section 1
 ```
 
 ### Download Fails
