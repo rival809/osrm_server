@@ -4,16 +4,27 @@ Production-ready deployment dengan Nginx, load balancing, SSL, dan monitoring.
 
 ## Architecture
 
+**Internal/VPC Deployment (HTTP Only):**
+
 ```
-Internet → [Nginx] :80/443 → [API-1] [API-2] :8080 → [OSRM] :5000
+Internal Network/VPC
+    ↓
+[Nginx] :80 → [API-1] [API-2] :8080 → [OSRM] :5000
+```
+
+**External Deployment (with SSL):**
+
+```
+Internet → [Load Balancer/SSL] → [Nginx] :80/443 → [API-1] [API-2] :8080 → [OSRM] :5000
 ```
 
 **Components:**
 
-- **Nginx**: Reverse proxy, load balancer, rate limiting, caching
-- **API Instances**: 2x Node.js servers for redundancy
-- **OSRM Backend**: Routing engine with Java Island data
-- **Volumes**: Persistent cache, logs, SSL certificates
+- **Nginx**: Reverse proxy, load balancer, rate limiting, caching (Port 80 by default)
+- **API Instances**: 2x Node.js servers for redundancy (Internal port 8080)
+- **OSRM Backend**: Routing engine with Java Island data (Internal port 5000)
+- **Volumes**: Persistent cache, logs
+- **SSL**: Optional, typically handled by external load balancer (ALB/CloudFlare)
 
 ## Quick Deploy
 
@@ -45,19 +56,33 @@ cd osrm-service
 
 ### 3. Deploy Services
 
-```bash
-# One-command deployment
-./deploy-production.sh
+**For Internal/VPC Deployment (No SSL):**
 
-# Or manual:
-docker-compose up -d --build
+```bash
+# Development mode (lower resources)
+docker-compose build --no-cache
+docker-compose up -d
+
+# Production mode (higher resources - recommended for 16GB RAM)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Check status
 docker-compose ps
 curl http://localhost/health
 ```
 
-### 4. Configure SSL (Optional)
+**Note:** This deployment uses **HTTP only (port 80)** as it's designed for internal network/VPC access where SSL is handled at load balancer level or not required.
+
+### 4. Configure SSL (Optional - External Access Only)
+
+**Skip this section if:**
+
+- ✅ API accessed from internal network/VPC only
+- ✅ Load balancer handles SSL termination
+- ✅ Services communicate within same AWS VPC/private network
+
+**Only needed for direct public internet access:**
 
 ```bash
 # Install Certbot
@@ -193,20 +218,49 @@ proxy_cache_path /var/cache/nginx/tiles levels=1:2
 
 ### Firewall
 
+**For Internal/VPC Deployment:**
+
 ```bash
-# UFW
+# UFW - Restrict to internal network only
+sudo ufw allow 22/tcp   # SSH (restrict to your IP)
+sudo ufw allow from 10.0.0.0/8 to any port 80 proto tcp   # HTTP from VPC only
+sudo ufw enable
+
+# Or for AWS Security Groups:
+# - Port 22: Your IP only
+# - Port 80: VPC CIDR (e.g., 172.31.0.0/16)
+# - Port 443: Not needed for internal
+```
+
+**For Public Deployment:**
+
+```bash
+# UFW - Open to internet
 sudo ufw allow 22/tcp   # SSH
 sudo ufw allow 80/tcp   # HTTP
-sudo ufw allow 443/tcp  # HTTPS
+sudo ufw allow 443/tcp  # HTTPS (if using SSL)
 sudo ufw enable
 ```
 
 ### SSL/HTTPS
 
+**Not Required for Internal Deployment** ✅
+
+If your services are accessed within:
+
+- Same VPC/private network
+- Behind AWS ALB with SSL termination
+- Internal microservice communication
+- Mobile app → API Gateway → OSRM service
+
+Then **SSL is not needed** at OSRM service level.
+
+**Optional for Direct Public Access:**
+
 **Let's Encrypt (Production):**
 
 ```bash
-# Get certificate
+# Only if exposing directly to internet
 sudo certbot certonly --standalone -d your-domain.com
 
 # Auto-renewal
@@ -216,6 +270,7 @@ echo "0 0 * * * certbot renew --quiet" | sudo crontab -
 **Self-Signed (Development):**
 
 ```bash
+# For local testing only
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout nginx/ssl/privkey.pem \
   -out nginx/ssl/fullchain.pem \
@@ -401,52 +456,91 @@ docker-compose logs nginx | grep "X-Cache-Status" | grep HIT | wc -l
 
 **Pre-Deploy:**
 
-- [ ] OSRM data processed
+- [ ] OSRM data processed (26 files)
 - [ ] Environment variables configured
-- [ ] SSL certificates obtained
-- [ ] Firewall configured
+- [ ] Firewall/Security Group configured (Port 80 from VPC only)
 - [ ] Backup script scheduled
-- [ ] Resource limits tuned
+- [ ] Resource limits tuned (use docker-compose.prod.yml for 16GB RAM)
+- [ ] ~~SSL certificates~~ (Not needed for internal VPC deployment)
 
 **Post-Deploy:**
 
-- [ ] All services healthy
-- [ ] SSL working
-- [ ] Logs clean
-- [ ] Cache working
+- [ ] All services healthy (`docker-compose ps`)
+- [ ] HTTP accessible from VPC (`curl http://<private-ip>/health`)
+- [ ] Logs clean (`docker-compose logs`)
+- [ ] Cache working (`curl http://localhost/cache/stats`)
 - [ ] Backup tested
-- [ ] Monitoring active
+- [ ] ~~SSL working~~ (Skip for internal deployment)
+
+**Internal VPC Deployment:**
+
+- [ ] EC2 in private subnet
+- [ ] Security group allows port 80 from VPC CIDR only
+- [ ] Other services can access via private IP
+- [ ] No public IP assigned (optional, use bastion for SSH)
+- [ ] SSL handled by ALB/API Gateway (if needed)
 
 ## AWS Deployment
 
-### EC2 Instance
+### EC2 Instance (Internal VPC Deployment)
 
-**Recommended:**
+**Recommended for 16GB RAM:**
 
-- Instance: t3.xlarge or larger
+- Instance: t3.xlarge (4 vCPU, 16GB RAM)
 - OS: Ubuntu 22.04 LTS
-- Storage: 100GB+ SSD
-- Security Group: Allow 22, 80, 443
+- Storage: 100GB+ GP3 SSD
+- VPC: Private subnet (no public IP needed)
+- Security Group: Allow port 80 from VPC CIDR only
+
+**Security Group Rules:**
+
+```
+Inbound:
+- Port 22 (SSH): Your IP only
+- Port 80 (HTTP): VPC CIDR (e.g., 172.31.0.0/16) or specific service IPs
+
+Outbound:
+- All traffic (for Docker pulls and updates)
+```
 
 **Setup:**
 
 ```bash
-# Connect to EC2
-ssh -i key.pem ubuntu@ec2-ip
+# Connect to EC2 (via bastion or VPN)
+ssh -i key.pem ubuntu@<private-ip>
 
 # Install Docker
 curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker ubuntu
+newgrp docker
 
-# Clone & deploy
+# Clone & setup data
 cd /opt
 git clone <repo> osrm-service
 cd osrm-service
+chmod +x *.sh scripts/*.sh
 ./MASTER-SETUP.sh
-./deploy-production.sh
 
-# Configure domain
-# Point A record to EC2 elastic IP
-# Setup SSL with certbot
+# Deploy with production resources
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Verify
+docker-compose ps
+curl http://localhost/health
+```
+
+**Access from Other Services:**
+
+```bash
+# From Flutter/Mobile App (via API Gateway)
+Mobile App → API Gateway → ALB/NLB → EC2 (Port 80)
+
+# From Other Microservices (same VPC)
+Service A → http://<ec2-private-ip>/route/...
+
+# Example
+curl "http://172.31.10.50/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753"
 ```
 
 ### ECS Deployment
