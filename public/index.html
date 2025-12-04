@@ -156,12 +156,21 @@
         // Initialize map - center on Bandung
         const map = L.map('map').setView([-6.9175, 107.6191], 13);
         
-        // Add custom tile layer
-        L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
+        // Try local tiles first, fallback to OSM if fails
+        const tileLayer = L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18,
-            minZoom: 8
-        }).addTo(map);
+            minZoom: 8,
+            errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+        });
+        
+        tileLayer.on('tileerror', function(error, tile) {
+            console.warn('Tile load error:', error);
+        });
+        
+        tileLayer.addTo(map);
+        
+        console.log('Map initialized with tile URL:', `${API_URL}/tiles/{z}/{x}/{y}.png`);
 
         let startMarker = null;
         let endMarker = null;
