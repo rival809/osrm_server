@@ -326,7 +326,19 @@ download_osm_data() {
     if [ -f "$data_file" ]; then
         local size_mb=$(du -m "$data_file" | cut -f1)
         print_success "OSM data already exists: $data_file (${size_mb}MB)"
-        return 0
+        
+        if [ "$MODE" = "interactive" ]; then
+            echo ""
+            read -p "Do you want to re-download OSM data? (y/N): " redownload
+            if [ "$redownload" != "y" ] && [ "$redownload" != "Y" ]; then
+                print_success "Using existing OSM data"
+                return 0
+            fi
+            print_warning "Re-downloading OSM data..."
+        else
+            print_success "Using existing OSM data (auto mode)"
+            return 0
+        fi
     fi
     
     print_step "Downloading Java Island OSM data" "~800MB download from Geofabrik"
@@ -419,8 +431,20 @@ process_osrm_data() {
     done
     
     if [ "$all_files_exist" = true ]; then
-        print_success "OSRM data already processed and complete"
-        return 0
+        print_success "OSRM data already processed and complete (26 files found)"
+        
+        if [ "$MODE" = "interactive" ]; then
+            echo ""
+            read -p "Do you want to reprocess OSRM data? (y/N): " reprocess
+            if [ "$reprocess" != "y" ] && [ "$reprocess" != "Y" ]; then
+                print_success "Skipping OSRM processing, using existing data"
+                return 0
+            fi
+            print_warning "Reprocessing OSRM data..."
+        else
+            print_success "Using existing OSRM data (auto mode)"
+            return 0
+        fi
     fi
     
     # Clean up any incomplete/old OSRM files
@@ -491,46 +515,53 @@ start_services() {
     print_step "Checking container status" "docker ps"
     docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
     
-    # Wait for OSRM Backend to be ready
-    print_step "Waiting for OSRM Backend" "Health check on port 5000"
+    # Wait for OSRM Backend to be ready (check container logs)
+    print_step "Waiting for OSRM Backend" "Checking container status"
     local max_attempts=20
     local attempt=0
     
     while [ $attempt -lt $max_attempts ]; do
-        sleep 5
-        if curl -s -f "http://localhost:5000/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" > /dev/null 2>&1; then
-            print_success "OSRM Backend is healthy"
-            break
-        else
-            ((attempt++))
-            echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
-            if [ $attempt -eq $max_attempts ]; then
-                print_error "OSRM Backend failed health check"
-                echo -e "${YELLOW}Checking logs...${NC}"
-                docker logs osrm-backend --tail 20
-                return 1
+        sleep 3
+        # Check if container is running and healthy
+        local backend_status=$(docker inspect osrm-backend --format='{{.State.Running}}' 2>/dev/null)
+        if [ "$backend_status" = "true" ]; then
+            # Check logs for "running and waiting for requests"
+            if docker logs osrm-backend 2>&1 | grep -q "running and waiting for requests"; then
+                print_success "OSRM Backend is running"
+                break
             fi
+        fi
+        
+        ((attempt++))
+        echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
+        if [ $attempt -eq $max_attempts ]; then
+            print_error "OSRM Backend not ready"
+            echo -e "${YELLOW}Checking logs...${NC}"
+            docker logs osrm-backend --tail 20
+            return 1
         fi
     done
     
-    # Wait for API servers to be ready
-    print_step "Waiting for API servers" "Health check on port 8080"
+    # Wait for API servers to be ready (check container health status)
+    print_step "Waiting for API servers" "Checking container health"
     attempt=0
     max_attempts=15
     
     while [ $attempt -lt $max_attempts ]; do
-        sleep 3
-        if curl -s -f "http://localhost:8080/health" > /dev/null 2>&1; then
+        sleep 2
+        # Check if at least one API container is healthy
+        local api1_health=$(docker inspect osrm-api-1 --format='{{.State.Health.Status}}' 2>/dev/null)
+        local api2_health=$(docker inspect osrm-api-2 --format='{{.State.Health.Status}}' 2>/dev/null)
+        
+        if [ "$api1_health" = "healthy" ] || [ "$api2_health" = "healthy" ]; then
             print_success "API servers are healthy"
             break
-        else
-            ((attempt++))
-            echo -e "${GRAY}Attempt $attempt/$max_attempts...${NC}"
-            if [ $attempt -eq $max_attempts ]; then
-                print_warning "API servers not responding (may need manual check)"
-                echo -e "${YELLOW}Checking logs...${NC}"
-                docker logs osrm-api-1 --tail 20
-            fi
+        fi
+        
+        ((attempt++))
+        echo -e "${GRAY}Attempt $attempt/$max_attempts (API1: $api1_health, API2: $api2_health)...${NC}"
+        if [ $attempt -eq $max_attempts ]; then
+            print_warning "API servers not yet healthy, continuing anyway..."
         fi
     done
     
