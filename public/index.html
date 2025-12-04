@@ -156,21 +156,15 @@
         // Initialize map - center on Bandung
         const map = L.map('map').setView([-6.9175, 107.6191], 13);
         
-        // Try local tiles first, fallback to OSM if fails
-        const tileLayer = L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
+        // Use OSM tiles directly for now (local tiles have issues)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18,
             minZoom: 8,
-            errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
-        });
+            subdomains: ['a', 'b', 'c']
+        }).addTo(map);
         
-        tileLayer.on('tileerror', function(error, tile) {
-            console.warn('Tile load error:', error);
-        });
-        
-        tileLayer.addTo(map);
-        
-        console.log('Map initialized with tile URL:', `${API_URL}/tiles/{z}/{x}/{y}.png`);
+        console.log('Map initialized with OSM tiles');
 
         let startMarker = null;
         let endMarker = null;
