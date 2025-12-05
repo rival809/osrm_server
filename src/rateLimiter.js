@@ -37,6 +37,10 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
   store: new MemoryStore(),
   message: rateLimitMessage('API'),
+  // Trust proxy to handle X-Forwarded-For header from nginx
+  trustProxy: true,
+  // Skip failed requests (don't count them towards rate limit)
+  skipFailedRequests: false,
   handler: (req, res) => {
     logger.warn(`Rate limit exceeded for IP ${req.ip} on ${req.path}`);
     res.status(429).json(rateLimitMessage('API'));
@@ -50,6 +54,7 @@ const routeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: new MemoryStore(),
+  trustProxy: true,
   message: rateLimitMessage('routing'),
   handler: (req, res) => {
     logger.warn(`Route rate limit exceeded for IP ${req.ip}`);
@@ -64,6 +69,7 @@ const tileLimiter = rateLimit({
   standardHeaders: true, 
   legacyHeaders: false,
   store: new MemoryStore(),
+  trustProxy: true,
   message: rateLimitMessage('tile'),
   handler: (req, res) => {
     logger.warn(`Tile rate limit exceeded for IP ${req.ip}`);
@@ -78,6 +84,7 @@ const cacheLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: new MemoryStore(),
+  trustProxy: true,
   message: rateLimitMessage('cache management'),
   handler: (req, res) => {
     logger.warn(`Cache management rate limit exceeded for IP ${req.ip}`);
@@ -92,6 +99,7 @@ const preloadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: new MemoryStore(),
+  trustProxy: true,
   message: rateLimitMessage('preload'),
   handler: (req, res) => {
     logger.warn(`Preload rate limit exceeded for IP ${req.ip}`);
