@@ -197,7 +197,7 @@ EOF
 
 # Function to check if server is running (optional)
 check_server() {
-    if curl -s -f "$BASE_URL/" > /dev/null 2>&1; then
+    if curl -s -f --connect-timeout 3 --max-time 5 "$BASE_URL/health" > /dev/null 2>&1; then
         return 0
     else
         return 1
