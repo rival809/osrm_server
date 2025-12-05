@@ -299,7 +299,7 @@ generate_tile_urls() {
     shift 4
     local zoom_levels=("$@")
     local urls=()
-    local tile_server="https://tile.openstreetmap.org"
+    local tile_server="$BASE_URL/tiles"
     
     for zoom in "${zoom_levels[@]}"; do
         # Calculate tile bounds for this zoom level using bc for floating point math

@@ -47,6 +47,18 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "OSRM processing completed successfully!"
+
+# Clear tile cache since OSRM data has been rebuilt
+echo ""
+echo "🧹 Clearing tile cache (OSRM data has been rebuilt)..."
+if [ -d "./cache/tiles" ]; then
+    rm -rf ./cache/tiles/*
+    echo "✅ Tile cache cleared"
+else
+    echo "⚠️  Cache directory not found (skip)"
+fi
+
+echo ""
 echo "Files created:"
 echo "- java-latest.osrm"
 echo "- java-latest.osrm.hsgr"
