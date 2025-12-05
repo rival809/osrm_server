@@ -29,15 +29,14 @@ app.use(helmet({
 // Compression middleware
 app.use(compression());
 
-// Enable CORS with production settings
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.ALLOWED_ORIGINS?.split(',') || false
-    : true,
-  credentials: true,
+// Enable CORS - Allow all origins (internal microservice)
+app.use(cors({
+  origin: '*',
+  credentials: false,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+}));
 
 // Body parsing with limits
 app.use(express.json({ limit: '10mb' }));
