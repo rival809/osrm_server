@@ -22,13 +22,25 @@
 git clone <repo-url>
 cd osrm_server
 
-# 2. Automated setup (downloads OSM data + processes OSRM files)
+# 2. Automated data preparation (downloads OSM data + processes OSRM files)
 .\MASTER-SETUP.ps1
+# Note: This script only prepares data, does not start services
 
-# 3. Start services
-.\START.ps1
+# 3. Build and start services
 
-# 4. Access at http://localhost:80
+# Development mode (8.5GB RAM)
+docker-compose build --no-cache
+docker-compose up -d
+
+# OR Production mode (12.5GB RAM - recommended for 16GB server)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# 4. Check status
+docker-compose ps
+docker-compose logs -f
+
+# 5. Access at http://localhost:80
 ```
 
 ### Linux/Ubuntu
@@ -48,10 +60,12 @@ newgrp docker
 # Or logout/login to apply group membership
 
 # 4. Build and start services
-docker-compose build --no-cache    # Development
+
+# Development mode (8.5GB RAM)
+docker-compose build --no-cache
 docker-compose up -d
 
-# Or for production with higher resources:
+# OR Production mode (12.5GB RAM - recommended for 16GB server)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
@@ -62,24 +76,64 @@ docker-compose logs -f
 # 6. Access at http://localhost:80
 ```
 
-## 🛠️ Management Scripts
+## 🛠️ Service Management
 
-```powershell
-# Windows
-.\START.ps1              # Start all services
-.\STOP.ps1               # Stop all services
-.\docker.ps1 status      # Check status
-.\docker.ps1 logs        # View logs
-.\docker.ps1 health      # Health check
-.\CACHE-MANAGER.ps1      # Cache management
+### Start Services
 
-# Linux
-./START.sh               # Start all services
-./STOP.sh                # Stop all services
-./docker.sh status       # Check status
-./docker.sh logs         # View logs
-./docker.sh health       # Health check
-./CACHE-MANAGER.sh       # Cache management
+```bash
+# Development mode (8.5GB RAM)
+docker-compose up -d
+
+# Production mode (12.5GB RAM - recommended for 16GB server)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# With rebuild (after code changes)
+docker-compose up -d --build
+```
+
+### Stop Services
+
+```bash
+# Stop all services (works for both dev and prod)
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
+```
+
+### Monitor Services
+
+```bash
+# Check status
+docker-compose ps
+
+# View logs (all services)
+docker-compose logs -f
+
+# View logs (specific service)
+docker-compose logs -f nginx
+docker-compose logs -f osrm-api-1
+docker-compose logs -f osrm-backend
+
+# Check resource usage
+docker stats
+
+# Health check
+curl http://localhost/health
+```
+
+### Restart Services
+
+```bash
+# Restart all (works for both dev and prod)
+docker-compose restart
+
+# Restart specific service
+docker-compose restart nginx
+docker-compose restart osrm-api-1
+
+# Rebuild and restart specific service (after code changes)
+docker-compose up -d --no-deps --build osrm-api-1
 ```
 
 ## 🌐 API Endpoints

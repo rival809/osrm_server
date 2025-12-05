@@ -115,57 +115,16 @@ install_nodejs() {
     fi
 }
 
-# Install Docker (internal function - only called when needed)
-install_docker() {
-    print_step "Installing Docker" "Container platform"
-    print_warning "Docker not found, installing..."
-    
-    # Install prerequisites
-    sudo apt update
-    sudo apt install -y ca-certificates curl
-    sudo install -m 0755 -d /etc/apt/keyrings
-    
-    # Add Docker's official GPG key
-    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-    
-    # Add Docker repository
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    
-    # Install Docker Engine and plugins
-    sudo apt update
-    sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    
-    # Add current user to docker group
-    sudo usermod -aG docker $USER
-    
-    # Enable and start Docker service
-    sudo systemctl enable docker
-    sudo systemctl start docker
-    
-    print_success "Docker installed"
-    print_warning "Group membership updated - you may need to logout/login for docker group to take effect"
-    print_warning "Script will continue using sudo for docker commands..."
-}
-
 # Install prerequisites
 install_prerequisites() {
     print_section "PREREQUISITES INSTALLATION"
     
     # First check if prerequisites are already installed
     local node_installed=false
-    local docker_installed=false
     local need_system_packages=false
     
     if command -v node &> /dev/null; then
         node_installed=true
-    fi
-    
-    if command -v docker &> /dev/null; then
-        docker_installed=true
     fi
     
     # Check if basic system packages are available
@@ -217,48 +176,6 @@ install_prerequisites() {
         print_step "Checking Node.js" "JavaScript runtime"
         NODE_VERSION=$(node --version)
         print_success "Node.js already installed: $NODE_VERSION"
-    fi
-    
-    # Install Docker if not installed
-    if [ "$docker_installed" = false ]; then
-        install_docker || return 1
-    else
-        print_step "Checking Docker" "Container platform"
-        DOCKER_VERSION=$(docker --version)
-        print_success "Docker already installed: $DOCKER_VERSION"
-        
-        # Check Docker Compose (plugin or standalone)
-        if docker compose version &> /dev/null; then
-            COMPOSE_VERSION=$(docker compose version)
-            print_success "Docker Compose plugin installed: $COMPOSE_VERSION"
-        elif command -v docker-compose &> /dev/null; then
-            COMPOSE_VERSION=$(docker-compose --version)
-            print_success "Docker Compose standalone installed: $COMPOSE_VERSION"
-        else
-            print_warning "Docker Compose not found, installing plugin..."
-            sudo apt-get update
-            sudo apt-get install -y docker-compose-plugin
-            print_success "Docker Compose plugin installed"
-        fi
-        
-        # Check if Docker is running
-        print_step "Checking Docker status" "Verify Docker daemon is running"
-        if docker ps > /dev/null 2>&1; then
-            print_success "Docker is running"
-        else
-            print_warning "Docker is not running. Starting Docker..."
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            
-            # Wait for Docker to start
-            sleep 5
-            if docker ps > /dev/null 2>&1; then
-                print_success "Docker started successfully"
-            else
-                print_error "Failed to start Docker"
-                return 1
-            fi
-        fi
     fi
     
     return 0
@@ -674,10 +591,10 @@ show_completion_summary() {
     echo -e "${NC}      docker-compose ps${NC}"
     echo -e "${NC}      docker-compose logs -f${NC}"
     echo ""
-    echo -e "${CYAN}Management Commands:${NC}"
-    echo -e "${NC}   * Start:          ./START.sh${NC}"
-    echo -e "${NC}   * Stop:           ./STOP.sh${NC}"
-    echo -e "${NC}   * Cache Manager:  ./CACHE-MANAGER.sh${NC}"
+    echo -e "${CYAN}Service Management:${NC}"
+    echo -e "${NC}   * Stop:           docker-compose down${NC}"
+    echo -e "${NC}   * Restart:        docker-compose restart${NC}"
+    echo -e "${NC}   * View logs:      docker-compose logs -f${NC}"
     echo ""
     echo -e "${CYAN}Available Endpoints (after services start):${NC}"
     echo -e "${NC}   * Public API:     http://localhost${NC}"
@@ -693,7 +610,7 @@ main() {
     echo -e "${NC}Complete End-to-End Setup for Linux${NC}"
     echo ""
     echo -e "${CYAN}This script will:${NC}"
-    echo -e "${GRAY}  - Install prerequisites (Node.js, Docker)${NC}"
+    echo -e "${GRAY}  - Install prerequisites (Node.js)${NC}"
     echo -e "${GRAY}  - Setup environment and dependencies${NC}"
     echo -e "${GRAY}  - Download Java Island OSM data (~800MB)${NC}"
     echo -e "${GRAY}  - Process OSRM routing data (10-20 min)${NC}"

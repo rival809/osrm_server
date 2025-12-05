@@ -86,7 +86,6 @@ function Install-Prerequisites {
     
     # First check if prerequisites are already installed
     $nodeInstalled = $false
-    $dockerInstalled = $false
     
     try {
         $nodeVersion = node --version 2>$null
@@ -95,23 +94,11 @@ function Install-Prerequisites {
         }
     } catch { }
     
-    try {
-        $dockerVersion = docker --version 2>$null
-        if ($dockerVersion) {
-            $dockerInstalled = $true
-        }
-    } catch { }
-    
-    # Check admin rights only if installations are needed
-    if (-not ($nodeInstalled -and $dockerInstalled) -and -not (Test-AdminRights)) {
-        Write-Warning "Some installations require administrator rights"
+    # Check admin rights only if Node.js installation is needed
+    if (-not $nodeInstalled -and -not (Test-AdminRights)) {
+        Write-Warning "Node.js installation requires administrator rights"
         Write-Host "Please run as administrator or install manually:" -ForegroundColor Yellow
-        if (-not $nodeInstalled) {
-            Write-Host "  - Node.js LTS: https://nodejs.org/"
-        }
-        if (-not $dockerInstalled) {
-            Write-Host "  - Docker Desktop: https://desktop.docker.com/win/stable/Docker%20Desktop%20Installer.exe"
-        }
+        Write-Host "  - Node.js LTS: https://nodejs.org/" -ForegroundColor Yellow
         Write-Host ""
         
         $continue = Read-Host "Continue with current permissions? (y/N)"
@@ -144,25 +131,6 @@ function Install-Prerequisites {
         }
     }
     
-    # Check and install Docker
-    Write-Step "Checking Docker" "Container platform"
-    try {
-        $dockerVersion = docker --version 2>$null
-        if ($dockerVersion) {
-            Write-Success "Docker already installed: $dockerVersion"
-        } else {
-            throw "Docker not found"
-        }
-    } catch {
-        Write-Warning "Docker not found, installing..."
-        if (Get-Command choco -ErrorAction SilentlyContinue) {
-            choco install docker-desktop -y
-        } else {
-            Write-Error "Please install Docker Desktop manually from https://desktop.docker.com/"
-            return $false
-        }
-    }
-    
     # Check curl.exe for fast downloads
     Write-Step "Checking curl" "Download utility (optional but recommended)"
     $curlPath = Get-Command curl.exe -ErrorAction SilentlyContinue
@@ -178,37 +146,6 @@ function Install-Prerequisites {
         Write-Warning "curl.exe not found (will use PowerShell download as fallback)"
         Write-Host "   Note: curl.exe is built-in on Windows 10 version 1803 and later" -ForegroundColor Gray
         Write-Host "   PowerShell downloads will be slower but still work" -ForegroundColor Gray
-    }
-    
-    # Check if Docker is running
-    Write-Step "Checking Docker status" "Verify Docker daemon is running"
-    try {
-        docker ps 2>$null | Out-Null
-        Write-Success "Docker is running"
-    } catch {
-        Write-Warning "Docker is not running. Starting Docker Desktop..."
-        Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -WindowStyle Hidden
-        Write-Host "Waiting for Docker to start..." -ForegroundColor Yellow
-        
-        $timeout = 60
-        $elapsed = 0
-        while ($elapsed -lt $timeout) {
-            Start-Sleep -Seconds 5
-            $elapsed += 5
-            try {
-                docker ps 2>$null | Out-Null
-                Write-Success "Docker started successfully"
-                break
-            } catch {
-                Write-Host "Still waiting... ($elapsed / $timeout seconds)" -ForegroundColor Gray
-            }
-        }
-        
-        if ($elapsed -ge $timeout) {
-            $msg = "Docker failed to start within $timeout seconds"
-            Write-Error $msg
-            return $false
-        }
     }
     
     return $true
@@ -567,25 +504,34 @@ function Test-Deployment {
 function Show-CompletionSummary {
     Write-Section "SETUP COMPLETE" "Green"
     
-    Write-Host "[SUCCESS] OSRM Service is now fully deployed and ready!" -ForegroundColor Green
+    Write-Host "[SUCCESS] OSRM data preparation completed!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Available Services:" -ForegroundColor Cyan
-    Write-Host "   * API Server:     http://localhost:8080" -ForegroundColor White
+    Write-Host "What's Ready:" -ForegroundColor Cyan
+    Write-Host "   ✓ Prerequisites installed (Node.js)" -ForegroundColor White
+    Write-Host "   ✓ Environment configured" -ForegroundColor White
+    Write-Host "   ✓ OSM data downloaded" -ForegroundColor White
+    Write-Host "   ✓ OSRM routing data processed" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Next Steps - Start Services Manually:" -ForegroundColor Cyan
+    Write-Host "   1. Build and start services:" -ForegroundColor White
+    Write-Host "      docker-compose build --no-cache" -ForegroundColor Gray
+    Write-Host "      docker-compose up -d" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "   2. Check service status:" -ForegroundColor White
+    Write-Host "      docker-compose ps" -ForegroundColor Gray
+    Write-Host "      docker-compose logs -f" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Service Management:" -ForegroundColor Cyan
+    Write-Host "   * Stop:           docker-compose down" -ForegroundColor White
+    Write-Host "   * Restart:        docker-compose restart" -ForegroundColor White
+    Write-Host "   * View logs:      docker-compose logs -f" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Available Endpoints (after services start):" -ForegroundColor Cyan
+    Write-Host "   * Public API:     http://localhost" -ForegroundColor White
+    Write-Host "   * Direct API:     http://localhost:8080" -ForegroundColor White
     Write-Host "   * OSRM Backend:   http://localhost:5000" -ForegroundColor White
-    Write-Host "   * Web Interface:  http://localhost:8080" -ForegroundColor White
     Write-Host ""
-    Write-Host "Management Commands:" -ForegroundColor Cyan
-    Write-Host "   * Start:          .\START.ps1" -ForegroundColor White
-    Write-Host "   * Stop:           .\STOP.ps1" -ForegroundColor White
-    Write-Host "   * Cache Manager:  .\CACHE-MANAGER.ps1" -ForegroundColor White
-    Write-Host "   * Docker Manager: .\DOCKER-MANAGER.ps1" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Next Steps:" -ForegroundColor Cyan
-    Write-Host "   1. Run cache preload: .\CACHE-MANAGER.ps1 (option 2)" -ForegroundColor White
-    Write-Host "   2. Test routing: http://localhost:8080" -ForegroundColor White
-    Write-Host "   3. Monitor with: docker-compose logs -f" -ForegroundColor White
-    Write-Host ""
-    Write-Host "For production deployment, see DEPLOYMENT.md" -ForegroundColor Yellow
+    Write-Host "For production deployment, see PRODUCTION.md" -ForegroundColor Yellow
 }
 
 # Main execution
@@ -594,12 +540,11 @@ function Main {
     Write-Host "Complete End-to-End Setup for Windows" -ForegroundColor White
     Write-Host ""
     Write-Host "This script will:" -ForegroundColor Cyan
-    Write-Host "  - Install prerequisites (Node.js, Docker)" -ForegroundColor Gray
+    Write-Host "  - Install prerequisites (Node.js)" -ForegroundColor Gray
     Write-Host "  - Setup environment and dependencies" -ForegroundColor Gray
     Write-Host "  - Download Java Island OSM data (~800MB)" -ForegroundColor Gray
     Write-Host "  - Process OSRM routing data (10-20 min)" -ForegroundColor Gray
-    Write-Host "  - Start all services" -ForegroundColor Gray
-    Write-Host "  - Test deployment" -ForegroundColor Gray
+    Write-Host "  - Prepare for manual service deployment" -ForegroundColor Gray
     Write-Host ""
     
     if ($Mode -eq "interactive") {
@@ -611,29 +556,27 @@ function Main {
     }
     
     # Execute setup steps
-    $steps = @(
-        { Install-Prerequisites },
-        { Setup-Environment },
-        { Download-OSMData },
-        { Process-OSRMData },
-        { Start-Services },
-        { Test-Deployment }
-    )
+    if (-not (Install-Prerequisites)) {
+        Write-Error "Prerequisites installation failed"
+        exit 1
+    }
     
-    foreach ($step in $steps) {
-        if (-not (& $step)) {
-            Write-Error "Setup failed. Please check the error messages above."
-            exit 1
-        }
+    if (-not (Setup-Environment)) {
+        Write-Error "Environment setup failed"
+        exit 1
+    }
+    
+    if (-not (Download-OSMData)) {
+        Write-Error "OSM data download failed"
+        exit 1
+    }
+    
+    if (-not (Process-OSRMData)) {
+        Write-Error "OSRM data processing failed"
+        exit 1
     }
     
     Show-CompletionSummary
-    
-    if ($Mode -eq "interactive") {
-        Write-Host ""
-        Read-Host "Press Enter to start the API server"
-        npm start
-    }
 }
 
 # Run main function
