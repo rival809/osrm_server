@@ -4,8 +4,10 @@
 
 ## 📚 Documentation
 
-- **[SETUP.md](SETUP.md)** - Complete setup guide (Windows & Linux)
-- **[PRODUCTION.md](PRODUCTION.md)** - Production deployment guide
+- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - **START HERE** for production deployment
+- **[DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)** - Step-by-step deployment checklist
+- **[SETUP.md](SETUP.md)** - Development setup guide (Windows & Linux)
+- **[PRODUCTION.md](PRODUCTION.md)** - Advanced production configuration
 
 ## 🚀 Quick Start
 
@@ -14,6 +16,7 @@
 - Docker Desktop (Windows) / Docker Engine (Linux)
 - Node.js 18+ LTS
 - 8GB+ RAM, 50GB+ disk space
+- **Recommended:** 4GB+ swap memory (Linux/Production servers)
 
 ### Windows
 
@@ -28,11 +31,11 @@ cd osrm_server
 
 # 3. Build and start services
 
-# Development mode (8.5GB RAM)
+# Development mode (recommended for 8GB RAM servers)
 docker-compose build --no-cache
 docker-compose up -d
 
-# OR Production mode (12.5GB RAM - recommended for 16GB server)
+# OR Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
@@ -61,11 +64,11 @@ newgrp docker
 
 # 4. Build and start services
 
-# Development mode (8.5GB RAM)
+# Development mode (recommended for 8GB RAM servers)
 docker-compose build --no-cache
 docker-compose up -d
 
-# OR Production mode (12.5GB RAM - recommended for 16GB server)
+# OR Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
@@ -81,13 +84,13 @@ docker-compose logs -f
 ### Start Services
 
 ```bash
-# Development mode (8.5GB RAM)
+# Development mode (recommended for 8GB RAM servers)
 docker-compose up -d
 
-# Production mode (12.5GB RAM - recommended for 16GB server)
+# Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
-# With rebuild (after code changes)
+# With rebuild (after code changes - works for both modes)
 docker-compose up -d --build
 ```
 

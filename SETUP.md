@@ -10,6 +10,7 @@ Complete setup guide untuk OSRM Tile Service - Java Island.
 - Docker Desktop
 - Node.js 18+ LTS
 - 8GB+ RAM, 50GB+ disk
+- **Note:** Docker Desktop handles memory management automatically
 
 ### Linux/Ubuntu
 
@@ -17,6 +18,7 @@ Complete setup guide untuk OSRM Tile Service - Java Island.
 - Docker & Docker Compose
 - Node.js 18+ LTS
 - 8GB+ RAM, 50GB+ disk
+- **Recommended:** 4GB+ swap memory for stability
 
 ## Quick Setup
 

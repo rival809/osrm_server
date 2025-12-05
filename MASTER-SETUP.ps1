@@ -514,14 +514,20 @@ function Show-CompletionSummary {
     Write-Host ""
     Write-Host "Next Steps - Start Services Manually:" -ForegroundColor Cyan
     Write-Host "   1. Build and start services:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "      Development mode (8GB RAM):" -ForegroundColor White
     Write-Host "      docker-compose build --no-cache" -ForegroundColor Gray
     Write-Host "      docker-compose up -d" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "      Production mode (2+ vCPU, 8GB+ RAM):" -ForegroundColor White
+    Write-Host "      docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache" -ForegroundColor Gray
+    Write-Host "      docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d" -ForegroundColor Gray
     Write-Host ""
     Write-Host "   2. Check service status:" -ForegroundColor White
     Write-Host "      docker-compose ps" -ForegroundColor Gray
     Write-Host "      docker-compose logs -f" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Service Management:" -ForegroundColor Cyan
+    Write-Host "Service Management (works for both dev and prod):" -ForegroundColor Cyan
     Write-Host "   * Stop:           docker-compose down" -ForegroundColor White
     Write-Host "   * Restart:        docker-compose restart" -ForegroundColor White
     Write-Host "   * View logs:      docker-compose logs -f" -ForegroundColor White

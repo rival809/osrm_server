@@ -1,30 +1,38 @@
 # Production Deployment
 
-Production-ready deployment dengan Nginx, load balancing, SSL, dan monitoring.
+Production-ready deployment untuk OSRM routing service sebagai **internal microservice**.
 
 ## Architecture
 
-**Internal/VPC Deployment (HTTP Only):**
+**Recommended: Backend Sambara Gateway Pattern**
 
 ```
-Internal Network/VPC
+User (Mobile/Web)
+    ↓ HTTPS (Public Internet)
+[Backend Sambara] - API Gateway
+    ↓ HTTP (Private Network/VPC)
+[OSRM Service - Nginx] :80
     ↓
+[API-1] [API-2] :8080
+    ↓
+[OSRM Backend] :5000
+```
+
+**Direct Internal Access (Alternative):**
+
+```
+Internal Services/VPC
+    ↓ HTTP (Private Network)
 [Nginx] :80 → [API-1] [API-2] :8080 → [OSRM] :5000
-```
-
-**External Deployment (with SSL):**
-
-```
-Internet → [Load Balancer/SSL] → [Nginx] :80/443 → [API-1] [API-2] :8080 → [OSRM] :5000
 ```
 
 **Components:**
 
-- **Nginx**: Reverse proxy, load balancer, rate limiting, caching (Port 80 by default)
+- **Nginx**: Reverse proxy, load balancer, rate limiting (Port 80 - HTTP only)
 - **API Instances**: 2x Node.js servers for redundancy (Internal port 8080)
 - **OSRM Backend**: Routing engine with Java Island data (Internal port 5000)
-- **Volumes**: Persistent cache, logs
-- **SSL**: Optional, typically handled by external load balancer (ALB/CloudFlare)
+- **Volumes**: Persistent cache for map tiles, logs
+- **SSL**: Not required - handled by Backend Sambara/API Gateway
 
 ## Quick Deploy
 
@@ -42,7 +50,38 @@ git clone <repo-url> osrm-service
 cd osrm-service
 ```
 
-### 2. Process Data
+### 2. Configure Swap Memory (Recommended)
+
+```bash
+# Check existing swap
+sudo swapon --show
+free -h
+
+# Create 4GB swap file (if not exists or too small)
+sudo fallocate -l 4G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Make permanent (add to /etc/fstab)
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Optimize swap usage (optional)
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf
+
+# Verify
+free -h
+```
+
+**Why Swap?**
+
+- Prevents OOM (Out of Memory) kills during OSRM processing
+- Provides buffer for memory spikes
+- Improves system stability under load
+- Recommended: 4GB swap for 8GB RAM servers
+
+### 3. Process Data
 
 ```bash
 # Run automated setup
@@ -54,16 +93,16 @@ cd osrm-service
 # - Setup environment
 ```
 
-### 3. Deploy Services
+### 4. Deploy Services
 
-**For Internal/VPC Deployment (No SSL):**
+**Choose deployment mode based on server specs:**
 
 ```bash
-# Development mode (lower resources)
+# Development mode (8GB RAM servers)
 docker-compose build --no-cache
 docker-compose up -d
 
-# Production mode (higher resources - recommended for 16GB RAM)
+# Production mode (2+ vCPU, 8GB+ RAM servers)
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
@@ -74,30 +113,61 @@ curl http://localhost/health
 
 **Note:** This deployment uses **HTTP only (port 80)** as it's designed for internal network/VPC access where SSL is handled at load balancer level or not required.
 
-### 4. Configure SSL (Optional - External Access Only)
+### 5. Configure Firewall (Important!)
 
-**Skip this section if:**
-
-- ✅ API accessed from internal network/VPC only
-- ✅ Load balancer handles SSL termination
-- ✅ Services communicate within same AWS VPC/private network
-
-**Only needed for direct public internet access:**
+**For Backend Sambara Gateway Pattern:**
 
 ```bash
-# Install Certbot
-sudo apt install certbot
+# Allow access ONLY from Backend Sambara server
+sudo ufw allow from <BACKEND_SAMBARA_IP> to any port 80 proto tcp
 
-# Get certificate
-sudo certbot certonly --standalone -d your-domain.com
+# Or allow from entire VPC CIDR
+sudo ufw allow from 10.0.0.0/8 to any port 80 proto tcp
 
-# Copy certificates
-sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem nginx/ssl/
-sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem nginx/ssl/
+# Allow SSH for admin access
+sudo ufw allow from <ADMIN_IP> to any port 22 proto tcp
 
-# Update nginx.conf (uncomment SSL server block)
-# Then restart
-docker-compose restart nginx
+# Deny all other access
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Enable firewall
+sudo ufw enable
+sudo ufw status
+```
+
+**AWS Security Group Configuration:**
+
+```yaml
+Inbound Rules:
+  - Type: Custom TCP
+    Port: 80
+    Source: <Backend-Sambara-Security-Group-ID>
+    Description: "HTTP from Backend Sambara only"
+
+  - Type: SSH
+    Port: 22
+    Source: <Admin-IP>/32
+    Description: "Admin access"
+
+Outbound Rules:
+  - Type: All traffic
+    Destination: 0.0.0.0/0
+    Description: "Allow outbound for updates"
+```
+
+**Verify Configuration:**
+
+```bash
+# Test from Backend Sambara server
+curl http://<OSRM_INTERNAL_IP>/health
+
+# Should work ✓
+
+# Test from other server/internet
+curl http://<OSRM_INTERNAL_IP>/health
+
+# Should timeout/reject ✓
 ```
 
 ## Management
