@@ -328,7 +328,8 @@ generate_tile_urls() {
         local maxY=$(echo "$maxY_calc" | cut -d. -f1)
         
         local tile_count=$(((maxX-minX+1)*(maxY-minY+1)))
-        echo "Zoom $zoom: tiles X($minX-$maxX) Y($minY-$maxY) = $tile_count tiles"
+        # Redirect to stderr to avoid polluting the URL list output
+        echo "Zoom $zoom: tiles X($minX-$maxX) Y($minY-$maxY) = $tile_count tiles" >&2
         
         for ((x=minX; x<=maxX; x++)); do
             for ((y=minY; y<=maxY; y++)); do
