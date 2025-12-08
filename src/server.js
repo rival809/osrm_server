@@ -299,11 +299,19 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     const bounds = tileToBounds(tileX, tileY, zoom);
 
     // Cek apakah tile dalam batas Jawa (outside = "Outside Java Island")
-    if (!isTileInJavaIsland(bounds)) {
+    const isInJava = isTileInJavaIsland(bounds);
+    
+    // Debug log for troubleshooting
+    if (zoom >= 10 && zoom <= 13) {
+      logger.debug(`Tile ${zoom}/${tileX}/${tileY} bounds: ${JSON.stringify(bounds)}, inJava: ${isInJava}`);
+    }
+    
+    if (!isInJava) {
       // Return empty tile jika di luar Jawa
       const emptyTile = await createEmptyTile();
       res.set('Content-Type', 'image/png');
       res.set('X-Region', 'outside');
+      res.set('X-Bounds', JSON.stringify(bounds));
       return res.send(emptyTile);
     }
 
@@ -338,14 +346,17 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     res.send(tile);
 
   } catch (error) {
-    console.error('Tile serving error:', error.message);
+    logger.error(`Tile serving error for ${req.params.z}/${req.params.x}/${req.params.y}:`, error.message, error.stack);
     
     try {
       const errorTile = await createErrorTile();
       res.set('Content-Type', 'image/png');
-      res.set('X-Error', 'SERVE_ERROR');
+      res.set('X-Cache', 'ERROR');
+      res.set('X-Error', error.message || 'SERVE_ERROR');
+      res.set('X-Error-Stack', error.stack ? error.stack.split('\n')[0] : 'N/A');
       res.send(errorTile);
     } catch (e) {
+      logger.error('Failed to create error tile:', e);
       res.status(500).json({
         error: 'Gagal melayani tile',
         message: error.message

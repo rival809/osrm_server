@@ -183,27 +183,43 @@ class TileCacheManager {
         }
       }
 
-      // Download from OSM
+      // Download from OSM with retry
       this.logger.info(`Downloading tile ${z}/${x}/${y} from OSM`);
       const tileUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
-      const response = await axios.get(tileUrl, {
-        responseType: 'arraybuffer',
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'OSRM-Tile-Service/1.0'
+      
+      let lastError;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          if (retry > 0) {
+            this.logger.info(`Retry ${retry}/3 for tile ${z}/${x}/${y}`);
+            await new Promise(resolve => setTimeout(resolve, retry * 1000)); // Backoff
+          }
+          
+          const response = await axios.get(tileUrl, {
+            responseType: 'arraybuffer',
+            timeout: 30000, // Increased to 30 seconds
+            headers: {
+              'User-Agent': 'OSRM-Tile-Service/1.0'
+            }
+          });
+
+          const tileBuffer = Buffer.from(response.data);
+          this.logger.info(`Tile ${z}/${x}/${y} downloaded successfully (${tileBuffer.length} bytes)`);
+
+          // Save to cache
+          await this.saveTileToCache(z, x, y, tileBuffer, { 
+            source: 'osm',
+            downloadedAt: new Date().toISOString()
+          });
+
+          return { tile: tileBuffer, source: 'download' };
+        } catch (err) {
+          lastError = err;
+          this.logger.warn(`Download attempt ${retry + 1} failed for tile ${z}/${x}/${y}: ${err.message}`);
         }
-      });
-
-      const tileBuffer = Buffer.from(response.data);
-      this.logger.info(`Tile ${z}/${x}/${y} downloaded successfully (${tileBuffer.length} bytes)`);
-
-      // Save to cache
-      await this.saveTileToCache(z, x, y, tileBuffer, { 
-        source: 'osm',
-        downloadedAt: new Date().toISOString()
-      });
-
-      return { tile: tileBuffer, source: 'download' };
+      }
+      
+      throw lastError;
     } catch (error) {
       this.logger.error(`Error getting tile ${z}/${x}/${y}:`, { 
         error: error.message, 
