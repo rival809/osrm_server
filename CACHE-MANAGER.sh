@@ -152,29 +152,41 @@ download_with_resume() {
             echo "📄 Resuming download from byte $current_size"
         fi
         
-        # Download with resume support
-        if curl -s --connect-timeout "$timeout" --max-time "$timeout" \
-               $range_header "$url" -o "$cache_file.tmp" --write-out "%{http_code}" > /tmp/curl_status; then
+        # Download with resume support - capture both HTTP code and curl exit code
+        local http_code
+        local curl_exit_code
+        http_code=$(curl -s --connect-timeout "$timeout" --max-time "$timeout" \
+                         $range_header "$url" -o "$cache_file.tmp" --write-out "%{http_code}")
+        curl_exit_code=$?
+        
+        # Check curl exit code first
+        if [[ $curl_exit_code -ne 0 ]]; then
+            echo "⚠️  Curl error (exit code: $curl_exit_code) for URL: $url"
+            rm -f "$cache_file.tmp"
+            if [[ $retry -eq $max_retries ]]; then
+                echo "❌ Download failed after $max_retries retries (curl error: $curl_exit_code)"
+                return 1
+            fi
+            continue
+        fi
+        
+        # Check HTTP status code
+        if [[ "$http_code" == "200" ]] || [[ "$http_code" == "206" ]]; then
+            # Successful download
+            if [[ $current_size -gt 0 ]] && [[ "$http_code" == "206" ]]; then
+                # Append to existing file for resume
+                cat "$cache_file.tmp" >> "$cache_file"
+                rm -f "$cache_file.tmp"
+                echo "📄 Resumed download: $(basename "$cache_file")"
+            else
+                # New download
+                mv "$cache_file.tmp" "$cache_file"
+                echo "📄 New download: $(basename "$cache_file")"
+            fi
             
-            local http_code=$(cat /tmp/curl_status)
-            rm -f /tmp/curl_status
-            
-            if [[ "$http_code" == "200" ]] || [[ "$http_code" == "206" ]]; then
-                # Successful download
-                if [[ $current_size -gt 0 ]] && [[ "$http_code" == "206" ]]; then
-                    # Append to existing file for resume
-                    cat "$cache_file.tmp" >> "$cache_file"
-                    rm -f "$cache_file.tmp"
-                    echo "📄 Resumed download: $(basename "$cache_file")"
-                else
-                    # New download
-                    mv "$cache_file.tmp" "$cache_file"
-                    echo "📄 New download: $(basename "$cache_file")"
-                fi
-                
-                # Update metadata
-                local file_size=$(stat -c%s "$cache_file")
-                cat > "$meta_file" << EOF
+            # Update metadata
+            local file_size=$(stat -c%s "$cache_file")
+            cat > "$meta_file" << EOF
 {
   "url": "$url",
   "size": $file_size,
@@ -182,29 +194,29 @@ download_with_resume() {
   "endTime": "$(date -Iseconds)"
 }
 EOF
-                echo "✅ Download completed: $(basename "$cache_file")"
-                return 0
-                
-            elif [[ "$http_code" == "416" ]]; then
-                # Range not satisfiable - file might be complete
-                rm -f "$cache_file.tmp"
-                echo "✅ File appears to be already complete"
-                cat > "$meta_file" << EOF
+            echo "✅ Download completed: $(basename "$cache_file")"
+            return 0
+            
+        elif [[ "$http_code" == "416" ]]; then
+            # Range not satisfiable - file might be complete
+            rm -f "$cache_file.tmp"
+            echo "✅ File appears to be already complete"
+            cat > "$meta_file" << EOF
 {
   "url": "$url",
   "completed": true,
   "endTime": "$(date -Iseconds)"
 }
 EOF
-                return 0
+            return 0
+        else
+            # Other HTTP error codes
+            echo "⚠️  HTTP $http_code error for URL: $url"
+            rm -f "$cache_file.tmp"
+            if [[ $retry -eq $max_retries ]]; then
+                echo "❌ Download failed after $max_retries retries (HTTP $http_code)"
+                return 1
             fi
-        fi
-        
-        rm -f "$cache_file.tmp"
-        
-        if [[ $retry -eq $max_retries ]]; then
-            echo "❌ Download failed after $max_retries retries"
-            return 1
         fi
     done
 }
