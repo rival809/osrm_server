@@ -370,12 +370,19 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
  * Helper functions
  */
 
-// Check if tile intersects Java Island
+// Check if tile intersects Java Island (overlap check, not strict containment)
 function isTileInJavaIsland(bounds) {
-  return !(bounds.maxLon < JAVA_ISLAND_BOUNDS.minLon ||
-           bounds.minLon > JAVA_ISLAND_BOUNDS.maxLon ||
-           bounds.maxLat < JAVA_ISLAND_BOUNDS.minLat ||
-           bounds.minLat > JAVA_ISLAND_BOUNDS.maxLat);
+  // Tile overlaps with Java if:
+  // - Tile's west edge is west of Java's east edge AND
+  // - Tile's east edge is east of Java's west edge AND
+  // - Tile's south edge is south of Java's north edge AND
+  // - Tile's north edge is north of Java's south edge
+  const overlapsLon = bounds.minLon < JAVA_ISLAND_BOUNDS.maxLon && 
+                      bounds.maxLon > JAVA_ISLAND_BOUNDS.minLon;
+  const overlapsLat = bounds.minLat < JAVA_ISLAND_BOUNDS.maxLat && 
+                      bounds.maxLat > JAVA_ISLAND_BOUNDS.minLat;
+  
+  return overlapsLon && overlapsLat;
 }
 
 // Convert tile coordinates to lat/lon bounds
