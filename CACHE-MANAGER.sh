@@ -409,7 +409,10 @@ preload_java_tiles() {
     
     # Generate tile URLs
     echo "🔗 Generating tile URLs..."
-    local tile_urls=($(generate_tile_urls $minLat $maxLat $minLng $maxLng "${zoom_levels[@]}"))
+    local tile_urls=()
+    while IFS= read -r url; do
+        [[ -n "$url" ]] && tile_urls+=("$url")
+    done < <(generate_tile_urls $minLat $maxLat $minLng $maxLng "${zoom_levels[@]}")
     
     echo "📊 Generated ${#tile_urls[@]} tile URLs"
     
