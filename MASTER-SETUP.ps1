@@ -214,7 +214,17 @@ function Download-OSMData {
         $fileInfo = Get-Item $dataFile
         $sizeMB = [Math]::Round($fileInfo.Length / 1MB, 2)
         Write-Success "OSM data already exists: $dataFile ($sizeMB MB)"
-        return $true
+        if ($Mode -eq "interactive") {
+            $redownload = Read-Host "Do you want to re-download OSM data? (y/N)"
+            if ($redownload.ToLower() -ne "y") {
+                Write-Success "Using existing OSM data"
+                return $true
+            }
+            Write-Warning "Re-downloading OSM data..."
+        } else {
+            Write-Success "Using existing OSM data (auto mode)"
+            return $true
+        }
     }
     
     Write-Step "Downloading Java Island OSM data" "~800MB download from Geofabrik"
@@ -334,17 +344,47 @@ function Process-OSRMData {
         "data\java-latest.osrm.turn_weight_penalties"
     )
     
+    $foundCount = 0
     $allFilesExist = $true
     foreach ($file in $requiredFiles) {
-        if (-not (Test-Path $file)) {
+        if (Test-Path $file) {
+            $foundCount++
+        } else {
             $allFilesExist = $false
-            break
         }
     }
-    
-    if ($allFilesExist) {
-        Write-Success "OSRM data already processed and complete"
-        return $true
+    if ($foundCount -ge 3) {
+        if ($allFilesExist) {
+            Write-Success "OSRM data already processed and complete ($foundCount of $($requiredFiles.Count) files found)"
+        } else {
+            Write-Warning "OSRM data partially processed: found $foundCount of $($requiredFiles.Count) files"
+        }
+        if ($Mode -eq "interactive") {
+            $reprocess = Read-Host "Do you want to reprocess OSRM data? (y/N)"
+            if ($reprocess.ToLower() -ne "y") {
+                if ($allFilesExist) {
+                    Write-Success "Skipping OSRM processing, using existing data"
+                    return $true
+                } else {
+                    Write-Warning "Continuing with incomplete data (may cause errors)"
+                    return $true
+                }
+            }
+            Write-Warning "Reprocessing OSRM data..."
+            # Clean up existing files for reprocessing
+            $oldFiles = Get-ChildItem "data" -Filter "java-latest.osrm*" -ErrorAction SilentlyContinue
+            if ($oldFiles) {
+                $oldFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+                Write-Host "   Removed $($oldFiles.Count) file(s)" -ForegroundColor Gray
+            }
+        } else {
+            if ($allFilesExist) {
+                Write-Success "Using existing OSRM data (auto mode)"
+                return $true
+            } else {
+                Write-Warning "Incomplete data found, will reprocess (auto mode)"
+            }
+        }
     }
     
     # Clean up any incomplete/old OSRM files
@@ -410,41 +450,86 @@ function Process-OSRMData {
 function Start-Services {
     Write-Section "STARTING SERVICES"
     
-    # Start OSRM Backend
-    Write-Step "Starting OSRM Backend" "Docker container on port 5000"
+    # Start ALL services (Backend + API + Nginx)
+    Write-Step "Starting all services" "OSRM Backend, API servers, and Nginx"
     try {
-        docker-compose up -d osrm-backend
+        docker-compose up --build -d
         if ($LASTEXITCODE -eq 0) {
-            Write-Success "OSRM Backend started"
+            Write-Success "All services started"
         } else {
             throw "Docker compose failed"
         }
     } catch {
-        Write-Error "Failed to start OSRM Backend: $($_.Exception.Message)"
+        Write-Error "Failed to start services: $($_.Exception.Message)"
         return $false
     }
-    
-    # Wait for OSRM to be ready
-    Write-Step "Waiting for OSRM to be ready" "Health check"
-    $maxAttempts = 12
+    # Wait for containers to initialize
+    Write-Step "Waiting for containers to initialize" "15 seconds"
+    Start-Sleep -Seconds 15
+    # Check container status
+    Write-Step "Checking container status" "docker ps"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    # Wait for OSRM Backend to be ready (check container logs)
+    Write-Step "Waiting for OSRM Backend" "Checking container status"
+    $maxAttempts = 20
     $attempt = 0
-    
     while ($attempt -lt $maxAttempts) {
-        Start-Sleep -Seconds 5
+        Start-Sleep -Seconds 3
+        $backendStatus = docker inspect osrm-backend --format='{{.State.Running}}' 2>$null
+        if ($backendStatus -eq "true") {
+            $logs = docker logs osrm-backend 2>&1
+            if ($logs -match "running and waiting for requests") {
+                Write-Success "OSRM Backend is running"
+                break
+            }
+        }
+        $attempt++
+        Write-Host "Attempt $attempt/$maxAttempts..." -ForegroundColor Gray
+        if ($attempt -eq $maxAttempts) {
+            Write-Error "OSRM Backend not ready"
+            Write-Host "Checking logs..." -ForegroundColor Yellow
+            docker logs osrm-backend --tail 20
+            return $false
+        }
+    }
+    # Wait for API servers to be ready (check container health status)
+    Write-Step "Waiting for API servers" "Checking container health"
+    $attempt = 0
+    $maxAttempts = 15
+    while ($attempt -lt $maxAttempts) {
+        Start-Sleep -Seconds 2
+        $api1Health = docker inspect osrm-api-1 --format='{{.State.Health.Status}}' 2>$null
+        $api2Health = docker inspect osrm-api-2 --format='{{.State.Health.Status}}' 2>$null
+        if ($api1Health -eq "healthy" -or $api2Health -eq "healthy") {
+            Write-Success "API servers are healthy"
+            break
+        }
+        $attempt++
+        Write-Host "Attempt $attempt/$maxAttempts (API1: $api1Health, API2: $api2Health)..." -ForegroundColor Gray
+        if ($attempt -eq $maxAttempts) {
+            Write-Warning "API servers not yet healthy, continuing anyway..."
+        }
+    }
+    # Wait for Nginx to be ready
+    Write-Step "Waiting for Nginx" "Health check on port 80"
+    $attempt = 0
+    $maxAttempts = 10
+    while ($attempt -lt $maxAttempts) {
+        Start-Sleep -Seconds 2
         try {
-            $response = Invoke-RestMethod "http://localhost:5000/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753" -TimeoutSec 10
-            Write-Success "OSRM Backend is healthy"
+            $nginxHealth = Invoke-RestMethod "http://localhost/health" -TimeoutSec 5
+            Write-Success "Nginx is healthy"
             break
         } catch {
             $attempt++
             Write-Host "Attempt $attempt/$maxAttempts..." -ForegroundColor Gray
             if ($attempt -eq $maxAttempts) {
-                Write-Error "OSRM Backend failed to start properly"
-                return $false
+                Write-Warning "Nginx not responding"
+                Write-Host "Checking logs..." -ForegroundColor Yellow
+                docker logs osrm-nginx --tail 20
             }
         }
     }
-    
     return $true
 }
 
