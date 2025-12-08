@@ -106,6 +106,39 @@ class TileCacheManager {
     }
   }
   
+  // Check if tile is an "Outside Java Island" tile by detecting unique marker
+  isOutsideJavaTile(tileBuffer) {
+    try {
+      // Quick check - fallback PNG is exactly 103 bytes
+      if (tileBuffer.length === 103) {
+        return true;
+      }
+      
+      // Check for PNG signature
+      if (tileBuffer.length < 8 || 
+          tileBuffer[0] !== 0x89 || tileBuffer[1] !== 0x50 || 
+          tileBuffer[2] !== 0x4E || tileBuffer[3] !== 0x47) {
+        return false;
+      }
+      
+      // For canvas-generated tiles, check for magenta marker at position (255,255)
+      // This is a simple heuristic - real implementation would need PNG parsing
+      // For now, we rely on size check: Outside tiles are ~2.5KB, OSM tiles are >5KB
+      if (tileBuffer.length > 1000 && tileBuffer.length < 4000) {
+        // Likely an error/outside tile (canvas-generated ~2-3KB)
+        // Check if it contains "Outside" text marker in raw bytes
+        const textCheck = tileBuffer.toString('utf8', 0, Math.min(tileBuffer.length, 1000));
+        if (textCheck.includes('Outside') || textCheck.includes('Java Island')) {
+          return true;
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      return false;
+    }
+  }
+  
   // Generate cache file paths
   getTileCachePath(z, x, y) {
     const dir = path.join(this.cacheDir, 'tiles', z.toString(), x.toString());
@@ -178,8 +211,29 @@ class TileCacheManager {
       if (await this.isTileCached(z, x, y)) {
         const tile = await this.loadTileFromCache(z, x, y);
         if (tile) {
-          this.logger.debug(`Tile ${z}/${x}/${y} loaded from cache`);
-          return { tile, source: 'cache' };
+          // Validate tile - check if it's an "Outside Java Island" tile
+          const MIN_VALID_TILE_SIZE = 500; // bytes - normal OSM tiles are usually > 5KB
+          const isOutsideTile = this.isOutsideJavaTile(tile);
+          
+          if (tile.length < MIN_VALID_TILE_SIZE || isOutsideTile) {
+            const reason = isOutsideTile ? 'Outside Java Island marker detected' : `too small (${tile.length} bytes)`;
+            this.logger.warn(`Cached tile ${z}/${x}/${y} is invalid (${reason}), re-downloading...`);
+            
+            // Delete invalid cached tile
+            const tilePath = this.getTileCachePath(z, x, y);
+            const metaPath = this.getTileMetadataPath(z, x, y);
+            try {
+              const fs = require('fs').promises;
+              await fs.unlink(tilePath).catch(() => {});
+              await fs.unlink(metaPath).catch(() => {});
+            } catch (e) {
+              // Ignore delete errors
+            }
+            // Fall through to download section below
+          } else {
+            this.logger.debug(`Tile ${z}/${x}/${y} loaded from cache (${tile.length} bytes)`);
+            return { tile, source: 'cache' };
+          }
         }
       }
 

@@ -61,35 +61,57 @@ else
 fi
 
 CACHE_DIR="./cache"
-METADATA_DIR="./cache/.metadata"
+TILES_DIR="./cache/tiles"
+METADATA_DIR="./cache/metadata"
 
 # Initialize cache directories
 initialize_cache_dirs() {
     mkdir -p "$CACHE_DIR"
+    mkdir -p "$TILES_DIR"
     mkdir -p "$METADATA_DIR"
 }
 
-# Function to generate cache key from URL
-get_cache_key() {
-    echo -n "$1" | md5sum | cut -d' ' -f1
+# Extract z/x/y from tile URL
+extract_tile_coords() {
+    local url="$1"
+    # URL format: http://localhost:81/tiles/11/1633/1062.png
+    if [[ $url =~ /tiles/([0-9]+)/([0-9]+)/([0-9]+)\.png ]]; then
+        echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"
+    else
+        echo ""
+    fi
 }
 
-# Function to get cache file path
+# Function to get cache file path (compatible with backend)
 get_cache_file_path() {
     local url="$1"
-    local key=$(get_cache_key "$url")
-    local subdir="${key:0:2}"
-    local cache_subdir="$CACHE_DIR/$subdir"
+    local coords=$(extract_tile_coords "$url")
     
-    mkdir -p "$cache_subdir"
-    echo "$cache_subdir/$key.tile"
+    if [[ -z "$coords" ]]; then
+        echo ""
+        return 1
+    fi
+    
+    read -r z x y <<< "$coords"
+    local tile_dir="$TILES_DIR/$z/$x"
+    mkdir -p "$tile_dir"
+    echo "$tile_dir/$y.png"
 }
 
-# Function to get metadata file path
+# Function to get metadata file path (compatible with backend)
 get_metadata_path() {
     local url="$1"
-    local key=$(get_cache_key "$url")
-    echo "$METADATA_DIR/$key.json"
+    local coords=$(extract_tile_coords "$url")
+    
+    if [[ -z "$coords" ]]; then
+        echo ""
+        return 1
+    fi
+    
+    read -r z x y <<< "$coords"
+    local meta_dir="$METADATA_DIR/$z/$x"
+    mkdir -p "$meta_dir"
+    echo "$meta_dir/$y.json"
 }
 
 # Function to check if file is complete (optimized)
@@ -234,7 +256,7 @@ check_server() {
 get_local_cache_stats() {
     echo "📊 Local Cache Statistics:"
     echo "========================="
-    echo "Cache Directory: $CACHE_DIR"
+    echo "Tiles Directory: $TILES_DIR"
     echo "Metadata Directory: $METADATA_DIR"
     echo ""
     
@@ -243,16 +265,19 @@ get_local_cache_stats() {
     local incomplete_files=0
     local total_size=0
     
-    if [[ -d "$CACHE_DIR" ]]; then
+    if [[ -d "$TILES_DIR" ]]; then
         while IFS= read -r -d '' file; do
-            if [[ -f "$file" ]] && [[ "$file" == *.tile ]]; then
+            if [[ -f "$file" ]] && [[ "$file" == *.png ]]; then
                 total_files=$((total_files + 1))
                 local file_size=$(stat -c%s "$file" 2>/dev/null || echo 0)
                 total_size=$((total_size + file_size))
                 
-                # Check if file is complete
-                local basename_file=$(basename "$file" .tile)
-                local meta_file="$METADATA_DIR/$basename_file.json"
+                # Extract z/x/y from path: tiles/11/1633/1062.png
+                local rel_path="${file#$TILES_DIR/}"
+                local z=$(echo "$rel_path" | cut -d'/' -f1)
+                local x=$(echo "$rel_path" | cut -d'/' -f2)
+                local y=$(basename "$file" .png)
+                local meta_file="$METADATA_DIR/$z/$x/$y.json"
                 
                 if [[ -f "$meta_file" ]]; then
                     local completed=$(jq -r '.completed // false' "$meta_file" 2>/dev/null)
@@ -265,7 +290,7 @@ get_local_cache_stats() {
                     incomplete_files=$((incomplete_files + 1))
                 fi
             fi
-        done < <(find "$CACHE_DIR" -name "*.tile" -print0 2>/dev/null)
+        done < <(find "$TILES_DIR" -name "*.png" -print0 2>/dev/null)
     fi
     
     # Format file size

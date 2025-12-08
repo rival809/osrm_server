@@ -400,7 +400,7 @@ function tileToBounds(x, y, z) {
 // Create empty tile for outside Java Island
 async function createEmptyTile() {
   try {
-    // Create a simple transparent PNG
+    // Create a simple transparent PNG with unique marker
     const { createCanvas } = require('canvas');
     const canvas = createCanvas(256, 256);
     const ctx = canvas.getContext('2d');
@@ -408,6 +408,11 @@ async function createEmptyTile() {
     // Fill with light gray color to indicate "no data"
     ctx.fillStyle = '#f0f0f0';
     ctx.fillRect(0, 0, 256, 256);
+    
+    // Add visible marker at bottom right corner (1x1 pixel with specific color)
+    // RGB(255, 0, 255) = Magenta marker - invisible to eye but detectable
+    ctx.fillStyle = '#ff00ff';
+    ctx.fillRect(255, 255, 1, 1);
     
     // Add text
     ctx.fillStyle = '#cccccc';
@@ -418,7 +423,7 @@ async function createEmptyTile() {
     
     return canvas.toBuffer('image/png');
   } catch (error) {
-    // Fallback: return a minimal PNG buffer
+    // Fallback: return a minimal PNG buffer (103 bytes - easy to detect by size)
     console.warn('Canvas not available, using fallback empty tile');
     return Buffer.from([
       0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
