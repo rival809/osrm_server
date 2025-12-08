@@ -18,7 +18,7 @@ const MemoryMonitor = require('./memoryMonitor');
 
 // Initialize Express
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 81;
 
 // Trust proxy to handle X-Forwarded-For header from nginx
 app.set('trust proxy', true);

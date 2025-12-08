@@ -46,9 +46,12 @@ check_dependencies() {
 check_dependencies
 
 # Auto-detect if running on same server as OSRM
-if curl -s -f --connect-timeout 2 --max-time 3 "http://localhost/health" > /dev/null 2>&1; then
+if curl -s -f --connect-timeout 2 --max-time 3 "http://localhost:81/health" > /dev/null 2>&1; then
+    BASE_URL="http://localhost:81"
+    echo "✅ Detected local OSRM server on port 81"
+elif curl -s -f --connect-timeout 2 --max-time 3 "http://localhost/health" > /dev/null 2>&1; then
     BASE_URL="http://localhost"
-    echo "✅ Detected local OSRM server"
+    echo "✅ Detected local OSRM server on default port"
 elif curl -s -f --connect-timeout 2 --max-time 3 "http://localhost:8080/health" > /dev/null 2>&1; then
     BASE_URL="http://localhost:8080"
     echo "✅ Detected local OSRM server on port 8080"
