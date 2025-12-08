@@ -289,44 +289,57 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     const zoom = parseInt(z);
     const tileX = parseInt(x);
     const tileY = parseInt(y);
+    const forceRefresh = req.query.refresh === '1' || req.query.force === '1';
 
     // Validasi zoom level
     if (zoom < 0 || zoom > 18) {
       return res.status(400).json({ error: 'Zoom level harus antara 0-18' });
     }
 
-    // Calculate tile bounds
+    // Calculate tile bounds for logging only
     const bounds = tileToBounds(tileX, tileY, zoom);
-
-    // Cek apakah tile dalam batas Jawa (outside = "Outside Java Island")
-    const isInJava = isTileInJavaIsland(bounds);
     
     // Debug log for troubleshooting
     if (zoom >= 10 && zoom <= 13) {
-      logger.debug(`Tile ${zoom}/${tileX}/${tileY} bounds: ${JSON.stringify(bounds)}, inJava: ${isInJava}`);
-    }
-    
-    if (!isInJava) {
-      // Return empty tile jika di luar Jawa
-      const emptyTile = await createEmptyTile();
-      res.set('Content-Type', 'image/png');
-      res.set('X-Region', 'outside');
-      res.set('X-Bounds', JSON.stringify(bounds));
-      return res.send(emptyTile);
+      logger.debug(`Tile request ${zoom}/${tileX}/${tileY} bounds: ${JSON.stringify(bounds)}`);
     }
 
     let tile;
     let cacheStatus = 'MISS';
     let tileSource = 'unknown';
     
+    if (forceRefresh) {
+      logger.info(`Force refresh requested for tile ${zoom}/${tileX}/${tileY}`);
+    }
+    
     try {
-      // Try to get from cache or download
-      const result = await cacheManager.getTile(zoom, tileX, tileY);
+      // Try to get from cache or download (skip cache if force refresh)
+      const result = await cacheManager.getTile(zoom, tileX, tileY, forceRefresh);
       tile = result.tile;
       tileSource = result.source;
       cacheStatus = result.source === 'cache' ? 'HIT' : 'MISS';
       
       logger.debug(`Tile ${zoom}/${tileX}/${tileY} served from ${tileSource}`);
+      
+      // VALIDASI FINAL: Cek apakah tile yang akan dikirim adalah "Outside" tile
+      // Ini adalah safety net untuk mencegah tile corrupt ter-serve
+      if (tile && tile.length < 1000) {
+        const tileStr = tile.toString('utf8', 0, Math.min(500, tile.length));
+        if (tileStr.includes('Outside') || tileStr.includes('Java Island')) {
+          logger.warn(`DETECTED: Tile ${zoom}/${tileX}/${tileY} contains "Outside" text (${tile.length} bytes), forcing re-download...`);
+          
+          // Force delete dari cache
+          await cacheManager.deleteTile(zoom, tileX, tileY);
+          
+          // Download ulang TANPA cek cache
+          const retryResult = await cacheManager.getTile(zoom, tileX, tileY, true);
+          tile = retryResult.tile;
+          tileSource = retryResult.source + '-revalidated';
+          cacheStatus = 'REVALIDATED';
+          
+          logger.info(`Tile ${zoom}/${tileX}/${tileY} re-downloaded successfully (${tile.length} bytes)`);
+        }
+      }
     } catch (error) {
       logger.error(`Error getting tile ${zoom}/${tileX}/${tileY}:`, error.message);
       

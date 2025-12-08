@@ -204,11 +204,27 @@ class TileCacheManager {
     }
   }
   
-  // Get tile - check cache first, then download from OSM
-  async getTile(z, x, y) {
+  // Delete tile from cache
+  async deleteTile(z, x, y) {
     try {
-      // Check if tile is cached
-      if (await this.isTileCached(z, x, y)) {
+      const tilePath = this.getTileCachePath(z, x, y);
+      const metaPath = this.getTileMetadataPath(z, x, y);
+      const fs = require('fs').promises;
+      await fs.unlink(tilePath).catch(() => {});
+      await fs.unlink(metaPath).catch(() => {});
+      this.logger.info(`Deleted cached tile ${z}/${x}/${y}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Error deleting tile ${z}/${x}/${y}:`, error.message);
+      return false;
+    }
+  }
+  
+  // Get tile - check cache first, then download from OSM
+  async getTile(z, x, y, forceRefresh = false) {
+    try {
+      // Check if tile is cached (skip if force refresh)
+      if (!forceRefresh && await this.isTileCached(z, x, y)) {
         const tile = await this.loadTileFromCache(z, x, y);
         if (tile) {
           // Validate tile - check if it's an "Outside Java Island" tile
@@ -238,7 +254,8 @@ class TileCacheManager {
       }
 
       // Download from OSM with retry
-      this.logger.info(`Downloading tile ${z}/${x}/${y} from OSM`);
+      const reason = forceRefresh ? '(force refresh)' : '(not in cache or invalid)';
+      this.logger.info(`Downloading tile ${z}/${x}/${y} from OSM ${reason}`);
       const tileUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
       
       let lastError;
