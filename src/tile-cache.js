@@ -171,6 +171,48 @@ class TileCacheManager {
     }
   }
   
+  // Get tile - check cache first, then download from OSM
+  async getTile(z, x, y) {
+    try {
+      // Check if tile is cached
+      if (await this.isTileCached(z, x, y)) {
+        const tile = await this.loadTileFromCache(z, x, y);
+        if (tile) {
+          this.logger.debug(`Tile ${z}/${x}/${y} loaded from cache`);
+          return { tile, source: 'cache' };
+        }
+      }
+
+      // Download from OSM
+      this.logger.info(`Downloading tile ${z}/${x}/${y} from OSM`);
+      const tileUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      const response = await axios.get(tileUrl, {
+        responseType: 'arraybuffer',
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'OSRM-Tile-Service/1.0'
+        }
+      });
+
+      const tileBuffer = Buffer.from(response.data);
+      this.logger.info(`Tile ${z}/${x}/${y} downloaded successfully (${tileBuffer.length} bytes)`);
+
+      // Save to cache
+      await this.saveTileToCache(z, x, y, tileBuffer, { 
+        source: 'osm',
+        downloadedAt: new Date().toISOString()
+      });
+
+      return { tile: tileBuffer, source: 'download' };
+    } catch (error) {
+      this.logger.error(`Error getting tile ${z}/${x}/${y}:`, { 
+        error: error.message, 
+        stack: error.stack 
+      });
+      throw error;
+    }
+  }
+
   // Get cache statistics
   async getCacheStatistics() {
     try {

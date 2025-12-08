@@ -20,6 +20,9 @@ const MemoryMonitor = require('./memoryMonitor');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Trust proxy to handle X-Forwarded-For header from nginx
+app.set('trust proxy', true);
+
 // Security middleware (CSP disabled for external resources)
 app.use(helmet({
   contentSecurityPolicy: false,
@@ -295,37 +298,42 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     // Calculate tile bounds
     const bounds = tileToBounds(tileX, tileY, zoom);
 
-    // Cek apakah tile dalam batas Jawa Barat (disabled for testing)
-    // if (!isTileInJavaIsland(bounds)) {
-    //   // Return empty tile jika di luar Jawa Barat
-    //   const emptyTile = await createEmptyTile();
-    //   res.set('Content-Type', 'image/png');
-    //   res.set('X-Region', 'outside');
-    //   return res.send(emptyTile);
-    // }
+    // Cek apakah tile dalam batas Jawa (outside = "Outside Java Island")
+    if (!isTileInJavaIsland(bounds)) {
+      // Return empty tile jika di luar Jawa
+      const emptyTile = await createEmptyTile();
+      res.set('Content-Type', 'image/png');
+      res.set('X-Region', 'outside');
+      return res.send(emptyTile);
+    }
 
     let tile;
     let cacheStatus = 'MISS';
+    let tileSource = 'unknown';
     
     try {
       // Try to get from cache or download
       const result = await cacheManager.getTile(zoom, tileX, tileY);
       tile = result.tile;
+      tileSource = result.source;
       cacheStatus = result.source === 'cache' ? 'HIT' : 'MISS';
-    } catch (error) {
-      console.error(`Error getting tile ${zoom}/${tileX}/${tileY}:`, error.message);
       
-      // Fallback to empty tile
-      const emptyTile = await createEmptyTile();
+      logger.debug(`Tile ${zoom}/${tileX}/${tileY} served from ${tileSource}`);
+    } catch (error) {
+      logger.error(`Error getting tile ${zoom}/${tileX}/${tileY}:`, error.message);
+      
+      // Fallback to error tile
+      const errorTile = await createErrorTile();
       res.set('Content-Type', 'image/png');
       res.set('X-Cache', 'ERROR');
       res.set('X-Error', error.message);
-      return res.send(emptyTile);
+      return res.send(errorTile);
     }
 
     // Serve tile
     res.set('Content-Type', 'image/png');
     res.set('X-Cache', cacheStatus);
+    res.set('X-Tile-Source', tileSource);
     res.set('X-Region', 'west-java');
     res.send(tile);
 
@@ -333,10 +341,10 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
     console.error('Tile serving error:', error.message);
     
     try {
-      const emptyTile = await createEmptyTile();
+      const errorTile = await createErrorTile();
       res.set('Content-Type', 'image/png');
       res.set('X-Error', 'SERVE_ERROR');
-      res.send(emptyTile);
+      res.send(errorTile);
     } catch (e) {
       res.status(500).json({
         error: 'Gagal melayani tile',
@@ -371,7 +379,7 @@ function tileToBounds(x, y, z) {
   };
 }
 
-// Create empty/transparent tile
+// Create empty tile for outside Java Island
 async function createEmptyTile() {
   try {
     // Create a simple transparent PNG
@@ -389,6 +397,39 @@ async function createEmptyTile() {
     ctx.textAlign = 'center';
     ctx.fillText('Outside', 128, 120);
     ctx.fillText('Java Island', 128, 140);
+    
+    return canvas.toBuffer('image/png');
+  } catch (error) {
+    // Fallback: return a minimal PNG buffer
+    console.warn('Canvas not available, using fallback empty tile');
+    return Buffer.from([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+      0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+      0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0x1D, 0x01, 0x01, 0x00, 0x00, 0xFF,
+      0xFF, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC, 0x33, 0x00,
+      0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+    ]);
+  }
+}
+
+// Create error tile for failed load
+async function createErrorTile() {
+  try {
+    const { createCanvas } = require('canvas');
+    const canvas = createCanvas(256, 256);
+    const ctx = canvas.getContext('2d');
+    
+    // Fill with light red color to indicate error
+    ctx.fillStyle = '#ffe0e0';
+    ctx.fillRect(0, 0, 256, 256);
+    
+    // Add text
+    ctx.fillStyle = '#cc0000';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Gagal', 128, 120);
+    ctx.fillText('Memuat Peta', 128, 140);
     
     return canvas.toBuffer('image/png');
   } catch (error) {
