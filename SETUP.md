@@ -184,7 +184,7 @@ OSRM_URL=http://osrm-backend:5000
 CACHE_DIR=/app/cache
 CACHE_MODE=smart
 MAX_CACHE_SIZE_MB=1000
-TILE_CACHE_TTL=180
+TILE_CACHE_TTL=180000
 ```
 
 ## Troubleshooting

@@ -232,7 +232,7 @@ PORT=8080
 OSRM_URL=http://osrm-backend:5000
 CACHE_DIR=/app/cache
 MAX_CACHE_SIZE_MB=2000
-TILE_CACHE_TTL=180
+TILE_CACHE_TTL=180000
 ```
 
 ### Resource Limits
