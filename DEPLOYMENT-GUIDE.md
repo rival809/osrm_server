@@ -303,10 +303,12 @@ tail -f logs/*.log
 
 ## 🔗 Backend Sambara Integration
 
-### Example Integration (Golang)
+### Example Integration (Golang with Gin Framework)
+
+#### 1. Service Layer (`services/osrm_service.go`)
 
 ```go
-package main
+package services
 
 import (
     "encoding/json"
@@ -317,165 +319,766 @@ import (
     "time"
 )
 
-var OSRM_URL = getEnv("OSRM_SERVICE_URL", "http://10.0.2.20")
-
-func getEnv(key, fallback string) string {
-    if value, ok := os.LookupEnv(key); ok {
-        return value
-    }
-    return fallback
+type OSRMService interface {
+    GetRoute(startLon, startLat, endLon, endLat string, alternatives, steps bool) (map[string]interface{}, error)
+    GetTile(z, x, y string) ([]byte, error)
+    HealthCheck() (map[string]interface{}, error)
 }
 
-// Route API Handler
-func routeHandler(w http.ResponseWriter, r *http.Request) {
-    // Get query parameters
-    startLat := r.URL.Query().Get("startLat")
-    startLon := r.URL.Query().Get("startLon")
-    endLat := r.URL.Query().Get("endLat")
-    endLon := r.URL.Query().Get("endLon")
+type osrmService struct {
+    baseURL string
+    client  *http.Client
+}
 
-    // Validate parameters
-    if startLat == "" || startLon == "" || endLat == "" || endLon == "" {
-        http.Error(w, "Missing required parameters", http.StatusBadRequest)
-        return
+func NewOSRMService() OSRMService {
+    osrmURL := os.Getenv("OSRM_SERVICE_URL")
+    if osrmURL == "" {
+        osrmURL = "http://10.0.2.20" // Default internal IP
     }
 
+    return &osrmService{
+        baseURL: osrmURL,
+        client: &http.Client{
+            Timeout: 30 * time.Second,
+        },
+    }
+}
+
+func (s *osrmService) GetRoute(startLon, startLat, endLon, endLat string, alternatives, steps bool) (map[string]interface{}, error) {
     // Build OSRM URL
-    url := fmt.Sprintf("%s/route?start=%s,%s&end=%s,%s",
-        OSRM_URL, startLon, startLat, endLon, endLat)
+    url := fmt.Sprintf("%s/route?start=%s,%s&end=%s,%s&alternatives=%t&steps=%t",
+        s.baseURL, startLon, startLat, endLon, endLat, alternatives, steps)
 
-    // Create HTTP client with timeout
-    client := &http.Client{
-        Timeout: 30 * time.Second,
-    }
-
-    // Make request to OSRM service
-    resp, err := client.Get(url)
+    // Make request
+    resp, err := s.client.Get(url)
     if err != nil {
-        http.Error(w, "Routing service unavailable", http.StatusServiceUnavailable)
-        return
+        return nil, fmt.Errorf("routing service unavailable: %v", err)
     }
     defer resp.Body.Close()
 
-    // Read response body
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        http.Error(w, "Failed to read response", http.StatusInternalServerError)
-        return
+    if resp.StatusCode != http.StatusOK {
+        return nil, fmt.Errorf("routing request failed with status: %d", resp.StatusCode)
     }
 
-    // Forward response to client
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(resp.StatusCode)
-    w.Write(body)
+    // Parse response
+    var result map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        return nil, fmt.Errorf("failed to parse routing response: %v", err)
+    }
+
+    return result, nil
 }
 
-// Tiles Proxy Handler
-func tilesHandler(w http.ResponseWriter, r *http.Request) {
-    // Extract z, x, y from URL path
-    // Example: /api/tiles/10/511/511.png
-    var z, x, y string
-    fmt.Sscanf(r.URL.Path, "/api/tiles/%s/%s/%s.png", &z, &x, &y)
+func (s *osrmService) GetTile(z, x, y string) ([]byte, error) {
+    // Build tile URL
+    url := fmt.Sprintf("%s/tiles/%s/%s/%s.png", s.baseURL, z, x, y)
 
-    if z == "" || x == "" || y == "" {
-        http.Error(w, "Invalid tile coordinates", http.StatusBadRequest)
-        return
-    }
-
-    // Build OSRM tile URL
-    url := fmt.Sprintf("%s/tiles/%s/%s/%s.png", OSRM_URL, z, x, y)
-
-    // Create HTTP client with timeout
-    client := &http.Client{
-        Timeout: 10 * time.Second,
-    }
-
-    // Make request to OSRM service
-    resp, err := client.Get(url)
+    // Make request
+    resp, err := s.client.Get(url)
     if err != nil {
-        http.Error(w, "Tile not found", http.StatusNotFound)
-        return
+        return nil, fmt.Errorf("tile service unavailable: %v", err)
     }
     defer resp.Body.Close()
 
-    // Check if tile was found
     if resp.StatusCode != http.StatusOK {
-        http.Error(w, "Tile not found", http.StatusNotFound)
-        return
+        return nil, fmt.Errorf("tile not found")
     }
 
     // Read tile data
     tileData, err := io.ReadAll(resp.Body)
     if err != nil {
-        http.Error(w, "Failed to read tile", http.StatusInternalServerError)
+        return nil, fmt.Errorf("failed to read tile data: %v", err)
+    }
+
+    return tileData, nil
+}
+
+func (s *osrmService) HealthCheck() (map[string]interface{}, error) {
+    url := fmt.Sprintf("%s/health", s.baseURL)
+
+    resp, err := s.client.Get(url)
+    if err != nil {
+        return nil, fmt.Errorf("health check failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    var health map[string]interface{}
+    if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+        return nil, fmt.Errorf("failed to parse health response: %v", err)
+    }
+
+    return health, nil
+}
+```
+
+#### 2. Controller Layer (`controllers/osrm_controller.go`)
+
+```go
+package controllers
+
+import (
+    "net/http"
+    "sambara-go-lang/helper"
+    "sambara-go-lang/services"
+
+    "github.com/gin-gonic/gin"
+)
+
+type OSRMController struct {
+    service services.OSRMService
+}
+
+func NewOSRMController(s services.OSRMService) *OSRMController {
+    return &OSRMController{s}
+}
+
+// GetRoute - Calculate route between two points
+func (c *OSRMController) GetRoute(ctx *gin.Context) {
+    allParams := helper.GetAllParamsOnly(ctx)
+    requiredParams := map[string]string{
+        "start_lon": "string",
+        "start_lat": "string",
+        "end_lon":   "string",
+        "end_lat":   "string",
+    }
+    params, err := helper.GetAllParamsWithValidation(ctx, requiredParams)
+    if err != nil {
+        helper.SendErrorResponse(ctx, http.StatusBadRequest, err.Error(), allParams)
+        return
+    }
+
+    startLon := params["start_lon"]
+    startLat := params["start_lat"]
+    endLon := params["end_lon"]
+    endLat := params["end_lat"]
+
+    // Optional parameters
+    alternatives := ctx.DefaultQuery("alternatives", "false") == "true"
+    steps := ctx.DefaultQuery("steps", "false") == "true"
+
+    data, err := c.service.GetRoute(startLon, startLat, endLon, endLat, alternatives, steps)
+    if err != nil {
+        helper.SendErrorResponse(ctx, http.StatusInternalServerError, err.Error(), params)
+        return
+    }
+
+    helper.SendSuccessResponse(ctx, data, params)
+}
+
+// GetTile - Get map tile image
+func (c *OSRMController) GetTile(ctx *gin.Context) {
+    z := ctx.Param("z")
+    x := ctx.Param("x")
+    y := ctx.Param("y")
+
+    if z == "" || x == "" || y == "" {
+        helper.SendErrorResponse(ctx, http.StatusBadRequest, "Invalid tile coordinates", nil)
+        return
+    }
+
+    tileData, err := c.service.GetTile(z, x, y)
+    if err != nil {
+        helper.SendErrorResponse(ctx, http.StatusNotFound, err.Error(), nil)
         return
     }
 
     // Return tile image
-    w.Header().Set("Content-Type", "image/png")
-    w.Header().Set("Cache-Control", "public, max-age=86400")
-    w.WriteHeader(http.StatusOK)
-    w.Write(tileData)
+    ctx.Header("Content-Type", "image/png")
+    ctx.Header("Cache-Control", "public, max-age=86400")
+    ctx.Data(http.StatusOK, "image/png", tileData)
 }
 
-func main() {
-    // Register handlers
-    http.HandleFunc("/api/route", routeHandler)
-    http.HandleFunc("/api/tiles/", tilesHandler)
-
-    // Start server
-    fmt.Println("Backend Sambara listening on :8080")
-    http.ListenAndServe(":8080", nil)
+// HealthCheck - Check OSRM service health
+func (c *OSRMController) HealthCheck(ctx *gin.Context) {
+    data, err := c.service.HealthCheck()
+    if err != nil {
+        helper.SendErrorResponse(ctx, http.StatusServiceUnavailable, err.Error(), nil)
+        return
+    }
+    helper.SendSuccessResponse(ctx, data, nil)
 }
 ```
 
-### Health Check from Backend Sambara
+#### 3. Router Setup (`routes/osrm_routes.go`)
 
 ```go
-// Periodic health check
-func healthCheckWorker() {
+package routes
+
+import (
+    "sambara-go-lang/controllers"
+    "sambara-go-lang/services"
+
+    "github.com/gin-gonic/gin"
+)
+
+func SetupOSRMRoutes(router *gin.RouterGroup) {
+    // Initialize service and controller
+    osrmService := services.NewOSRMService()
+    osrmController := controllers.NewOSRMController(osrmService)
+
+    // OSRM routes
+    osrm := router.Group("/osrm")
+    {
+        osrm.GET("/route", osrmController.GetRoute)
+        osrm.GET("/tiles/:z/:x/:y", osrmController.GetTile)
+        osrm.GET("/health", osrmController.HealthCheck)
+    }
+}
+```
+
+#### 4. Main Setup (`main.go`)
+
+```go
+package main
+
+import (
+    "sambara-go-lang/routes"
+
+    "github.com/gin-gonic/gin"
+)
+
+func main() {
+    r := gin.Default()
+
+    // API v1 group
+    api := r.Group("/api/v1")
+    {
+        // ... other routes ...
+        routes.SetupOSRMRoutes(api)
+    }
+
+    r.Run(":8080")
+}
+```
+
+#### 5. Environment Configuration (`.env`)
+
+```bash
+# OSRM Service Configuration
+OSRM_SERVICE_URL=http://10.0.2.20  # Internal IP OSRM service
+```
+
+#### 6. Usage Examples
+
+**Request routing:**
+
+```bash
+GET /api/v1/osrm/route?start_lon=106.8456&start_lat=-6.2088&end_lon=107.6191&end_lat=-6.9175
+```
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "message": "Success",
+  "data": {
+    "routes": [{
+      "distance": 123456.78,
+      "duration": 7890.12,
+      "geometry": {...}
+    }]
+  },
+  "params": {
+    "start_lon": "106.8456",
+    "start_lat": "-6.2088",
+    "end_lon": "107.6191",
+    "end_lat": "-6.9175"
+  }
+}
+```
+
+**Request tile:**
+
+```bash
+GET /api/v1/osrm/tiles/10/511/511
+```
+
+**Health check:**
+
+```bash
+GET /api/v1/osrm/health
+```
+
+#### 7. Optional: Background Health Check Worker
+
+```go
+// workers/osrm_health_worker.go
+package workers
+
+import (
+    "log"
+    "sambara-go-lang/services"
+    "time"
+)
+
+func StartOSRMHealthCheck(service services.OSRMService) {
     ticker := time.NewTicker(60 * time.Second)
     defer ticker.Stop()
 
-    client := &http.Client{
-        Timeout: 5 * time.Second,
-    }
+    log.Println("OSRM Health Check Worker started")
 
     for range ticker.C {
-        resp, err := client.Get(fmt.Sprintf("%s/health", OSRM_URL))
+        health, err := service.HealthCheck()
         if err != nil {
-            log.Printf("OSRM DOWN: %v", err)
-            // Alert or switch to backup
-            continue
-        }
-        defer resp.Body.Close()
-
-        var health map[string]interface{}
-        if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
-            log.Printf("Failed to parse health response: %v", err)
+            log.Printf("⚠️  OSRM Health Check FAILED: %v", err)
+            // TODO: Send alert notification
             continue
         }
 
         if status, ok := health["status"].(string); ok {
-            log.Printf("OSRM Status: %s", status)
+            log.Printf("✅ OSRM Status: %s", status)
         }
     }
 }
 
-// Start health check in main()
-func main() {
-    // Register handlers
-    http.HandleFunc("/api/route", routeHandler)
-    http.HandleFunc("/api/tiles/", tilesHandler)
+// In main.go, start worker:
+// go workers.StartOSRMHealthCheck(osrmService)
+```
 
-    // Start health check worker
-    go healthCheckWorker()
+---
 
-    // Start server
-    fmt.Println("Backend Sambara listening on :8080")
-    http.ListenAndServe(":8080", nil)
+## 📖 API Specification
+
+### Base URL
+
+```
+Production: http://<osrm-internal-ip>
+Development: http://localhost:81
+```
+
+### 1. Calculate Route
+
+**Endpoint:** `GET /route`
+
+**Description:** Calculate optimal route between two or more coordinates.
+
+**Query Parameters:**
+
+| Parameter      | Type    | Required | Description                                                 | Example            |
+| -------------- | ------- | -------- | ----------------------------------------------------------- | ------------------ |
+| `start`        | string  | ✅ Yes   | Start coordinates (lon,lat)                                 | `106.8456,-6.2088` |
+| `end`          | string  | ✅ Yes   | End coordinates (lon,lat)                                   | `107.6191,-6.9175` |
+| `alternatives` | boolean | ❌ No    | Return alternative routes (default: false)                  | `true`             |
+| `steps`        | boolean | ❌ No    | Include turn-by-turn steps (default: false)                 | `true`             |
+| `geometries`   | string  | ❌ No    | Geometry format: `geojson` or `polyline` (default: geojson) | `geojson`          |
+
+**Request Example:**
+
+```bash
+GET /route?start=106.8456,-6.2088&end=107.6191,-6.9175&alternatives=true&steps=true
+```
+
+**Success Response (200):**
+
+```json
+{
+  "code": "Ok",
+  "routes": [
+    {
+      "distance": 123456.78,
+      "duration": 7890.12,
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [106.8456, -6.2088],
+          [106.8467, -6.2095],
+          [107.6191, -6.9175]
+        ]
+      },
+      "legs": [
+        {
+          "distance": 123456.78,
+          "duration": 7890.12,
+          "steps": [
+            {
+              "distance": 234.5,
+              "duration": 45.2,
+              "geometry": {...},
+              "name": "Jalan Sudirman",
+              "mode": "driving",
+              "maneuver": {
+                "type": "depart",
+                "location": [106.8456, -6.2088]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "waypoints": [
+    {
+      "location": [106.8456, -6.2088],
+      "name": "Jalan Sudirman"
+    },
+    {
+      "location": [107.6191, -6.9175],
+      "name": "Jalan Asia Afrika"
+    }
+  ]
 }
 ```
+
+**Error Response (400):**
+
+```json
+{
+  "code": "InvalidQuery",
+  "message": "Query string malformed: missing required parameter 'start'"
+}
+```
+
+**Error Response (404):**
+
+```json
+{
+  "code": "NoRoute",
+  "message": "No route found between coordinates"
+}
+```
+
+---
+
+### 2. Get Map Tile
+
+**Endpoint:** `GET /tiles/{z}/{x}/{y}.png`
+
+**Description:** Get rendered map tile image for displaying maps.
+
+**Path Parameters:**
+
+| Parameter | Type    | Required | Description       | Range        |
+| --------- | ------- | -------- | ----------------- | ------------ |
+| `z`       | integer | ✅ Yes   | Zoom level        | 0-18         |
+| `x`       | integer | ✅ Yes   | Tile X coordinate | 0 to 2^z - 1 |
+| `y`       | integer | ✅ Yes   | Tile Y coordinate | 0 to 2^z - 1 |
+
+**Request Example:**
+
+```bash
+GET /tiles/10/511/511.png
+```
+
+**Success Response (200):**
+
+- Content-Type: `image/png`
+- Cache-Control: `public, max-age=86400`
+- Body: PNG image binary data
+
+**Error Response (404):**
+
+```json
+{
+  "code": "NotFound",
+  "message": "Tile not found or out of bounds"
+}
+```
+
+**Tile Coordinate Calculation:**
+
+```javascript
+// Convert lat/lon to tile coordinates
+function latLonToTile(lat, lon, zoom) {
+  const x = Math.floor(((lon + 180) / 360) * Math.pow(2, zoom));
+  const y = Math.floor(
+    ((1 -
+      Math.log(
+        Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)
+      ) /
+        Math.PI) /
+      2) *
+      Math.pow(2, zoom)
+  );
+  return { x, y, z: zoom };
+}
+```
+
+---
+
+### 3. Health Check
+
+**Endpoint:** `GET /health`
+
+**Description:** Check service health and availability.
+
+**Request Example:**
+
+```bash
+GET /health
+```
+
+**Success Response (200):**
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-12-10T10:30:00Z",
+  "uptime": 86400,
+  "services": {
+    "osrm_backend": "running",
+    "cache": "active",
+    "memory": {
+      "used": "2.5GB",
+      "total": "8GB",
+      "percentage": 31.25
+    }
+  },
+  "version": "1.0.0"
+}
+```
+
+**Error Response (503):**
+
+```json
+{
+  "status": "unhealthy",
+  "message": "OSRM backend not responding"
+}
+```
+
+---
+
+### 4. Cache Statistics (Read-Only)
+
+**Endpoint:** `GET /cache/stats`
+
+**Description:** Get cache statistics and performance metrics.
+
+**Request Example:**
+
+```bash
+GET /cache/stats
+```
+
+**Success Response (200):**
+
+```json
+{
+  "cache_mode": "smart",
+  "total_cached_tiles": 15234,
+  "cache_size_mb": 245.67,
+  "max_cache_size_mb": 2000,
+  "cache_usage_percent": 12.28,
+  "hit_rate": 87.5,
+  "stats": {
+    "hits": 12500,
+    "misses": 1780,
+    "total_requests": 14280
+  },
+  "preloaded_tiles": 0,
+  "disk_cache": {
+    "enabled": true,
+    "path": "/app/cache/tiles",
+    "files": 15234
+  }
+}
+```
+
+---
+
+### 5. Backend Sambara API Integration Spec
+
+#### 5.1 Route API (Public Endpoint)
+
+**Endpoint:** `GET /api/v1/osrm/route`
+
+**Query Parameters:**
+
+| Parameter      | Type   | Required | Description                          | Example    |
+| -------------- | ------ | -------- | ------------------------------------ | ---------- |
+| `start_lon`    | string | ✅ Yes   | Start longitude                      | `106.8456` |
+| `start_lat`    | string | ✅ Yes   | Start latitude                       | `-6.2088`  |
+| `end_lon`      | string | ✅ Yes   | End longitude                        | `107.6191` |
+| `end_lat`      | string | ✅ Yes   | End latitude                         | `-6.9175`  |
+| `alternatives` | string | ❌ No    | Return alternatives (`true`/`false`) | `true`     |
+| `steps`        | string | ❌ No    | Include steps (`true`/`false`)       | `true`     |
+
+**Request Example:**
+
+```bash
+GET /api/v1/osrm/route?start_lon=106.8456&start_lat=-6.2088&end_lon=107.6191&end_lat=-6.9175
+```
+
+**Success Response (200):**
+
+```json
+{
+  "status": "success",
+  "message": "Success",
+  "data": {
+    "code": "Ok",
+    "routes": [
+      {
+        "distance": 123456.78,
+        "duration": 7890.12,
+        "geometry": {
+          "type": "LineString",
+          "coordinates": [[106.8456, -6.2088], [107.6191, -6.9175]]
+        }
+      }
+    ],
+    "waypoints": [...]
+  },
+  "params": {
+    "start_lon": "106.8456",
+    "start_lat": "-6.2088",
+    "end_lon": "107.6191",
+    "end_lat": "-6.9175"
+  }
+}
+```
+
+**Error Response (400):**
+
+```json
+{
+  "status": "error",
+  "message": "Missing required parameters: start_lon",
+  "data": null,
+  "params": {}
+}
+```
+
+**Error Response (500):**
+
+```json
+{
+  "status": "error",
+  "message": "routing service unavailable: connection refused",
+  "data": null,
+  "params": {
+    "start_lon": "106.8456",
+    "start_lat": "-6.2088",
+    "end_lon": "107.6191",
+    "end_lat": "-6.9175"
+  }
+}
+```
+
+#### 5.2 Tile API (Public Endpoint)
+
+**Endpoint:** `GET /api/v1/osrm/tiles/:z/:x/:y`
+
+**Path Parameters:**
+
+- `z`: Zoom level (0-18)
+- `x`: Tile X coordinate
+- `y`: Tile Y coordinate
+
+**Request Example:**
+
+```bash
+GET /api/v1/osrm/tiles/10/511/511
+```
+
+**Success Response (200):**
+
+- Content-Type: `image/png`
+- Body: PNG image binary
+
+**Error Response (404):**
+
+```json
+{
+  "status": "error",
+  "message": "tile not found",
+  "data": null
+}
+```
+
+#### 5.3 Health Check (Internal Only)
+
+**Endpoint:** `GET /api/v1/osrm/health`
+
+**Success Response (200):**
+
+```json
+{
+  "status": "success",
+  "message": "Success",
+  "data": {
+    "status": "healthy",
+    "timestamp": "2025-12-10T10:30:00Z",
+    "uptime": 86400,
+    "services": {
+      "osrm_backend": "running",
+      "cache": "active"
+    }
+  },
+  "params": null
+}
+```
+
+---
+
+### Rate Limits
+
+| Endpoint   | Limit     | Window        |
+| ---------- | --------- | ------------- |
+| `/route`   | 10 req/s  | Per IP        |
+| `/tiles/*` | 100 req/s | Per IP        |
+| `/health`  | 20 req/s  | Per IP        |
+| All APIs   | 20 req/s  | Global per IP |
+
+**Rate Limit Headers:**
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1638259200
+```
+
+**Rate Limit Exceeded Response (429):**
+
+```json
+{
+  "code": "TooManyRequests",
+  "message": "Rate limit exceeded. Try again in 60 seconds."
+}
+```
+
+---
+
+### Error Codes
+
+| Code                 | HTTP Status | Description              |
+| -------------------- | ----------- | ------------------------ |
+| `Ok`                 | 200         | Success                  |
+| `InvalidQuery`       | 400         | Invalid query parameters |
+| `NoRoute`            | 404         | No route found           |
+| `NotFound`           | 404         | Resource not found       |
+| `TooManyRequests`    | 429         | Rate limit exceeded      |
+| `InternalError`      | 500         | Internal server error    |
+| `ServiceUnavailable` | 503         | OSRM backend unavailable |
+
+---
+
+### Data Types
+
+#### Distance
+
+- **Unit:** Meters (m)
+- **Type:** Float
+- **Example:** `123456.78` (123.45 km)
+
+#### Duration
+
+- **Unit:** Seconds (s)
+- **Type:** Float
+- **Example:** `7890.12` (2 hours 11 minutes)
+
+#### Coordinates
+
+- **Format:** `[longitude, latitude]`
+- **Type:** Array of Float
+- **Range:** lon: -180 to 180, lat: -90 to 90
+- **Example:** `[106.8456, -6.2088]`
+
+#### Geometry Format
+
+- **geojson:** GeoJSON LineString format (default)
+- **polyline:** Google Polyline encoding (precision 5)
 
 ---
 
