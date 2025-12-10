@@ -32,13 +32,24 @@ app.use(helmet({
 // Compression middleware
 app.use(compression());
 
-// Enable CORS - Allow all origins (internal microservice)
+// Enable CORS - Allow all origins for public API access
 app.use(cors({
   origin: '*',
   credentials: false,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'DNT',
+    'User-Agent',
+    'X-Requested-With',
+    'If-Modified-Since',
+    'Cache-Control',
+    'Range'
+  ],
+  exposedHeaders: ['X-Cache-Status', 'Content-Length', 'Content-Range'],
+  optionsSuccessStatus: 204,
+  maxAge: 1728000 // 20 days
 }));
 
 // Body parsing with limits
