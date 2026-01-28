@@ -88,6 +88,8 @@ const cacheManager = new TileCacheManager({
   cacheTTL: parseInt(process.env.TILE_CACHE_TTL) || 86400000, // 24 hours
   maxCacheSizeMB: parseInt(process.env.MAX_CACHE_SIZE_MB) || 1000, // 1GB
   userAgent: 'OSRM-Tile-Service/1.0 (Java Island Routing Service)',
+  offlineMode: process.env.OFFLINE_MODE === 'true',
+  tileServerUrl: process.env.TILE_SERVER_URL || null,
   logger: logger // Pass logger to cache manager
 });
 logger.info('Tile Cache Manager initialized');
@@ -136,7 +138,9 @@ app.get('/health', async (req, res) => {
       status: 'ok',
       service: 'OSRM Tile Service (Full Local)',
       region: 'Java Island',
-      mode: 'offline',
+      mode: process.env.OFFLINE_MODE === 'true' ? 'offline-strict' : 'hybrid',
+      offlineMode: process.env.OFFLINE_MODE === 'true',
+      tileServer: process.env.TILE_SERVER_URL || 'OSM (external)',
       cacheMode: CACHE_MODE,
       preloadEnabled: PRELOAD_ENABLED,
       memory: {

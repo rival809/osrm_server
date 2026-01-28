@@ -1,0 +1,88 @@
+version: "3.8"
+
+services:
+  # Tile Server - Generates tiles from PBF file
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    container_name: osrm-tileserver
+    ports:
+      - "8000:8080"
+    volumes:
+      - ./data:/data:ro
+      - ./tileserver-config:/config
+    environment:
+      - VERBOSE=1
+    command: >
+      --verbose
+      --port 8080
+      --mbtiles /data/java.mbtiles
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # OSRM Backend - Routing engine
+  osrm-backend:
+    image: osrm/osrm-backend:latest
+    container_name: osrm-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/data:ro
+    command: >
+      osrm-routed
+      --algorithm mld
+      --max-table-size 10000
+      /data/java-latest.osrm
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OSRM Tile Service - Proxy & Cache
+  osrm-tile-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osrm-tile-service
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./cache:/app/cache
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - OSRM_URL=http://osrm-backend:5000
+      - OFFLINE_MODE=false
+      - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+      - CACHE_DIR=/app/cache
+      - MAX_CACHE_SIZE_MB=5000
+      - MAX_MEMORY_MB=12000
+      - LOG_LEVEL=info
+    depends_on:
+      tileserver:
+        condition: service_healthy
+      osrm-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  osrm-network:
+    driver: bridge

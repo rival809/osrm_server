@@ -16,7 +16,13 @@ class TileCacheManager {
     this.logger = options.logger || console; // Use provided logger or fallback to console
     this.osrmDataPath = options.osrmDataPath || './data/java-latest.osrm.timestamp';
     
+    // Offline mode and custom tile server configuration
+    this.offlineMode = options.offlineMode || false;
+    this.tileServerUrl = options.tileServerUrl || null;
+    
     this.logger.info('TileCacheManager constructor started');
+    this.logger.info(`Offline Mode: ${this.offlineMode}`);
+    this.logger.info(`Custom Tile Server: ${this.tileServerUrl || 'None (using OSM)'}`);
     
     // Java island bounds (full coverage)
     this.westJavaBounds = {
@@ -253,10 +259,21 @@ class TileCacheManager {
         }
       }
 
-      // Download from OSM with retry
+      // Check offline mode before attempting download
+      if (this.offlineMode) {
+        const error = new Error(`Tile ${z}/${x}/${y} not in cache and OFFLINE_MODE is enabled`);
+        this.logger.error(error.message);
+        throw error;
+      }
+
+      // Download from configured tile server with retry
       const reason = forceRefresh ? '(force refresh)' : '(not in cache or invalid)';
-      this.logger.info(`Downloading tile ${z}/${x}/${y} from OSM ${reason}`);
-      const tileUrl = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      const serverType = this.tileServerUrl ? 'custom tile server' : 'OSM';
+      this.logger.info(`Downloading tile ${z}/${x}/${y} from ${serverType} ${reason}`);
+      
+      const tileUrl = this.tileServerUrl 
+        ? `${this.tileServerUrl}/${z}/${x}/${y}.png`
+        : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
       
       let lastError;
       for (let retry = 0; retry < 3; retry++) {
