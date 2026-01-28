@@ -19,7 +19,7 @@ set -e  # Exit on any error
 # Configuration
 MODE="${1:-interactive}"        # interactive, auto, production
 REGION="${2:-java}"            # java, indonesia, custom
-ENVIRONMENT="${3:-development}" # development, production
+ENVIRONMENT="${3:-production}" # development, production
 
 # Colors
 RED='\033[0;31m'

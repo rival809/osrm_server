@@ -15,7 +15,7 @@
 param(
     [string]$Mode = "interactive",  # interactive, auto, production
     [string]$Region = "java",       # java, indonesia, custom
-    [string]$Environment = "development"  # development, production
+    [string]$Environment = "production"  # development, production
 )
 
 # Colors for better output
