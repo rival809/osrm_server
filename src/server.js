@@ -54,7 +54,7 @@ app.use(express.static('public'));
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
 
 // Tileserver URL (required for self-hosted setup)
-const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:8000/styles/basic-preview';
+const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:5001/styles/basic-preview';
 
 // Initialize Memory Monitor
 const memoryMonitor = new MemoryMonitor({

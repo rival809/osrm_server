@@ -168,23 +168,21 @@ function Setup-Environment {
     Write-Step "Setting up environment variables" "Creating .env configuration"
     if (-not (Test-Path ".env")) {
         $envContent = @"
-# OSRM Service Configuration
+# OSRM Service Configuration (Lightweight Proxy Mode)
 NODE_ENV=$Environment
-PORT=8080
+PORT=81
 
-# OSRM Backend
+# OSRM Backend (for routing)
 OSRM_URL=http://localhost:5000
 
-# Cache Configuration
-CACHE_DIR=./cache
-CACHE_MODE=smart
-PRELOAD_ENABLED=false
-TILE_CACHE_TTL=86400000
-MAX_CACHE_SIZE_MB=2000
+# Tileserver (for map tiles) - REQUIRED for self-hosted setup
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=100
+# Memory Management
+MAX_MEMORY_MB=10000
+
+# Logging
+LOG_LEVEL=info
 "@
         $envContent | Out-File -FilePath ".env" -Encoding UTF8 -Force
         Write-Success "Created .env file"

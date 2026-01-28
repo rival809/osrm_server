@@ -1,12 +1,10 @@
-version: "3.8"
-
 services:
   # Tile Server - Generates tiles from PBF file
   tileserver:
     image: maptiler/tileserver-gl:latest
     container_name: osrm-tileserver
     ports:
-      - "8000:8080"
+      - "5001:8080"
     volumes:
       - ./data:/data:ro
       - ./tileserver-config:/config

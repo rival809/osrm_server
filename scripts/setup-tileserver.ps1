@@ -9,7 +9,7 @@
 # Configuration
 $PbfFile = ".\data\java-latest.osm.pbf"
 $MbtilesFile = ".\data\java.mbtiles"
-$TileserverPort = 8000
+$TileserverPort = 5001
 $DockerImage = "maptiler/tileserver-gl:latest"
 
 # Function to print colored output
@@ -217,13 +217,6 @@ function Update-EnvConfig {
     # Read current content
     $content = Get-Content $envFile
     
-    # Update or add OFFLINE_MODE
-    if ($content -match "OFFLINE_MODE=") {
-        $content = $content -replace "OFFLINE_MODE=.*", "OFFLINE_MODE=false"
-    } else {
-        $content += "OFFLINE_MODE=false"
-    }
-    
     # Update or add TILE_SERVER_URL
     $tileServerUrl = "http://localhost:$TileserverPort/styles/basic-preview"
     if ($content -match "TILE_SERVER_URL=") {
@@ -238,7 +231,6 @@ function Update-EnvConfig {
     Write-Info "Configuration updated successfully"
     Write-Host ""
     Write-Host "Updated settings in .env file:" -ForegroundColor Cyan
-    Write-Host "  OFFLINE_MODE=false"
     Write-Host "  TILE_SERVER_URL=$tileServerUrl"
 }
 

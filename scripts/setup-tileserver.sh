@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 # Configuration
 PBF_FILE="./data/java-latest.osm.pbf"
 MBTILES_FILE="./data/java.mbtiles"
-TILESERVER_PORT=8000
+TILESERVER_PORT=5001
 DOCKER_IMAGE="maptiler/tileserver-gl:latest"
 
 print_header() {
@@ -183,13 +183,7 @@ update_env_config() {
     
     print_info "Updating $env_file with tileserver settings..."
     
-    # Update or add configuration
-    if grep -q "OFFLINE_MODE=" "$env_file"; then
-        sed -i "s|OFFLINE_MODE=.*|OFFLINE_MODE=false|g" "$env_file"
-    else
-        echo "OFFLINE_MODE=false" >> "$env_file"
-    fi
-    
+    # Update or add TILE_SERVER_URL
     if grep -q "TILE_SERVER_URL=" "$env_file"; then
         sed -i "s|TILE_SERVER_URL=.*|TILE_SERVER_URL=http://localhost:$TILESERVER_PORT/styles/basic-preview|g" "$env_file"
     else
@@ -199,7 +193,6 @@ update_env_config() {
     print_info "✅ Configuration updated"
     echo ""
     echo "Updated settings in $env_file:"
-    echo "  OFFLINE_MODE=false"
     echo "  TILE_SERVER_URL=http://localhost:$TILESERVER_PORT/styles/basic-preview"
 }
 
