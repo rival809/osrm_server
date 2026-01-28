@@ -154,23 +154,13 @@
         const API_URL = window.location.origin;
         
         // Initialize map - center on Bandung
-        // Set max bounds for Jawa Barat + sedikit Jawa Tengah
-        const javaBounds = L.latLngBounds(
-            L.latLng(-8.8, 105.0),  // Southwest
-            L.latLng(-5.9, 109.5)   // Northeast
-        );
-        
-        const map = L.map('map', {
-            maxBounds: javaBounds,
-            maxBoundsViscosity: 1.0  // Prevent dragging outside bounds
-        }).setView([-6.9175, 107.6191], 13);
+        const map = L.map('map').setView([-6.9175, 107.6191], 13);
         
         // Use backend tiles (backend handles OSM fallback)
         L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 18,
-            minZoom: 8,
-            bounds: javaBounds
+            minZoom: 2
         }).addTo(map);
         
         console.log('Map initialized with local tiles:', `${API_URL}/tiles/{z}/{x}/{y}.png`);

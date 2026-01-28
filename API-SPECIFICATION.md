@@ -1,8 +1,9 @@
 # OSRM Service - API Specification
 
-**Version:** 1.0  
-**Last Updated:** December 10, 2025  
-**Base URL:** `http://<osrm-internal-ip>` (Development: `http://192.168.99.130:81`)
+**Version:** 2.0  
+**Last Updated:** January 28, 2026  
+**Architecture:** Lightweight Proxy (Self-Hosted)
+**Base URL:** `http://<osrm-internal-ip>:81` (Development: `http://localhost:81`)
 
 ---
 
@@ -10,38 +11,41 @@
 
 - [Overview](#overview)
 - [Authentication](#authentication)
-- [OSRM Direct API](#osrm-direct-api)
-  - [Calculate Route](#1-calculate-route)
-  - [Get Map Tile](#2-get-map-tile)
-  - [Health Check](#3-health-check)
-  - [Cache Statistics](#4-cache-statistics)
-- [Backend Sambara Integration API](#backend-sambara-integration-api)
-  - [Route API](#51-route-api-public-endpoint)
-  - [Tile API](#52-tile-api-public-endpoint)
-  - [Health Check](#53-health-check-internal-only)
-- [Rate Limiting](#rate-limits)
+- [API Endpoints](#api-endpoints)
+  - [Health Check](#1-health-check)
+  - [Route Calculation](#2-route-calculation)
+  - [Map Tiles](#3-map-tiles)
+- [Backend Sambara Integration](#backend-sambara-integration)
+- [Rate Limiting](#rate-limiting)
 - [Error Codes](#error-codes)
-- [Data Types](#data-types)
 
 ---
 
 ## Overview
 
-OSRM Service provides two API interfaces:
+OSRM Service adalah **internal microservice** dengan lightweight proxy architecture.
 
-1. **OSRM Direct API** - Internal microservice endpoints (port 80/81)
-2. **Backend Sambara API** - Public gateway endpoints with standardized response format
+**Features:**
+
+- 🗺️ 100% Self-hosted (no external tile servers)
+- 🚀 Lightweight proxy (no file caching)
+- 🐋 3-container architecture
+- 📍 Java Island coverage
 
 ### Architecture
 
 ```
-Mobile/Web App
+Client Request
     ↓
+[osrm-tile-service] Port 81 - Lightweight Proxy
+    ├─→ /route → [osrm-backend] Port 5000 (Routing)
+    └─→ /tiles → [tileserver] Port 8000 (Tiles from MBTiles)
+
 Backend Sambara (Gateway) :8080
     ↓ HTTP (Private Network)
-OSRM Service :80
+OSRM Service :81 (Internal - No rate limit)
     ↓
-OSRM Backend :5000
+OSRM Backend :5000 + Tileserver :8000
 ```
 
 ---
@@ -55,13 +59,118 @@ OSRM Backend :5000
 
 - OSRM service should only be accessible from Backend Sambara IP
 - Firewall rules restrict external access
-- Rate limiting enforced at Nginx level
+- **Rate limiting handled at Backend Sambara Gateway** (not in OSRM service)
 
 ---
 
-## OSRM Direct API
+## API Endpoints
 
-### 1. Calculate Route
+### 1. Health Check
+
+Monitor service status and connectivity to backend services.
+
+**Endpoint:** `GET /health`
+
+**Request Example:**
+
+```bash
+curl "http://localhost:81/health"
+```
+
+**Success Response (200):**
+
+```json
+{
+  "status": "ok",
+  "service": "OSRM Tile Service (Self-Hosted Proxy)",
+  "region": "Java Island",
+  "architecture": "lightweight-proxy",
+  "tileServer": "http://tileserver:8080/styles/basic-preview",
+  "tileserverStatus": "ok",
+  "osrmBackend": "http://osrm-backend:5000",
+  "memory": {
+    "current": {
+      "rss": 74,
+      "heapUsed": 18,
+      "heapTotal": 23,
+      "external": 3
+    },
+    "percent": 3.7,
+    "status": "ok"
+  },
+  "timestamp": "2026-01-28T05:12:00Z"
+}
+```
+
+---
+
+### 2. Route Calculation
+
+Calculate optimal route between two points.
+
+**Endpoint:** `GET /route`
+
+**Query Parameters:**
+
+| Parameter      | Type   | Required | Description         | Example                 |
+| -------------- | ------ | -------- | ------------------- | ----------------------- |
+| `start`        | string | ✅ Yes   | Start lon,lat       | `107.6191,-6.9175`      |
+| `end`          | string | ✅ Yes   | End lon,lat         | `107.5419,-6.8722`      |
+| `alternatives` | string | ❌ No    | Return alternatives | `true` (default: false) |
+| `steps`        | string | ❌ No    | Include steps       | `true` (default: true)  |
+| `geometries`   | string | ❌ No    | Geometry format     | `geojson` (default)     |
+
+**Request Example:**
+
+```bash
+curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722"
+```
+
+**Success Response (200):**
+
+```json
+{
+  "success": true,
+  "data": {
+    "routes": [{
+      "distance": 12345.67,
+      "duration": 1234.56,
+      "geometry": { "type": "LineString", "coordinates": [...] },
+      "legs": [...]
+    }],
+    "waypoints": [...]
+  },
+  "processingTime": 45
+}
+```
+
+---
+
+### 3. Map Tiles
+
+Proxy to tileserver for map tile images.
+
+**Endpoint:** `GET /tiles/{z}/{x}/{y}.png`
+
+**Path Parameters:**
+
+| Parameter | Type    | Description       | Example |
+| --------- | ------- | ----------------- | ------- |
+| `z`       | integer | Zoom level (2-18) | `13`    |
+| `x`       | integer | Tile X coordinate | `6544`  |
+| `y`       | integer | Tile Y coordinate | `4253`  |
+
+**Request Example:**
+
+```bash
+curl "http://localhost:81/tiles/13/6544/4253.png" -o tile.png
+```
+
+**Response:** PNG image (binary)
+
+---
+
+## Backend Sambara Integration
 
 Calculate optimal route between two or more coordinates using OSRM routing engine.
 
@@ -244,11 +353,11 @@ function latLonToTile(lat, lon, zoom) {
   const y = Math.floor(
     ((1 -
       Math.log(
-        Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)
+        Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180),
       ) /
         Math.PI) /
       2) *
-      Math.pow(2, zoom)
+      Math.pow(2, zoom),
   );
   return { x, y, z: zoom };
 }
@@ -549,36 +658,41 @@ GET /api/v1/osrm/health
 
 ---
 
-## Rate Limits
+## Rate Limiting
 
-Rate limiting is enforced at Nginx level to protect the service.
+**⚠️ Important: Rate limiting is DISABLED in OSRM Service**
 
-| Endpoint       | Limit     | Window   | Scope         |
-| -------------- | --------- | -------- | ------------- |
-| `/route`       | 10 req/s  | 1 second | Per IP        |
-| `/tiles/*`     | 100 req/s | 1 second | Per IP        |
-| `/health`      | 20 req/s  | 1 second | Per IP        |
-| `/cache/stats` | 20 req/s  | 1 second | Per IP        |
-| **All APIs**   | 20 req/s  | 1 second | Global per IP |
+**Architecture Pattern:**
 
-### Rate Limit Headers
-
-Response includes rate limit information:
-
-```http
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1702203600
+```
+Users → Backend Sambara (Rate limit PER USER) → OSRM Service (No limit - trusted)
 ```
 
-### Rate Limit Exceeded Response (429)
+**Why Disabled:**
 
-```json
-{
-  "code": "TooManyRequests",
-  "message": "Rate limit exceeded. Try again in 60 seconds.",
-  "retry_after": 60
-}
+- OSRM service is **internal microservice** (not exposed to public)
+- Backend Sambara already handles authentication + rate limiting per user
+- All traffic from Backend Sambara appears as single IP
+- Rate limiting at OSRM would incorrectly limit ALL users combined
+
+**Recommendation for Backend Sambara:**
+
+- Implement rate limiting per user ID or session token
+- Suggested: 100-200 requests/minute per user
+- Forward original client IP via `X-Forwarded-For` header
+- Monitor usage and adjust thresholds as needed
+
+**Example Rate Limiting at Gateway (Golang):**
+
+```go
+import "github.com/didip/tollbooth"
+
+// Create limiter: 100 requests/minute per user
+limiter := tollbooth.NewLimiter(100, nil)
+limiter.SetIPLookups([]string{"X-Real-IP", "X-Forwarded-For"})
+
+// Apply to routes
+router.Use(tollbooth.LimitHandler(limiter))
 ```
 
 ---
