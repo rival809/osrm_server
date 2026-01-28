@@ -1,139 +1,89 @@
 version: "3.8"
 
 services:
-  # Nginx Reverse Proxy & Load Balancer
-  nginx:
-    image: nginx:alpine
-    container_name: osrm-nginx
+  # Tile Server - Generates tiles from PBF file
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    container_name: osrm-tileserver
     ports:
-      - "81:80" # Port 81 on host, port 80 in container
-      # - "443:443"
+      - "8000:8080"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - nginx-cache:/var/cache/nginx
-      - nginx-logs:/var/log/nginx
-    depends_on:
-      - osrm-api-1
-      - osrm-api-2
+      - ./data:/data:ro
+      - ./tileserver-config:/config
+    environment:
+      - VERBOSE=1
+    command: >
+      --verbose
+      --port 8080
+      --mbtiles /data/java.mbtiles
     restart: unless-stopped
     networks:
       - osrm-network
     healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
-  # OSRM Backend for routing
+  # OSRM Backend - Routing engine
   osrm-backend:
     image: ghcr.io/project-osrm/osrm-backend:v6.0.0
     container_name: osrm-backend
+    ports:
+      - "5000:5000"
     volumes:
       - ./data:/data:ro
-    command: osrm-routed --algorithm mld /data/java-latest.osrm --max-table-size 10000
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: "2.0"
-        reservations:
-          memory: 2G
-          cpus: "1.0"
-    restart: unless-stopped
-    networks:
-      - osrm-network
-    # Health check disabled - curl/wget not available in osrm-backend image
-    # Service health monitored via API containers that depend on it
-
-  # API Server Instance 1
-  osrm-api-1:
-    build: .
-    container_name: osrm-api-1
-    volumes:
-      - ./cache:/app/cache
-      - ./data:/app/data:ro
-    environment:
-      - NODE_ENV=production
-      - PORT=8080
-      - OSRM_URL=http://osrm-backend:5000
-      - CACHE_DIR=/app/cache
-      - CACHE_MODE=smart
-      - PRELOAD_ENABLED=false
-      - MAX_CACHE_SIZE_MB=1000
-      - TILE_CACHE_TTL=180000
-      - RATE_LIMIT_WINDOW_MS=60000
-      - RATE_LIMIT_MAX_REQUESTS=100
-      - NODE_OPTIONS=--max-old-space-size=1536
-    depends_on:
-      - osrm-backend
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "1.0"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
+    command: >
+      osrm-routed
+      --algorithm mld
+      --max-table-size 10000
+      /data/java-latest.osrm
     restart: unless-stopped
     networks:
       - osrm-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "-",
+          "http://localhost:5000/route/v1/driving/107.6,-6.9;107.6,-6.9",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
       start_period: 20s
 
-  # API Server Instance 2 (for load balancing)
-  osrm-api-2:
-    build: .
-    container_name: osrm-api-2
-    volumes:
-      - ./cache:/app/cache
-      - ./data:/app/data:ro
+  # OSRM Tile Service - Lightweight Proxy
+  osrm-tile-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osrm-tile-service
+    ports:
+      - "81:81"
     environment:
       - NODE_ENV=production
-      - PORT=8080
+      - PORT=81
       - OSRM_URL=http://osrm-backend:5000
-      - CACHE_DIR=/app/cache
-      - CACHE_MODE=smart
-      - PRELOAD_ENABLED=false
-      - MAX_CACHE_SIZE_MB=1000
-      - TILE_CACHE_TTL=180000
-      - RATE_LIMIT_WINDOW_MS=60000
-      - RATE_LIMIT_MAX_REQUESTS=100
-      - NODE_OPTIONS=--max-old-space-size=1536
+      - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+      - MAX_MEMORY_MB=2000
+      - LOG_LEVEL=info
     depends_on:
+      - tileserver
       - osrm-backend
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: "1.0"
-        reservations:
-          memory: 512M
-          cpus: "0.25"
     restart: unless-stopped
     networks:
       - osrm-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:81/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
 
 networks:
   osrm-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16
-
-volumes:
-  nginx-cache:
-    driver: local
-  nginx-logs:
-    driver: local
