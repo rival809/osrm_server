@@ -1,49 +1,51 @@
 # 🗺️ OSRM Tile Service - Java Island
 
-**Full local** routing dan tile server untuk wilayah Java Island dengan **offline routing** dan **persistent tile caching** dari OpenStreetMap.
+**100% Self-Hosted** routing dan tile server untuk wilayah Java Island dengan **offline routing** dan **local tile generation** dari PBF file lokal.
+
+## ✨ Key Features
+
+- 🗺️ **100% Self-Hosted** - Tidak perlu koneksi ke tile.openstreetmap.org
+- 🚀 **Lightweight Proxy** - Simple architecture tanpa file caching
+- 🐋 **Docker-based** - Easy deployment dengan 3 containers
+- 📍 **Java Island Coverage** - Optimized untuk routing di Pulau Jawa
+- 🔄 **Tileserver-GL** - Generate tiles on-the-fly dari MBTiles lokal
 
 ## 📚 Documentation
 
-- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - **START HERE** for production deployment
-- **[DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)** - Step-by-step deployment checklist
 - **[SETUP.md](SETUP.md)** - Development setup guide (Windows & Linux)
-- **[PRODUCTION.md](PRODUCTION.md)** - Advanced production configuration
+- **[TILESERVER-SETUP.md](TILESERVER-SETUP.md)** - Setup tileserver dari PBF file
+- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - Production deployment guide
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Docker Desktop (Windows) / Docker Engine (Linux)
-- Node.js 18+ LTS
-- 8GB+ RAM, 50GB+ disk space
-- **Recommended:** 4GB+ swap memory (Linux/Production servers)
+- 4GB+ RAM, 20GB+ disk space
+- **For tileserver setup:** PBF file atau akses internet untuk download
 
 ### Windows
 
 ```powershell
 # 1. Clone project
 git clone <repo-url>
-cd osrm_server
+cd osrm_service
 
-# 2. Automated data preparation (downloads OSM data + processes OSRM files)
+# 2. Setup data (PBF + MBTiles + OSRM processing)
+# Option A: Automated (downloads + processes everything)
 .\MASTER-SETUP.ps1
-# Note: This script only prepares data, does not start services
+
+# Option B: Manual tileserver setup (if you have PBF file)
+.\scripts\setup-tileserver.ps1
 
 # 3. Build and start services
-
-# Development mode (recommended for 8GB RAM servers)
-docker-compose build --no-cache
-docker-compose up -d
-
-# OR Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose build --no-cache
+docker compose up -d
 
 # 4. Check status
-docker-compose ps
-docker-compose logs -f
+docker compose ps
 
-# 5. Access at http://localhost:80
+# 5. Access at http://localhost:81
 ```
 
 ### Linux/Ubuntu
@@ -51,32 +53,24 @@ docker-compose logs -f
 ```bash
 # 1. Clone project
 git clone <repo-url>
-cd osrm_server
+cd osrm_service
 chmod +x *.sh scripts/*.sh
 
-# 2. Automated data preparation (downloads OSM + processes OSRM files)
+# 2. Setup data (PBF + MBTiles + OSRM processing)
+# Option A: Automated (downloads + processes everything)
 ./MASTER-SETUP.sh
-# Note: This script only prepares data, does not start services
 
-# 3. Apply docker group (optional, to avoid sudo)
-newgrp docker
-# Or logout/login to apply group membership
+# Option B: Manual tileserver setup (if you have PBF file)
+./scripts/setup-tileserver.sh
 
-# 4. Build and start services
+# 3. Build and start services
+docker compose build --no-cache
+docker compose up -d
 
-# Development mode (recommended for 8GB RAM servers)
-docker-compose build --no-cache
-docker-compose up -d
+# 4. Check service status
+docker compose ps
 
-# OR Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# 5. Check service status
-docker-compose ps
-docker-compose logs -f
-
-# 6. Access at http://localhost:80
+# 5. Access at http://localhost:81
 ```
 
 ## 🛠️ Service Management
@@ -84,59 +78,58 @@ docker-compose logs -f
 ### Start Services
 
 ```bash
-# Development mode (recommended for 8GB RAM servers)
-docker-compose up -d
+# Start all containers
+docker compose up -d
 
-# Production mode (recommended for 2+ vCPU, 8GB+ RAM servers)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# With rebuild (after code changes)
+docker compose up --build -d
 
-# With rebuild (after code changes - works for both modes)
-docker-compose up -d --build
+# Start specific service
+docker compose up -d osrm-tile-service
 ```
 
 ### Stop Services
 
 ```bash
-# Stop all services (works for both dev and prod)
-docker-compose down
+# Stop all services
+docker compose down
 
 # Stop and remove volumes
-docker-compose down -v
+docker compose down -v
 ```
 
 ### Monitor Services
 
 ```bash
 # Check status
-docker-compose ps
+docker compose ps
 
 # View logs (all services)
-docker-compose logs -f
+docker compose logs -f
 
 # View logs (specific service)
-docker-compose logs -f nginx
-docker-compose logs -f osrm-api-1
-docker-compose logs -f osrm-backend
+docker compose logs -f osrm-tile-service
+docker compose logs -f osrm-backend
+docker compose logs -f tileserver
 
 # Check resource usage
 docker stats
 
 # Health check
-curl http://localhost/health
+curl http://localhost:81/health
 ```
 
 ### Restart Services
 
 ```bash
-# Restart all (works for both dev and prod)
-docker-compose restart
+# Restart all
+docker compose restart
 
 # Restart specific service
-docker-compose restart nginx
-docker-compose restart osrm-api-1
+docker compose restart osrm-tile-service
 
 # Rebuild and restart specific service (after code changes)
-docker-compose up -d --no-deps --build osrm-api-1
+docker compose up --build -d osrm-tile-service
 ```
 
 ## 🌐 API Endpoints
@@ -144,135 +137,135 @@ docker-compose up -d --no-deps --build osrm-api-1
 ### Main Services
 
 - **Web Interface**: http://localhost:80/
-- **Health Check**: http://localhost:80/health
-- **Cache Stats**: http://localhost:80/cache/stats
+- **Health Check**: http://localhost:801/
+- **Health Check**: http://localhost:81/health
 
 ### Routing API
 
 ```bash
-GET /route/v1/driving/{lon1},{lat1};{lon2},{lat2}
+# Query parameters
+GET /route?start=lon,lat&end=lon,lat
 
-# Example
-curl "http://localhost/route/v1/driving/106.8456,-6.2088;106.8894,-6.1753"
+# Example: Bandung to Cimahi
+curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722"
+
+# Response
+{
+  "success": true,
+  "data": {
+    "routes": [...],
+    "distance": 12345.67,
+    "duration": 1234.56
+  }
+}
 ```
 
-### Tiles API
-
-```bash
-GET /tiles/{z}/{x}/{y}.png
-
-# Example
-curl "http://localhost/tiles/10/511/511.png"
-```
-
-## 📊 Architecture
+**Lightweight Proxy Pattern:**
 
 ```
-Internet
+Client Request
     ↓
-[Nginx] Port 80/443 - Reverse Proxy & Load Balancer
+[osrm-tile-service] Port 81 - Express.js Proxy
+    ├─→ /route    → [osrm-backend] Port 5000 (Routing)
+    └─→ /tiles    → [tileserver] Port 8000 (Tiles from MBTiles)
+```
+
+**Containers:**
+
+1. **osrm-tile-service** (Port 81)
+   - Lightweight Express.js proxy
+   - Routes `/route` to OSRM backend
+   - Routes `/tiles` to tileserver
+   - No file caching (pure proxy)
+
+2. **osrm-backend** (Port 5000)
+
+### Environment Configuration
+
+Edit `.env` file untuk production:
+
+```bash
+# Production settings
+NODE_ENV=production
+PORT=81
+
+# OSRM Backend (internal Docker network)
+OSRM_URL=http://osrm-backend:5000
+
+# Tileserver (internal Docker network)
+TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+
+# Memory limit (adjust based on server capacity)
+MAX_MEMORY_MB=10000
+```
+
+### Deployment Steps
+
+```bash
+# 1. Clone repository
+git clone <repo-url>
+cd osrm_service
+
+# 2. Setup data files
+./MASTER-SETUP.sh  # Linux
+# or
+.\MASTER-SETUP.ps1  # Windows
+
+# 3. Build and deploy
+docker compose build --no-cache
+docker compose up -d
+
+# 4. Verify deployment
+docker compose ps
+curl http://localhost:81/health
+```
+
+### Backend Sambara Integration
+
+**Architecture:**
+
+```
+Mobile/Web Users
     ↓
-[API-1] [API-2] - Node.js API + File Cache
+Backend Sambara (Gateway) :8080
+    ↓ Rate limiting PER USER
+    ↓ Internal network
+OSRM Service :81 (No rate limit - trusted internal)
     ↓
-[OSRM Backend] - Routing Engine
+OSRM Backend + Tileserver
 ```
 
-**Services:**
+**Important Notes:**
 
-- **Nginx**: Load balancer, rate limiting, proxy caching
-- **API Instances**: 2x Node.js servers for redundancy
-- **OSRM Backend**: Routing engine with Java Island data
-- **File Cache**: Persistent tile storage
+- ✅ Rate limiting **DISABLED** di OSRM service (internal microservice)
+- ✅ Backend Sambara **MUST handle** rate limiting per user
+- ✅ OSRM service tidak exposed ke public
+- ✅ Trust proxy header `X-Forwarded-For` sudah enabled
 
-## 🚀 Production Deployment
+### Security Recommendations
 
-See **[PRODUCTION.md](PRODUCTION.md)** for complete guide.
+1. **Firewall Rules:**
 
-### Docker Compose Modes
+   ```bash
+   # Only allow access from Backend Sambara IP
+   sudo ufw allow from <backend-sambara-ip> to any port 81
+   sudo ufw deny 81
+   ```
 
-Docker Compose supports **config layering** - you can merge multiple config files to create different deployment modes.
-
-#### 📁 Configuration Files:
-
-- **`docker-compose.yml`** - Base configuration (complete & standalone)
-
-  - Contains all services, volumes, networks
-  - Can run independently for development
-  - Lower resource limits (2-4GB per service)
-
-- **`docker-compose.prod.yml`** - Production overrides (addon only)
-  - Contains only changes/enhancements
-  - CANNOT run alone (must be merged with base)
-  - Higher resource limits (3-6GB per service)
-  - Environment variable overrides
-
-#### 🔄 How Override Works:
-
-When using `-f` flag multiple times, Docker merges configs:
-
-```
-Base Config + Override Config = Final Config
-```
-
-Properties in override file **replace** matching properties in base file.
-
----
-
-**Development Mode** (Default - Lower Resources):
-
-```bash
-# Uses only docker-compose.yml
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-**Production Mode** (Higher Resources - Optimized for 16GB RAM):
-
-```bash
-# Merges docker-compose.yml + docker-compose.prod.yml
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-```
-
-#### 📊 Resource Allocation Comparison:
-
-| Mode     | Backend    | API-1        | API-2        | Cache/API | Total RAM |
-| -------- | ---------- | ------------ | ------------ | --------- | --------- |
-| **Dev**  | 4GB, 2 CPU | 2GB, 1 CPU   | 2GB, 1 CPU   | 1000MB    | ~8.5GB    |
-| **Prod** | 6GB, 3 CPU | 3GB, 1.5 CPU | 3GB, 1.5 CPU | 1500MB    | ~12.5GB   |
-
-#### ⚙️ What Gets Overridden in Production:
-
-| Service          | Property Overridden | Dev Value | Prod Value |
-| ---------------- | ------------------- | --------- | ---------- |
-| **osrm-api-1**   | Memory Limit        | 2GB       | 3GB        |
-|                  | CPU Limit           | 1.0       | 1.5        |
-|                  | MAX_CACHE_SIZE_MB   | 1000      | 1500       |
-|                  | NODE_OPTIONS        | 1536      | 2048       |
-| **osrm-api-2**   | (Same as API-1)     | (Same)    | (Same)     |
-| **osrm-backend** | Memory Limit        | 4GB       | 6GB        |
-|                  | CPU Limit           | 2.0       | 3.0        |
-|                  | Memory Reservation  | -         | 4GB        |
-| **nginx**        | Memory Limit        | -         | 512MB      |
-|                  | CPU Limit           | -         | 0.5        |
-
-#### 🎯 Quick Commands:
-
-```bash
-# Development (base config only)
-docker-compose up -d
-
-# Production (base + override merged)
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-# Stop services (works for both modes)
-docker-compose down
+2. **Rate Limiting at Gateway:**
+   - Implement per-user rate limiting di Backend Sambara
+   - Recommended: 100 requests/minute per user
+   - Forward original client IP via `X-Forwarded-ForStop services (works for both modes)
+     docker-compose down
 
 # View logs
+
 docker-compose logs -f
 
 # Check status
+
 docker-compose ps
+
 ```
 
 #### 💡 Understanding the System:
@@ -292,13 +285,15 @@ docker-compose ps
 **Analogy:**
 
 ```
-Base Config (docker-compose.yml) = Complete outfit 👕👖👟
-                                    Can wear alone ✅
 
-Prod Override (.prod.yml)        = Winter jacket 🧥
-                                    Can't wear alone ❌
-                                    Wear over base outfit ✅
-```
+Base Config (docker-compose.yml) = Complete outfit 👕👖👟
+Can wear alone ✅
+
+Prod Override (.prod.yml) = Winter jacket 🧥
+Can't wear alone ❌
+Wear over base outfit ✅
+
+````
 
 ---
 
@@ -312,11 +307,11 @@ Prod Override (.prod.yml)        = Winter jacket 🧥
 
 # Check status
 docker-compose ps
-```
+````
 
 ### OSRM Processing Fails
 
-```bash
+````bash
 # Check data file exists
 ls -la data/java-latest.osm.pbf
 
@@ -326,47 +321,100 @@ ls -la data/java-latest.osrm*
 # Re-download if needed
 .\scripts\download-pbf.ps1  # Windows
 ./scripts/download-pbf.sh   # Linux
+1. Docker Not Running
+
+```bash
+# Windows: Start Docker Desktop
+# Linux: sudo systemctl start docker
+
+# Check status
+docker compose ps
+````
+
+### 2. OSRM Processing Fails
+
+```bash
+# Check data file exists
+ls -la data/java-latest.osm.pbf
+
+# Check OSRM processed files (should have 26+ files)
+ls -la data/java-latest.osrm*
+
+# Re-download if needed
+.\scripts\download-pbf.ps1  # Windows
+./scripts/download-pbf.sh   # Linux
 
 # Reprocess OSRM data
-# MASTER-SETUP.sh will ask if you want to reprocess if ≥3 files exist
 ./MASTER-SETUP.sh
 ```
 
-### Port Already in Use
+### 3. Tileserver Not Generating Tiles
+
+```bash
+# Check MBTiles file exists
+ls -la data/java.mbtiles
+
+# Regenerate MBTiles from PBF
+.\scripts\setup-tileserver.ps1  # Windows
+./scripts/setup-tileserver.sh   # Linux
+
+# Check tileserver logs
+docker compose logs tileserver
+```
+
+### 4. Port Already in Use
 
 ```bash
 # Windows
-netstat -ano | findstr :80
+netstat -ano | findstr :81
 
 # Linux
-sudo lsof -i :80
+sudo lsof -i :81
 
-# Stop conflicting service or edit docker-compose.yml
+# Change port in .env file
+PORT=8081  # or any available port
 ```
 
-### High Memory Usage
+### 5. Container Unhealthy
 
 ```bash
-# Check usage
-docker stats
+# Check container status
+docker compose ps
 
-# Restart services
-docker-compose restart
+# View logs for errors
+docker compose logs osrm-tile-service
+docker compose logs osrm-backend
+docker compose logs tileserver
 
-# Or switch to development mode (lower resources)
-docker-compose down
-docker-compose up -d  # Without prod override
+# Restart unhealthy container
+docker compose restart osrm-tile-service
 ```
 
-### Docker Images Missing (ContainerConfig Error)
+### 6. Tiles Not Loading (404 errors)
 
 ```bash
-# Error: 'ContainerConfig' or 'No such image'
-# Solution: Rebuild images from scratch
+# Test tileserver directly
+curl http://localhost:8000/
 
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
+# Test tile proxy
+curl http://localhost:81/tiles/13/6544/4253.png -o test.png
+
+# Check if MBTiles file is properly mounted
+docker exec osrm-tileserver ls -la /data/java.mbtiles
+```
+
+### 7. Clean Slate (Start Over)
+
+```bash
+# Stop all containers
+docker compose down
+
+# Prune Docker system
+docker system prune -a --volumes -f
+
+# Rebuild from scratch
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ---
@@ -374,33 +422,12 @@ docker-compose up -d
 ## 📖 Additional Resources
 
 - [OSRM Documentation](http://project-osrm.org/)
+- [Tileserver-GL Documentation](https://github.com/maptiler/tileserver-gl)
 - [OpenStreetMap Data](https://www.openstreetmap.org/)
 - [Geofabrik Downloads](https://download.geofabrik.de/)
 
 ---
 
-**🗺️ Powered by OpenStreetMap • OSRM • Docker**
+**🗺️ Powered by OpenStreetMap • OSRM • Tileserver-GL • Docker**
 
-**2. Tiles Loading Slow**
-
-```bash
-# Check cache stats
-curl http://localhost:3000/cache/stats
-
-# Preload popular zoom levels
-curl -X POST http://localhost:3000/cache/preload \
-  -d '{"zoomLevels": [10, 11, 12]}'
-```
-
-**3. High Disk Usage**
-
-```bash
-# Clean old cache (older than 12 hours)
-curl -X DELETE "http://localhost:3000/cache/clean?maxAgeHours=12"
-```
-
----
-
-**🗺️ Powered by OpenStreetMap • OSRM • Leaflet 🚀**
-
-_Optimized for Jawa Barat (West Java) region_
+_Self-hosted routing and tile service for Java Island_ 🚀

@@ -1,86 +1,198 @@
 # 🏠 Self-Hosted Configuration Guide
 
-## 🎯 Tujuan
+## 🎯 Overview
 
-Service ini sekarang **100% self-hosted** - tidak perlu koneksi ke `tile.openstreetmap.org` atau server eksternal lainnya.
+Service ini **100% self-hosted** - tidak perlu koneksi ke `tile.openstreetmap.org` atau server eksternal lainnya.
+
+**Arsitektur:**
+
+```
+Local PBF file (java-latest.osm.pbf)
+    ├─→ Planetiler → java.mbtiles → Tileserver-GL
+    └─→ OSRM tools → java-latest.osrm.* → OSRM Backend
+
+Client → Port 81 (Proxy) → Port 8000 (Tileserver) atau Port 5000 (OSRM)
+```
 
 ---
 
-## 🔧 Konfigurasi Offline Mode
+## 🔧 Setup Self-Hosted Tileserver
 
-### **Mode 1: Offline Strict** ✅ (Recommended untuk Production)
+### **Automated Setup (Recommended)**
 
-**Karakteristik:**
-
-- ✅ **100% Offline** - Tidak download dari internet
-- ✅ Hanya serve tiles dari cache lokal
-- ❌ Error jika tile belum di-cache
-- ✅ Cocok untuk production dengan tiles sudah preload
-
-**Setup:**
-
-```bash
-# Edit .env
-OFFLINE_MODE=true
-TILE_SERVER_URL=
-```
-
-**Cara Preload Tiles:**
-
-```bash
-# Linux/Mac
-./CACHE-MANAGER.sh
-
+```powershell
 # Windows
-.\CACHE-MANAGER.ps1
+.\scripts\setup-tileserver.ps1
 
-# Pilih option: Start Preload
-# Zoom levels recommended: 10, 11, 12, 13, 14
+# Linux
+./scripts/setup-tileserver.sh
+```
+
+**Script akan:**
+
+1. ✅ Check Docker running
+2. ✅ Verify PBF file exists (`data/java-latest.osm.pbf`)
+3. ✅ Convert PBF → MBTiles menggunakan Planetiler
+4. ✅ Start tileserver-gl container
+5. ✅ Update `.env` configuration
+6. ✅ Test tile generation
+
+### **Manual Setup**
+
+**Step 1: Convert PBF to MBTiles**
+
+```bash
+docker run -v $(pwd)/data:/data ghcr.io/onthegomap/planetiler:latest \
+  --area=indonesia \
+  --bounds=105.0,-8.8,114.0,-5.9 \
+  --input=/data/java-latest.osm.pbf \
+  --output=/data/java.mbtiles
+```
+
+**Step 2: Start Tileserver-GL**
+
+```bash
+docker run -d \
+  --name osrm-tileserver \
+  -p 8000:8080 \
+  -v $(pwd)/data:/data:ro \
+  maptiler/tileserver-gl:latest \
+  --mbtiles /data/java.mbtiles
+```
+
+**Step 3: Configure Environment**
+
+Edit `.env`:
+
+```bash
+TILE_SERVER_URL=http://localhost:8000/styles/basic-preview
+```
+
+**Step 4: Test**
+
+```bash
+# Test tileserver directly
+curl http://localhost:8000/
+
+# Test tile generation
+curl http://localhost:8000/styles/basic-preview/13/6544/4253.png -o test.png
+
+# Should return ~50KB PNG file
 ```
 
 ---
 
-### **Mode 2: Local Tile Server** 🔄
+## 🌐 Environment Configuration
 
-**Karakteristik:**
-
-- ✅ Tidak kontak OSM servers
-- ✅ Download dari tile server lokal Anda
-- ✅ Cache untuk akses lebih cepat
-- ✅ Cocok jika Anda punya tileserver-gl/martin/tegola
-
-**Setup:**
+**Required Variables in `.env`:**
 
 ```bash
-# Edit .env
-OFFLINE_MODE=false
-TILE_SERVER_URL=http://localhost:8000
+# Service Port
+PORT=81
+
+# OSRM Backend URL
+OSRM_URL=http://localhost:5000
+
+# Tileserver URL (REQUIRED for self-hosted)
+TILE_SERVER_URL=http://localhost:8000/styles/basic-preview
+
+# Memory limit
+MAX_MEMORY_MB=10000
 ```
 
-**Tile Server Options:**
+**Docker Compose Environment:**
 
-- **tileserver-gl**: https://github.com/maptiler/tileserver-gl
-- **Martin**: https://github.com/maplibre/martin
-- **Tegola**: https://github.com/go-spatial/tegola
+```bash
+# Internal Docker network
+OSRM_URL=http://osrm-backend:5000
+TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+```
 
 ---
 
-### **Mode 3: Hybrid** (Development Only)
+## 🚀 Deployment
 
-**Karakteristik:**
-
-- ⚠️ Download dari OSM jika tile tidak ada
-- ✅ Auto-cache untuk next request
-- ❌ Melanggar usage policy OSM untuk production
-- ✅ OK untuk development/testing
-
-**Setup:**
+**Full Stack Deployment:**
 
 ```bash
-# Edit .env
-OFFLINE_MODE=false
+# 1. Ensure data files exist
+ls -la data/java-latest.osm.pbf   # PBF file
+ls -la data/java.mbtiles           # MBTiles
+ls -la data/java-latest.osrm.*     # OSRM files
+
+# 2. Deploy all services
+docker compose up -d
+
+# 3. Verify all containers
+docker compose ps
+
+# Should see:
+# - osrm-tile-service (port 81)
+# - osrm-backend (port 5000)
+# - tileserver (port 8000)
+
+# 4. Test endpoints
+curl http://localhost:81/health
+curl http://localhost:81/tiles/13/6544/4253.png -o test.png
+```
+
+---
+
+## ✅ Verification Checklist
+
+- [ ] PBF file downloaded (`data/java-latest.osm.pbf`)
+- [ ] MBTiles generated (`data/java.mbtiles`)
+- [ ] OSRM files processed (`data/java-latest.osrm.*`)
+- [ ] All 3 containers running (healthy)
+- [ ] Health check returns status "ok"
+- [ ] Tiles loading in browser (http://localhost:81)
+- [ ] Routing working
+- [ ] **No external tile.openstreetmap.org requests**
+
+---
+
+## 🔍 Troubleshooting
+
+**Tileserver not starting:**
+
+```bash
+docker logs osrm-tileserver
+
+# Common issues:
+# - MBTiles file not found
+# - Port 8000 already in use
+# - Invalid MBTiles format
+```
+
+**Tiles returning 404:**
+
+```bash
+# Check tileserver directly
+curl http://localhost:8000/
+
+# Check if file mounted correctly
+docker exec osrm-tileserver ls -la /data/java.mbtiles
+
+# Restart tileserver
+docker compose restart tileserver
+```
+
+**Proxy returning errors:**
+
+```bash
+# Check proxy logs
+docker logs osrm-tile-service
+
+# Verify TILE_SERVER_URL is correct
+docker exec osrm-tile-service env | grep TILE_SERVER_URL
+```
+
+---
+
+**🗺️ Sekarang 100% Self-Hosted! Tidak ada koneksi ke server eksternal.**
 TILE_SERVER_URL=
-```
+
+````
 
 ---
 
@@ -92,7 +204,7 @@ TILE_SERVER_URL=
 git clone <repo-url> /opt/osrm_service
 cd /opt/osrm_service
 cp .env.example .env
-```
+````
 
 ### Step 2: Edit Environment
 
