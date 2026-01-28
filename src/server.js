@@ -5,11 +5,6 @@ const helmet = require('helmet');
 const compression = require('compression');
 const { body, query, validationResult } = require('express-validator');
 const logger = require('./logger');
-const {
-  globalLimiter,
-  routeLimiter,
-  tileLimiter
-} = require('./rateLimiter');
 const MemoryMonitor = require('./memoryMonitor');
 
 // Initialize Express
@@ -77,10 +72,11 @@ if (process.env.NODE_ENV === 'production') {
 
 logger.info('Tileserver URL:', TILE_SERVER_URL);
 
-// Apply global rate limiting to all routes except health
-app.use('/api', globalLimiter);
-app.use('/route', routeLimiter);
-app.use('/tiles', tileLimiter);
+// Apply rate limiting (disabled for internal microservice - let gateway handle it)
+// For production: Rate limiting should be handled by Backend Sambara Gateway
+// app.use('/api', globalLimiter);
+// app.use('/route', routeLimiter);
+// app.use('/tiles', tileLimiter);
 
 // Validation middleware
 const handleValidationErrors = (req, res, next) => {
