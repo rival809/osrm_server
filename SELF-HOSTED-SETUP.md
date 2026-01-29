@@ -11,7 +11,7 @@ Local PBF file (java-latest.osm.pbf)
     ├─→ Planetiler → java.mbtiles → Tileserver-GL
     └─→ OSRM tools → java-latest.osrm.* → OSRM Backend
 
-Client → Port 81 (Proxy) → Port 8000 (Tileserver) atau Port 5000 (OSRM)
+Client → Port 81 (Proxy) → Port 5001 (Tileserver) atau Port 5000 (OSRM)
 ```
 
 ---
@@ -65,17 +65,17 @@ docker run -d \
 Edit `.env`:
 
 ```bash
-TILE_SERVER_URL=http://localhost:8000/styles/basic-preview
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 ```
 
 **Step 4: Test**
 
 ```bash
 # Test tileserver directly
-curl http://localhost:8000/
+curl http://localhost:5001/
 
 # Test tile generation
-curl http://localhost:8000/styles/basic-preview/13/6544/4253.png -o test.png
+curl http://localhost:5001/styles/basic-preview/13/6544/4253.png -o test.png
 
 # Should return ~50KB PNG file
 ```
@@ -94,7 +94,7 @@ PORT=81
 OSRM_URL=http://localhost:5000
 
 # Tileserver URL (REQUIRED for self-hosted)
-TILE_SERVER_URL=http://localhost:8000/styles/basic-preview
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 
 # Memory limit
 MAX_MEMORY_MB=10000
@@ -129,7 +129,7 @@ docker compose ps
 # Should see:
 # - osrm-tile-service (port 81)
 # - osrm-backend (port 5000)
-# - tileserver (port 8000)
+# - tileserver (port 5001)
 
 # 4. Test endpoints
 curl http://localhost:81/health
@@ -160,7 +160,7 @@ docker logs osrm-tileserver
 
 # Common issues:
 # - MBTiles file not found
-# - Port 8000 already in use
+# - Port 5001 already in use
 # - Invalid MBTiles format
 ```
 
@@ -168,7 +168,7 @@ docker logs osrm-tileserver
 
 ```bash
 # Check tileserver directly
-curl http://localhost:8000/
+curl http://localhost:5001/
 
 # Check if file mounted correctly
 docker exec osrm-tileserver ls -la /data/java.mbtiles
@@ -348,10 +348,10 @@ Error: Tile 12/3230/1830 not in cache and OFFLINE_MODE is enabled
 
 ```bash
 # Check tile server running
-curl http://localhost:8000/12/3230/1830.png
+curl http://localhost:5001/12/3230/1830.png
 
 # Update .env
-TILE_SERVER_URL=http://localhost:8000
+TILE_SERVER_URL=http://localhost:5001
 
 # Restart service
 pm2 restart osrm-tile

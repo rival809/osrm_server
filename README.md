@@ -167,7 +167,7 @@ Client Request
     ↓
 [osrm-tile-service] Port 81 - Express.js Proxy
     ├─→ /route    → [osrm-backend] Port 5000 (Routing)
-    └─→ /tiles    → [tileserver] Port 8000 (Tiles from MBTiles)
+    └─→ /tiles    → [tileserver] Port 5001 (Tiles from MBTiles)
 ```
 
 **Containers:**

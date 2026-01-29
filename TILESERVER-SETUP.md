@@ -65,7 +65,7 @@ docker run ghcr.io/systemed/tilemaker:latest \
 ```bash
 docker run -d \
   --name osrm-tileserver \
-  -p 8000:8080 \
+  -p 5001:8080 \
   -v ./data:/data:ro \
   maptiler/tileserver-gl \
   --mbtiles /data/java.mbtiles
@@ -76,14 +76,14 @@ docker run -d \
 ```bash
 # Otomatis update .env:
 OFFLINE_MODE=false
-TILE_SERVER_URL=http://localhost:8000/styles/basic-preview
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 ```
 
 ### **Step 5: Test**
 
 ```bash
 # Test tile generation
-curl http://localhost:8000/styles/basic-preview/12/3230/1830.png
+curl http://localhost:5001/styles/basic-preview/12/3230/1830.png
 ```
 
 ---
@@ -150,23 +150,23 @@ docker restart osrm-tileserver
 ### **Viewer (Web UI):**
 
 ```
-http://localhost:8000
+http://localhost:5001
 ```
 
 ### **Tile URL Pattern:**
 
 ```
-http://localhost:8000/styles/basic-preview/{z}/{x}/{y}.png
+http://localhost:5001/styles/basic-preview/{z}/{x}/{y}.png
 ```
 
 ### **Example Tiles:**
 
 ```bash
 # Jakarta area
-http://localhost:8000/styles/basic-preview/12/3230/1830.png
+http://localhost:5001/styles/basic-preview/12/3230/1830.png
 
 # Surabaya area
-http://localhost:8000/styles/basic-preview/12/3280/1850.png
+http://localhost:5001/styles/basic-preview/12/3280/1850.png
 ```
 
 ---
@@ -251,12 +251,12 @@ rm data/java.mbtiles
 ### **Port already in use:**
 
 ```bash
-# Check what's using port 8000
+# Check what's using port 5001
 # Windows:
-netstat -ano | findstr :8000
+netstat -ano | findstr :5001
 
 # Linux:
-lsof -i :8000
+lsof -i :5001
 
 # Kill process or use different port
 ```
@@ -314,5 +314,5 @@ Total:        ~3GB
 
 **Status:**
 
-- Health: `http://localhost:8000/health`
+- Health: `http://localhost:5001/health`
 - Service: `http://localhost:8080/health`
