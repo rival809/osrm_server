@@ -41,7 +41,65 @@ services:
       retries: 3
       start_period: 10s
 
-  # OSRM Tile Service - Lightweight Proxy
+  # PostgreSQL + PostGIS - Database for Nominatim
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: osrm-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=nominatim
+      - POSTGRES_PASSWORD=nominatim123
+      - POSTGRES_DB=nominatim
+      - POSTGRES_SHARED_BUFFERS=2GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=1GB
+      - POSTGRES_WORK_MEM=50MB
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./data:/data:ro
+    shm_size: 1gb
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nominatim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nominatim - Reverse Geocoding Service (with internal PostgreSQL)
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: osrm-nominatim
+    ports:
+      - "5002:8080"
+    environment:
+      - PBF_PATH=/nominatim/data.osm.pbf
+      - REPLICATION_URL=https://download.geofabrik.de/asia/indonesia-updates/
+      - IMPORT_WIKIPEDIA=false
+      - IMPORT_US_POSTCODES=false
+      - IMPORT_GB_POSTCODES=false
+      - THREADS=4
+    volumes:
+      - ./data/java-latest.osm.pbf:/nominatim/data.osm.pbf
+      - nominatim-data:/var/lib/postgresql/14/main
+      - nominatim-flatnode:/nominatim/flatnode
+    shm_size: 1gb
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider -q http://localhost:8080/status.php || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+  # OSRM Tile Service - Lightweight Proxy with Geocoding
   osrm-tile-service:
     build:
       context: .
@@ -54,11 +112,13 @@ services:
       - PORT=81
       - OSRM_URL=http://osrm-backend:5000
       - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+      - NOMINATIM_URL=http://nominatim:8080
       - MAX_MEMORY_MB=2000
       - LOG_LEVEL=info
     depends_on:
       - tileserver
       - osrm-backend
+      - nominatim
     restart: unless-stopped
     networks:
       - osrm-network
@@ -71,3 +131,11 @@ services:
 networks:
   osrm-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
+  nominatim-data:
+    driver: local
+  nominatim-flatnode:
+    driver: local

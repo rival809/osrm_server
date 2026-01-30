@@ -663,11 +663,11 @@ function Show-CompletionSummary {
     Write-Host "[SUCCESS] OSRM self-hosted setup completed!" -ForegroundColor Green
     Write-Host ""
     Write-Host "What's Ready:" -ForegroundColor Cyan
-    Write-Host "   ✓ Prerequisites installed" -ForegroundColor White
-    Write-Host "   ✓ Environment configured" -ForegroundColor White
-    Write-Host "   ✓ OSM data downloaded (~800MB)" -ForegroundColor White
-    Write-Host "   ✓ MBTiles generated for tileserver" -ForegroundColor White
-    Write-Host "   ✓ OSRM routing data processed (26 files)" -ForegroundColor White
+    Write-Host "   [OK] Prerequisites installed" -ForegroundColor White
+    Write-Host "   [OK] Environment configured" -ForegroundColor White
+    Write-Host "   [OK] OSM data downloaded (~800MB)" -ForegroundColor White
+    Write-Host "   [OK] MBTiles generated for tileserver" -ForegroundColor White
+    Write-Host "   [OK] OSRM routing data processed (26 files)" -ForegroundColor White
     Write-Host ""
     Write-Host "Next Steps - Start Services:" -ForegroundColor Cyan
     Write-Host "   1. Build and start all containers:" -ForegroundColor White
@@ -688,7 +688,7 @@ function Show-CompletionSummary {
     Write-Host "   * OSRM Backend:     http://localhost:5000" -ForegroundColor White
     Write-Host "   * Tileserver:       http://localhost:5001" -ForegroundColor White
     Write-Host ""
-    Write-Host "✅ 100% Self-Hosted - No external tile dependencies!" -ForegroundColor Green
+    Write-Host "[OK] 100% Self-Hosted - No external tile dependencies!" -ForegroundColor Green
 }
 
 # Main execution

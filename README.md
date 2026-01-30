@@ -6,23 +6,33 @@
 
 - 🗺️ **100% Self-Hosted** - Tidak perlu koneksi ke tile.openstreetmap.org
 - 🚀 **Lightweight Proxy** - Simple architecture tanpa file caching
-- 🐋 **Docker-based** - Easy deployment dengan 3 containers
+- 🐋 **Docker-based** - Easy deployment dengan 5 containers
 - 📍 **Java Island Coverage** - Optimized untuk routing di Pulau Jawa
 - 🔄 **Tileserver-GL** - Generate tiles on-the-fly dari MBTiles lokal
+- 🌐 **Offline Geocoding** - Reverse geocoding dengan Nominatim + PostgreSQL
 
 ## 📚 Documentation
 
+### Getting Started
 - **[SETUP.md](SETUP.md)** - Development setup guide (Windows & Linux)
 - **[TILESERVER-SETUP.md](TILESERVER-SETUP.md)** - Setup tileserver dari PBF file
-- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - Production deployment guide
+- **[NOMINATIM-SETUP.md](NOMINATIM-SETUP.md)** - Setup geocoding (koordinat ↔ nama lokasi)
+- **[GEOCODING-QUICKSTART.md](GEOCODING-QUICKSTART.md)** - Quick start geocoding
+
+### Production Deployment
+- **[SERVER-DEPLOYMENT.md](SERVER-DEPLOYMENT.md)** - 🚀 Complete server deployment guide
+- **[DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)** - ✅ Step-by-step checklist
+- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - Legacy deployment guide
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture & diagram
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Docker Desktop (Windows) / Docker Engine (Linux)
-- 4GB+ RAM, 20GB+ disk space
+- 8GB+ RAM (4GB for routing, 4GB for geocoding), 30GB+ disk space
 - **For tileserver setup:** PBF file atau akses internet untuk download
+- **For geocoding:** Additional 2-4 hours for Nominatim import
 
 ### Windows
 
@@ -111,6 +121,8 @@ docker compose logs -f
 docker compose logs -f osrm-tile-service
 docker compose logs -f osrm-backend
 docker compose logs -f tileserver
+docker compose logs -f nominatim
+docker compose logs -f postgres
 
 # Check resource usage
 docker stats
@@ -136,8 +148,7 @@ docker compose up --build -d osrm-tile-service
 
 ### Main Services
 
-- **Web Interface**: http://localhost:80/
-- **Health Check**: http://localhost:801/
+- **Web Interface**: http://localhost:81/
 - **Health Check**: http://localhost:81/health
 
 ### Routing API
@@ -160,14 +171,58 @@ curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722"
 }
 ```
 
-**Lightweight Proxy Pattern:**
+### Geocoding API
+
+```bash
+# Reverse Geocoding (koordinat → nama lokasi)
+GET /geocode/reverse?lat=-6.9175&lon=107.6191
+
+# Example: Get location name from coordinates
+curl "http://localhost:81/geocode/reverse?lat=-6.9175&lon=107.6191"
+
+# Response
+{
+  "success": true,
+  "location": {
+    "display_name": "Jalan Asia Afrika, Bandung, Jawa Barat, Indonesia",
+    "name": "Jalan Asia Afrika"
+  },
+  "address": {
+    "road": "Jalan Asia Afrika",
+    "city": "Bandung",
+    "state": "Jawa Barat"
+  }
+}
+
+# Forward Geocoding (nama → koordinat)
+GET /geocode/search?q=Bandung&limit=5
+
+# Example: Search for locations
+curl "http://localhost:81/geocode/search?q=Bandung&limit=5"
+
+# Response
+{
+  "success": true,
+  "query": "Bandung",
+  "count": 5,
+  "results": [
+    {
+      "display_name": "Bandung, Jawa Barat, Indonesia",
+      "coordinates": { "lat": -6.9175, "lon": 107.6191 }
+    }
+  ]
+}
+```
+
+**Architecture:**
 
 ```
 Client Request
     ↓
 [osrm-tile-service] Port 81 - Express.js Proxy
-    ├─→ /route    → [osrm-backend] Port 5000 (Routing)
-    └─→ /tiles    → [tileserver] Port 5001 (Tiles from MBTiles)
+    ├─→ /route             → [osrm-backend] Port 5000 (Routing)
+    ├─→ /tiles             → [tileserver] Port 5001 (Tiles from MBTiles)
+    └─→ /geocode/*         → [nominatim] Port 5002 → [postgres] (Geocoding)
 ```
 
 **Containers:**
@@ -176,9 +231,20 @@ Client Request
    - Lightweight Express.js proxy
    - Routes `/route` to OSRM backend
    - Routes `/tiles` to tileserver
+   - Routes `/geocode/*` to Nominatim
    - No file caching (pure proxy)
 
 2. **osrm-backend** (Port 5000)
+   - Routing engine
+
+3. **tileserver** (Port 5001)
+   - Map tiles generation
+
+4. **nominatim** (Port 5002)
+   - Geocoding service
+
+5. **postgres** (Port 5432)
+   - Database for geocoding
 
 ### Environment Configuration
 
@@ -194,6 +260,9 @@ OSRM_URL=http://osrm-backend:5000
 
 # Tileserver (internal Docker network)
 TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+
+# Nominatim (internal Docker network)
+NOMINATIM_URL=http://nominatim:8080
 
 # Memory limit (adjust based on server capacity)
 MAX_MEMORY_MB=10000
