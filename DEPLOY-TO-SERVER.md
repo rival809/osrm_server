@@ -5,17 +5,18 @@
 ✅ Docker-compose sudah fix (Nominatim bisa jalan)  
 ✅ Geocoding endpoints sudah ada di `src/server.js`  
 ✅ Dokumentasi lengkap tersedia  
-✅ Test script tersedia (`npm run test:geocoding`)  
+✅ Test script tersedia (`npm run test:geocoding`)
 
 ## 🖥️ Server Requirements
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| **RAM** | 8GB | **16GB** ⭐ |
-| **Storage** | 30GB | **50GB** ⭐ |
-| **CPU** | 2 cores | **4 cores** ⭐ |
+| Resource    | Minimum | Recommended    |
+| ----------- | ------- | -------------- |
+| **RAM**     | 8GB     | **16GB** ⭐    |
+| **Storage** | 30GB    | **50GB** ⭐    |
+| **CPU**     | 2 cores | **4 cores** ⭐ |
 
 **Storage Breakdown:**
+
 - Data files: ~4GB
 - **Nominatim DB: ~20GB** (yang paling besar!)
 - Docker images: ~5GB
@@ -77,10 +78,11 @@ watch -n 600 'curl -s http://localhost:5002/status.php?format=json'
 ```
 
 **Progress indicator:**
+
 ```
 00:00 - Start
 00:10 - Loading data (fase 1)
-01:00 - Indexing (fase 2) 
+01:00 - Indexing (fase 2)
 03:00 - Optimization (fase 3)
 04:00 - Done! ✅
 ```
@@ -101,12 +103,14 @@ curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722" | j
 ## 📝 Important Notes
 
 ### Nominatim Import:
+
 - ⏱️ **Time:** 2-4 hours (normal untuk Java Island)
 - 💾 **Storage:** ~20GB untuk database
 - 🔄 **One-time only:** Setelah import, restart cepat (database tersimpan di volume)
 - ⚠️ **Jangan panic** jika terlihat stuck - check logs untuk melihat progress
 
 ### Jika Import Gagal:
+
 ```bash
 # Restart fresh (hapus data lama)
 docker compose down -v
@@ -114,12 +118,14 @@ docker compose up -d
 ```
 
 ### Check Disk Space:
+
 ```bash
 df -h
 docker system df -v
 ```
 
 ### Monitor Resources:
+
 ```bash
 docker stats
 free -h
@@ -159,12 +165,12 @@ curl http://localhost:5002/status.php?format=json
 
 ## 🆘 Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
+| Issue                  | Fix                                         |
+| ---------------------- | ------------------------------------------- |
 | Nominatim restart loop | Check logs: `docker compose logs nominatim` |
-| Out of memory | Reduce threads di docker-compose.yml |
-| Disk full | Clean: `docker system prune -a` |
-| Port tidak accessible | Check firewall: `sudo ufw allow 81` |
+| Out of memory          | Reduce threads di docker-compose.yml        |
+| Disk full              | Clean: `docker system prune -a`             |
+| Port tidak accessible  | Check firewall: `sudo ufw allow 81`         |
 
 ## 📚 Full Documentation
 
@@ -175,11 +181,13 @@ curl http://localhost:5002/status.php?format=json
 ## 💰 Cost Estimate
 
 **VPS (16GB RAM, 50GB SSD):**
+
 - Hetzner: €20/month (~$22) ⭐ Cheapest
 - DigitalOcean: $48/month
 - Vultr: $48/month
 
 **vs Google Geocoding:**
+
 - Self-hosted: $22/month
 - Google: $5,000/month (1M requests)
 - **Savings: 99%** 🎉
@@ -187,6 +195,7 @@ curl http://localhost:5002/status.php?format=json
 ## ✅ Success Checklist
 
 Deploy berhasil jika:
+
 - [ ] All containers status "Up" dan "healthy"
 - [ ] Health check returns `{"status": "ok"}`
 - [ ] Nominatim status returns `{"status": 0}`
@@ -198,6 +207,7 @@ Deploy berhasil jika:
 ---
 
 **Ready to deploy?**
+
 1. Push code ke Git
 2. Follow [DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)
 3. Wait 2-4 hours for Nominatim import

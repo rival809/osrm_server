@@ -16,6 +16,7 @@
   - OS: Ubuntu 20.04+ / Debian 11+
 
 - [ ] Install Docker & Docker Compose:
+
   ```bash
   curl -fsSL https://get.docker.com -o get-docker.sh
   sudo sh get-docker.sh
@@ -32,6 +33,7 @@
 ## Transfer Files ke Server
 
 Option 1 - Via Git (Recommended):
+
 ```bash
 # Di server
 git clone <your-repo-url> osrm_service
@@ -39,12 +41,14 @@ cd osrm_service
 ```
 
 Option 2 - Via rsync:
+
 ```bash
 # Di PC lokal
 rsync -avz --progress d:\Kerja\osrm_service/ user@server-ip:/home/user/osrm_service/
 ```
 
 Option 3 - Manual transfer data files only:
+
 ```bash
 # Transfer hanya data directory (jika code sudah ada via git)
 rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm_service/data/
@@ -53,12 +57,14 @@ rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm
 ## Server Deployment Steps
 
 1. **Login ke Server**
+
    ```bash
    ssh user@your-server-ip
    cd osrm_service
    ```
 
 2. **Verify Data Files**
+
    ```bash
    ls -lh data/
    # Harus ada:
@@ -68,16 +74,18 @@ rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm
    ```
 
 3. **Build & Start Services**
+
    ```bash
    docker compose build --no-cache
    docker compose up -d
    ```
 
 4. **Monitor Nominatim Import (2-4 jam)**
+
    ```bash
    # Watch logs (real-time)
    docker compose logs -f nominatim
-   
+
    # Check import status setiap 10 menit
    watch -n 600 'curl -s http://localhost:5002/status.php?format=json | jq .'
    ```
@@ -88,16 +96,17 @@ rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm
    - Time: 2-4 hours untuk Java Island
 
 6. **Test Semua Endpoints**
+
    ```bash
    # Health check
    curl http://localhost:81/health | jq .
-   
+
    # Routing
    curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722" | jq .
-   
+
    # Reverse geocoding
    curl "http://localhost:81/geocode/reverse?lat=-6.9175&lon=107.6191" | jq .
-   
+
    # Forward geocoding
    curl "http://localhost:81/geocode/search?q=Bandung" | jq .
    ```
@@ -105,18 +114,21 @@ rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm
 ## Post-Deployment (Production Setup)
 
 - [ ] Setup Nginx reverse proxy
+
   ```bash
   sudo apt-get install nginx
   sudo nano /etc/nginx/sites-available/osrm
   ```
 
 - [ ] Setup SSL certificate
+
   ```bash
   sudo apt-get install certbot python3-certbot-nginx
   sudo certbot --nginx -d your-domain.com
   ```
 
 - [ ] Configure auto-start on boot
+
   ```bash
   # Systemd service (lihat SERVER-DEPLOYMENT.md)
   sudo systemctl enable osrm-service
@@ -127,6 +139,7 @@ rsync -avz --progress d:\Kerja\osrm_service\data/ user@server-ip:/home/user/osrm
   - [ ] Basic monitoring via `docker stats`
 
 - [ ] Configure backups
+
   ```bash
   # Cron job untuk backup Nominatim DB
   0 2 * * 0 docker exec osrm-nominatim sudo -u postgres pg_dump nominatim | gzip > /backups/nominatim-$(date +\%Y\%m\%d).sql.gz
@@ -156,20 +169,24 @@ Setelah semua jalan:
 ## Maintenance Schedule
 
 **Daily:**
+
 - [ ] Check `docker compose ps`
 - [ ] Check logs untuk error
 
 **Weekly:**
+
 - [ ] Review disk space: `df -h`
 - [ ] Review memory: `free -h`
 - [ ] Clean docker: `docker system prune`
 
 **Monthly:**
+
 - [ ] Update PBF data (jika perlu data terbaru)
 - [ ] Backup Nominatim database
 - [ ] Review performance metrics
 
 **Quarterly:**
+
 - [ ] Update Docker images
 - [ ] Security patches
 - [ ] Performance optimization
@@ -187,6 +204,7 @@ Setelah semua jalan:
 ```
 
 Monitor dengan:
+
 ```bash
 docker compose logs -f nominatim | grep -i "phase\|import\|index\|done"
 ```
@@ -195,16 +213,16 @@ docker compose logs -f nominatim | grep -i "phase\|import\|index\|done"
 
 Total needed: ~40GB
 
-| Component | Size |
-|-----------|------|
-| PBF file | 850MB |
-| OSRM files | 1.5GB |
-| MBTiles | 2GB |
-| **Nominatim DB** | **15-20GB** ⚠️ |
-| PostgreSQL overhead | 5GB |
-| Docker images | 5GB |
-| System + logs | 5GB |
-| Buffer | 5GB |
+| Component           | Size           |
+| ------------------- | -------------- |
+| PBF file            | 850MB          |
+| OSRM files          | 1.5GB          |
+| MBTiles             | 2GB            |
+| **Nominatim DB**    | **15-20GB** ⚠️ |
+| PostgreSQL overhead | 5GB            |
+| Docker images       | 5GB            |
+| System + logs       | 5GB            |
+| Buffer              | 5GB            |
 
 ## Quick Commands
 
@@ -242,18 +260,19 @@ curl http://localhost:81/health
 
 ## Troubleshooting Quick Reference
 
-| Issue | Solution |
-|-------|----------|
-| Nominatim keeps restarting | Check logs: `docker compose logs nominatim` |
-| Import stuck | Wait longer (2-4h normal), check PostgreSQL: `docker stats` |
-| Out of memory | Reduce threads in docker-compose.yml |
-| Disk full | Clean docker: `docker system prune -a` |
-| Port 81 not accessible | Check firewall: `sudo ufw status` |
-| Geocoding returns 500 | Nominatim not ready yet, check status endpoint |
+| Issue                      | Solution                                                    |
+| -------------------------- | ----------------------------------------------------------- |
+| Nominatim keeps restarting | Check logs: `docker compose logs nominatim`                 |
+| Import stuck               | Wait longer (2-4h normal), check PostgreSQL: `docker stats` |
+| Out of memory              | Reduce threads in docker-compose.yml                        |
+| Disk full                  | Clean docker: `docker system prune -a`                      |
+| Port 81 not accessible     | Check firewall: `sudo ufw status`                           |
+| Geocoding returns 500      | Nominatim not ready yet, check status endpoint              |
 
 ## Success Criteria
 
 ✅ Deployment sukses jika:
+
 1. `docker compose ps` shows all containers healthy
 2. `curl http://localhost:81/health` returns status: "ok"
 3. Nominatim status returns `{"status": 0}`
@@ -265,6 +284,7 @@ curl http://localhost:81/health
 ## Contact & Support
 
 Jika stuck:
+
 1. Check [SERVER-DEPLOYMENT.md](SERVER-DEPLOYMENT.md) - Full guide
 2. Check [NOMINATIM-SETUP.md](NOMINATIM-SETUP.md) - Nominatim specific
 3. Check logs: `docker compose logs -f`

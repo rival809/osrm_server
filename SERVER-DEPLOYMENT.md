@@ -3,6 +3,7 @@
 ## Requirements Server
 
 ### Minimum Specs
+
 - **RAM**: 8GB+ (16GB recommended)
 - **Storage**: 40GB+ free space
   - Data PBF: ~850MB
@@ -14,6 +15,7 @@
 - **OS**: Linux (Ubuntu 20.04+/Debian 11+) atau Windows Server
 
 ### Network
+
 - Port 81: Main API (routing + geocoding + tiles)
 - Port 5000: OSRM Backend (optional, untuk direct access)
 - Port 5001: Tileserver (optional)
@@ -36,6 +38,7 @@ rsync -avz --progress osrm_service/ user@server:/path/to/osrm_service/
 ### 2. Install Docker di Server (jika belum)
 
 **Ubuntu/Debian:**
+
 ```bash
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -51,6 +54,7 @@ docker compose version
 ```
 
 **Windows Server:**
+
 - Download Docker Desktop for Windows Server
 - Install seperti biasa
 
@@ -67,6 +71,7 @@ ls -lh data/
 ```
 
 Jika belum ada, jalankan:
+
 ```bash
 # Linux
 ./MASTER-SETUP.sh
@@ -133,7 +138,7 @@ osrm-tile-service:
   environment:
     - NODE_ENV=production
     - PORT=81
-    - MAX_MEMORY_MB=4000  # Sesuaikan RAM server
+    - MAX_MEMORY_MB=4000 # Sesuaikan RAM server
     - LOG_LEVEL=info
 ```
 
@@ -143,14 +148,15 @@ Edit `src/server.js`, uncomment rate limiting:
 
 ```javascript
 // Apply rate limiting
-app.use('/api', globalLimiter);
-app.use('/route', routeLimiter);
-app.use('/geocode', geocodeLimiter);
+app.use("/api", globalLimiter);
+app.use("/route", routeLimiter);
+app.use("/geocode", geocodeLimiter);
 ```
 
 ### Setup Reverse Proxy (Recommended)
 
 **Nginx:**
+
 ```nginx
 server {
     listen 80;
@@ -161,7 +167,7 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        
+
         # Cache tiles
         location /tiles/ {
             proxy_pass http://localhost:81;
@@ -336,7 +342,7 @@ More threads = faster import but more memory:
 ```yaml
 nominatim:
   environment:
-    - THREADS=8  # Use more CPU cores
+    - THREADS=8 # Use more CPU cores
 ```
 
 ## Auto-start on Boot
@@ -364,6 +370,7 @@ WantedBy=multi-user.target
 ```
 
 Enable:
+
 ```bash
 sudo systemctl enable osrm-service
 sudo systemctl start osrm-service
@@ -373,22 +380,22 @@ sudo systemctl start osrm-service
 
 ### Server Costs (VPS)
 
-| Provider | Specs | Cost/month |
-|----------|-------|------------|
-| DigitalOcean | 8GB RAM, 160GB SSD | ~$48 |
-| Vultr | 8GB RAM, 160GB SSD | ~$48 |
-| Hetzner | 8GB RAM, 160GB SSD | ~€20 (~$22) |
-| AWS EC2 | t3.large (8GB) | ~$60 |
-| GCP | e2-standard-2 (8GB) | ~$50 |
+| Provider     | Specs               | Cost/month  |
+| ------------ | ------------------- | ----------- |
+| DigitalOcean | 8GB RAM, 160GB SSD  | ~$48        |
+| Vultr        | 8GB RAM, 160GB SSD  | ~$48        |
+| Hetzner      | 8GB RAM, 160GB SSD  | ~€20 (~$22) |
+| AWS EC2      | t3.large (8GB)      | ~$60        |
+| GCP          | e2-standard-2 (8GB) | ~$50        |
 
 ### vs Cloud Geocoding APIs
 
-| Service | Cost for 1M requests/month |
-|---------|----------------------------|
-| **Self-Hosted** | ~$50 (server only) |
-| Google Geocoding | ~$5,000 |
-| Mapbox Geocoding | ~$4,000 |
-| **Savings** | **~$4,950/month (99%)** |
+| Service          | Cost for 1M requests/month |
+| ---------------- | -------------------------- |
+| **Self-Hosted**  | ~$50 (server only)         |
+| Google Geocoding | ~$5,000                    |
+| Mapbox Geocoding | ~$4,000                    |
+| **Savings**      | **~$4,950/month (99%)**    |
 
 ## Quick Commands Reference
 
@@ -434,12 +441,14 @@ docker system prune -a
 ## Support
 
 Jika ada masalah:
+
 1. Check logs: `docker compose logs -f`
 2. Check disk space: `df -h`
 3. Check memory: `free -h`
 4. Restart services: `docker compose restart`
 
 Dokumentasi lengkap:
+
 - [NOMINATIM-SETUP.md](NOMINATIM-SETUP.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [GEOCODING-QUICKSTART.md](GEOCODING-QUICKSTART.md)
