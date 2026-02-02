@@ -1,88 +1,99 @@
-# 🗺️ OSRM Tile Service - Java Island
+# 🗺️ OSRM Service - Java Island
 
-**100% Self-Hosted** routing dan tile server untuk wilayah Java Island dengan **offline routing** dan **local tile generation** dari PBF file lokal.
+**100% Self-Hosted** routing, map tiles, dan geocoding service untuk wilayah Java Island.
 
-## ✨ Key Features
+## ✨ Features
 
-- 🗺️ **100% Self-Hosted** - Tidak perlu koneksi ke tile.openstreetmap.org
-- 🚀 **Lightweight Proxy** - Simple architecture tanpa file caching
-- 🐋 **Docker-based** - Easy deployment dengan 5 containers
-- 📍 **Java Island Coverage** - Optimized untuk routing di Pulau Jawa
-- 🔄 **Tileserver-GL** - Generate tiles on-the-fly dari MBTiles lokal
-- 🌐 **Offline Geocoding** - Reverse geocoding dengan Nominatim + PostgreSQL
+- 🗺️ **Routing** - Calculate routes between coordinates (OSRM Backend)
+- 🗺️ **Map Tiles** - Self-hosted tiles dari MBTiles (Tileserver-GL)
+- 📍 **Geocoding** - Koordinat ↔ Nama lokasi (Nominatim + PostgreSQL)
+- 🐋 **Docker-based** - 5 containers, easy deployment
+- ⚡ **Ready to use** - Routing & tiles ready dalam 1 menit, geocoding dalam 2-4 jam
 
 ## 📚 Documentation
 
-### Getting Started
+**Essential Docs:**
 
-- **[SETUP.md](SETUP.md)** - Development setup guide (Windows & Linux)
-- **[TILESERVER-SETUP.md](TILESERVER-SETUP.md)** - Setup tileserver dari PBF file
-- **[NOMINATIM-SETUP.md](NOMINATIM-SETUP.md)** - Setup geocoding (koordinat ↔ nama lokasi)
-- **[GEOCODING-QUICKSTART.md](GEOCODING-QUICKSTART.md)** - Quick start geocoding
+- **[API-SPECIFICATION.md](API-SPECIFICATION.md)** - API endpoints & usage
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture diagram
+- **[BACKEND-INTEGRATION.md](BACKEND-INTEGRATION.md)** - Integration guide untuk backend team
 
-### Production Deployment
-
-- **[SERVER-DEPLOYMENT.md](SERVER-DEPLOYMENT.md)** - 🚀 Complete server deployment guide
-- **[DEPLOYMENT-CHECKLIST.md](DEPLOYMENT-CHECKLIST.md)** - ✅ Step-by-step checklist
-- **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** - Legacy deployment guide
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture & diagram
+---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Server Requirements
 
-- Docker Desktop (Windows) / Docker Engine (Linux)
-- 8GB+ RAM (4GB for routing, 4GB for geocoding), 30GB+ disk space
-- **For tileserver setup:** PBF file atau akses internet untuk download
-- **For geocoding:** Additional 2-4 hours for Nominatim import
+- **RAM:** 8GB minimum, 16GB recommended
+- **Storage:** 150GB+ (untuk data + Nominatim database)
+- **CPU:** 4+ cores
+- **OS:** Ubuntu 20.04+, Debian 11+, atau Windows Server
 
-### Windows
+### Setup (20-40 menit)
 
-```powershell
+**Linux/Ubuntu:**
+
+```bash
 # 1. Clone project
-git clone <repo-url>
+git clone <repo-url> osrm_service
 cd osrm_service
+chmod +x *.sh scripts/*.sh
 
-# 2. Setup data (PBF + MBTiles + OSRM processing)
-# Option A: Automated (downloads + processes everything)
-.\MASTER-SETUP.ps1
+# 2. Setup data (download + process PBF → MBTiles + OSRM files)
+./MASTER-SETUP.sh
+# ✅ Downloads Java Island PBF (~800MB)
+# ✅ Converts to MBTiles for tiles
+# ✅ Processes OSRM routing data
+# ⏱️ Takes 20-40 minutes
 
-# Option B: Manual tileserver setup (if you have PBF file)
-.\scripts\setup-tileserver.ps1
-
-# 3. Build and start services
+# 3. Start all services
 docker compose build --no-cache
 docker compose up -d
 
 # 4. Check status
 docker compose ps
-
-# 5. Access at http://localhost:81
 ```
 
-### Linux/Ubuntu
+**Windows:**
 
-```bash
+```powershell
 # 1. Clone project
-git clone <repo-url>
+git clone <repo-url> osrm_service
 cd osrm_service
-chmod +x *.sh scripts/*.sh
 
-# 2. Setup data (PBF + MBTiles + OSRM processing)
-# Option A: Automated (downloads + processes everything)
-./MASTER-SETUP.sh
+# 2. Setup data
+.\MASTER-SETUP.ps1
 
-# Option B: Manual tileserver setup (if you have PBF file)
-./scripts/setup-tileserver.sh
-
-# 3. Build and start services
+# 3. Start services
 docker compose build --no-cache
 docker compose up -d
 
-# 4. Check service status
+# 4. Check status
 docker compose ps
+```
 
-# 5. Access at http://localhost:81
+### Service Status
+
+After `docker compose up -d`:
+
+| Service               | Status       | Time      | Port |
+| --------------------- | ------------ | --------- | ---- |
+| **OSRM Backend**      | ✅ Ready     | ~30 sec   | 5000 |
+| **Tileserver**        | ✅ Ready     | ~30 sec   | 5001 |
+| **osrm-tile-service** | ✅ Ready     | ~30 sec   | 81   |
+| **PostgreSQL**        | ✅ Ready     | ~30 sec   | 5432 |
+| **Nominatim**         | ⏳ Importing | 2-4 hours | 5002 |
+
+**Note:** Routing & tiles langsung bisa dipakai. Geocoding ready setelah Nominatim selesai import.
+
+### Monitor Nominatim Import
+
+```bash
+# Real-time logs
+docker compose logs -f nominatim
+
+# Check progress
+watch -n 30 "df -h && docker compose ps"
 ```
 
 ## 🛠️ Service Management
@@ -146,47 +157,47 @@ docker compose restart osrm-tile-service
 docker compose up --build -d osrm-tile-service
 ```
 
-## 🌐 API Endpoints
+---
 
-### Main Services
+## 🌐 API Usage
 
-- **Web Interface**: http://localhost:81/
-- **Health Check**: http://localhost:81/health
+**Base URL:** `http://localhost:81` (atau IP server Anda)
 
-### Routing API
+### 1. Health Check
 
 ```bash
-# Query parameters
-GET /route?start=lon,lat&end=lon,lat
+curl http://localhost:81/health
+```
 
-# Example: Bandung to Cimahi
+### 2. Routing API
+
+```bash
+# Calculate route
 curl "http://localhost:81/route?start=107.6191,-6.9175&end=107.5419,-6.8722"
 
 # Response
 {
   "success": true,
   "data": {
-    "routes": [...],
-    "distance": 12345.67,
-    "duration": 1234.56
+    "distance": 12345.67,  // meters
+    "duration": 1234.56,   // seconds
+    "routes": [...]
   }
 }
 ```
 
-### Geocoding API
+### 3. Geocoding API
+
+**Reverse Geocoding** (koordinat → nama):
 
 ```bash
-# Reverse Geocoding (koordinat → nama lokasi)
-GET /geocode/reverse?lat=-6.9175&lon=107.6191
-
-# Example: Get location name from coordinates
 curl "http://localhost:81/geocode/reverse?lat=-6.9175&lon=107.6191"
 
 # Response
 {
   "success": true,
   "location": {
-    "display_name": "Jalan Asia Afrika, Bandung, Jawa Barat, Indonesia",
+    "display_name": "Jalan Asia Afrika, Bandung, Jawa Barat",
     "name": "Jalan Asia Afrika"
   },
   "address": {
@@ -195,80 +206,94 @@ curl "http://localhost:81/geocode/reverse?lat=-6.9175&lon=107.6191"
     "state": "Jawa Barat"
   }
 }
+```
 
-# Forward Geocoding (nama → koordinat)
-GET /geocode/search?q=Bandung&limit=5
+**Forward Geocoding** (nama → koordinat):
 
-# Example: Search for locations
-curl "http://localhost:81/geocode/search?q=Bandung&limit=5"
+```bash
+curl "http://localhost:81/geocode/search?q=Bandung"
 
 # Response
 {
   "success": true,
-  "query": "Bandung",
-  "count": 5,
   "results": [
     {
       "display_name": "Bandung, Jawa Barat, Indonesia",
-      "coordinates": { "lat": -6.9175, "lon": 107.6191 }
+      "lat": "-6.9175",
+      "lon": "107.6191"
     }
   ]
 }
 ```
 
-**Architecture:**
-
-```
-Client Request
-    ↓
-[osrm-tile-service] Port 81 - Express.js Proxy
-    ├─→ /route             → [osrm-backend] Port 5000 (Routing)
-    ├─→ /tiles             → [tileserver] Port 5001 (Tiles from MBTiles)
-    └─→ /geocode/*         → [nominatim] Port 5002 → [postgres] (Geocoding)
-```
-
-**Containers:**
-
-1. **osrm-tile-service** (Port 81)
-   - Lightweight Express.js proxy
-   - Routes `/route` to OSRM backend
-   - Routes `/tiles` to tileserver
-   - Routes `/geocode/*` to Nominatim
-   - No file caching (pure proxy)
-
-2. **osrm-backend** (Port 5000)
-   - Routing engine
-
-3. **tileserver** (Port 5001)
-   - Map tiles generation
-
-4. **nominatim** (Port 5002)
-   - Geocoding service
-
-5. **postgres** (Port 5432)
-   - Database for geocoding
-
-### Environment Configuration
-
-Edit `.env` file untuk production:
+### 4. Map Tiles
 
 ```bash
-# Production settings
-NODE_ENV=production
-PORT=81
+# Get tile image
+curl "http://localhost:81/tiles/11/1633/1063.png"
+```
 
-# OSRM Backend (internal Docker network)
-OSRM_URL=http://osrm-backend:5000
+**Full API documentation:** [API-SPECIFICATION.md](API-SPECIFICATION.md)
 
-# Tileserver (internal Docker network)
+---
+
+## 🛠️ Service Management
+
+```bash
+# Start services
+docker compose up -d
+
+# Stop services
+docker compose down
+
+# View logs (all)
+docker compose logs -f
+
+# View logs (specific)
+docker compose logs -f nominatim
+
+# Check status
+docker compose ps
+
+# Restart service
+docker compose restart osrm-tile-service
+```
+
+---
+
+## 🏗️ Architecture
+
+```
+Client Request → Port 81
+         ↓
+  [osrm-tile-service]
+         ├─→ /route → [osrm-backend:5000] Routing
+         ├─→ /tiles → [tileserver:5001] Map Tiles
+         └─→ /geocode → [nominatim:5002] → [postgres:5432] Geocoding
+```
+
+**5 Docker Containers:**
+
+1. **osrm-tile-service** (Port 81) - Express.js API proxy
+2. **osrm-backend** (Port 5000) - Routing engine
+3. **tileserver** (Port 5001) - Map tiles from MBTiles
+4. **nominatim** (Port 5002) - Geocoding service
+5. **postgres** (Port 5432) - Database untuk Nominatim
+
+**Full architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---# Tileserver (internal Docker network)
 TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
 
 # Nominatim (internal Docker network)
+
 NOMINATIM_URL=http://nominatim:8080
 
 # Memory limit (adjust based on server capacity)
+
 MAX_MEMORY_MB=10000
-```
+
+````
 
 ### Deployment Steps
 
@@ -289,7 +314,7 @@ docker compose up -d
 # 4. Verify deployment
 docker compose ps
 curl http://localhost:81/health
-```
+````
 
 ### Backend Sambara Integration
 
@@ -490,15 +515,10 @@ docker compose up -d
 
 ---
 
-## 📖 Additional Resources
+## � License
 
-- [OSRM Documentation](http://project-osrm.org/)
-- [Tileserver-GL Documentation](https://github.com/maptiler/tileserver-gl)
-- [OpenStreetMap Data](https://www.openstreetmap.org/)
-- [Geofabrik Downloads](https://download.geofabrik.de/)
+MIT
 
 ---
 
-**🗺️ Powered by OpenStreetMap • OSRM • Tileserver-GL • Docker**
-
-_Self-hosted routing and tile service for Java Island_ 🚀
+**Powered by OpenStreetMap, OSRM, Tileserver-GL, Nominatim**
