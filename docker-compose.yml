@@ -23,7 +23,7 @@ services:
     image: ghcr.io/project-osrm/osrm-backend:v6.0.0
     container_name: osrm-backend
     ports:
-      - "5000:5000"
+      - "5003:5000"
     volumes:
       - ./data:/data:ro
     command: >

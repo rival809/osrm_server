@@ -27,7 +27,7 @@
 ┌─────────┐  ┌──────────┐   ┌──────────────┐  ┌──────────┐
 │  OSRM   │  │TILESERVER│   │  NOMINATIM   │  │ Direct   │
 │ Backend │  │   -GL    │   │   API        │  │ Response │
-│Port 5000│  │Port 5001 │   │  Port 5002   │  │          │
+│Port 5003│  │Port 5001 │   │  Port 5002   │  │          │
 └────┬────┘  └────┬─────┘   └──────┬───────┘  └──────────┘
      │            │                 │
      │            │                 │
@@ -76,7 +76,7 @@ Role: Lightweight proxy + API gateway
 
 ```yaml
 Container: osrm-backend
-Port: 5000 (external) → 5000 (internal)
+Port: 5003 (external) → 5000 (internal)
 Image: ghcr.io/project-osrm/osrm-backend:v6.0.0
 Memory: ~2GB
 Role: Calculate routes & navigation
@@ -232,7 +232,7 @@ Response Time: 50-200ms
 2. osrm-tile-service receives request
    ├─ Validates coordinates
    ├─ Logs request
-   └─ Proxies to: http://osrm-backend:5000/route/v1/driving/...
+   └─ Proxies to: http://osrm-backend:5003/route/v1/driving/...
 
 3. osrm-backend calculates route
    ├─ Reads pre-processed graph data
@@ -279,7 +279,7 @@ All containers are connected via a bridge network:
 ```
 osrm-network (bridge)
 ├─ osrm-tile-service (gateway: port 81)
-├─ osrm-backend (internal: port 5000)
+├─ osrm-backend (internal: port 5003)
 ├─ tileserver (internal: port 8080)
 ├─ nominatim (internal: port 8080)
 └─ postgres (internal: port 5432)
@@ -296,7 +296,7 @@ osrm-network (bridge)
 - Only port 81 exposed to host
 - All services accessed via osrm-tile-service proxy
 - Direct access available for debugging:
-  - osrm-backend: localhost:5000
+  - osrm-backend: localhost:5003
   - tileserver: localhost:5001
   - nominatim: localhost:5002
   - postgres: localhost:5432

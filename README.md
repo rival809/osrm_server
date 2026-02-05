@@ -78,7 +78,7 @@ After `docker compose up -d`:
 
 | Service               | Status       | Time      | Port |
 | --------------------- | ------------ | --------- | ---- |
-| **OSRM Backend**      | ✅ Ready     | ~30 sec   | 5000 |
+| **OSRM Backend**      | ✅ Ready     | ~30 sec   | 5003 |
 | **Tileserver**        | ✅ Ready     | ~30 sec   | 5001 |
 | **osrm-tile-service** | ✅ Ready     | ~30 sec   | 81   |
 | **PostgreSQL**        | ✅ Ready     | ~30 sec   | 5432 |
@@ -267,7 +267,7 @@ docker compose restart osrm-tile-service
 Client Request → Port 81
          ↓
   [osrm-tile-service]
-         ├─→ /route → [osrm-backend:5000] Routing
+         ├─→ /route → [osrm-backend:5003] Routing
          ├─→ /tiles → [tileserver:5001] Map Tiles
          └─→ /geocode → [nominatim:5002] → [postgres:5432] Geocoding
 ```
@@ -275,7 +275,7 @@ Client Request → Port 81
 **5 Docker Containers:**
 
 1. **osrm-tile-service** (Port 81) - Express.js API proxy
-2. **osrm-backend** (Port 5000) - Routing engine
+2. **osrm-backend** (Port 5003) - Routing engine
 3. **tileserver** (Port 5001) - Map tiles from MBTiles
 4. **nominatim** (Port 5002) - Geocoding service
 5. **postgres** (Port 5432) - Database untuk Nominatim

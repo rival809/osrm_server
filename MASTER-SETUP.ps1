@@ -173,7 +173,7 @@ NODE_ENV=$Environment
 PORT=81
 
 # OSRM Backend (for routing)
-OSRM_URL=http://localhost:5000
+OSRM_URL=http://localhost:5003
 
 # Tileserver (for map tiles) - REQUIRED for self-hosted setup
 TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
@@ -685,7 +685,7 @@ function Show-CompletionSummary {
     Write-Host ""
     Write-Host "Available Endpoints (after services start):" -ForegroundColor Cyan
     Write-Host "   * OSRM Tile Proxy:  http://localhost:81" -ForegroundColor White
-    Write-Host "   * OSRM Backend:     http://localhost:5000" -ForegroundColor White
+    Write-Host "   * OSRM Backend:     http://localhost:5003" -ForegroundColor White
     Write-Host "   * Tileserver:       http://localhost:5001" -ForegroundColor White
     Write-Host ""
     Write-Host "[OK] 100% Self-Hosted - No external tile dependencies!" -ForegroundColor Green

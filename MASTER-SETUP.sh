@@ -204,7 +204,7 @@ NODE_ENV=$ENVIRONMENT
 PORT=81
 
 # OSRM Backend (for routing)
-OSRM_URL=http://localhost:5000
+OSRM_URL=http://localhost:5003
 
 # Tileserver (for map tiles) - REQUIRED for self-hosted setup
 TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
@@ -662,7 +662,7 @@ show_completion_summary() {
     echo ""
     echo -e "${CYAN}Available Endpoints (after services start):${NC}"
     echo -e "${NC}   * OSRM Tile Proxy:  http://localhost:81${NC}"
-    echo -e "${NC}   * OSRM Backend:     http://localhost:5000${NC}"
+    echo -e "${NC}   * OSRM Backend:     http://localhost:5003${NC}"
     echo -e "${NC}   * Tileserver:       http://localhost:5001${NC}"
     echo ""
     echo -e "${GREEN}✅ 100% Self-Hosted - No external tile dependencies!${NC}"

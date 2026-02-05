@@ -51,7 +51,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 
 // OSRM URL
-const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
+const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
 
 // Tileserver URL (required for self-hosted setup)
 const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:5001/styles/basic-preview';
