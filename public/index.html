@@ -3,130 +3,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSRM Tile Service - Jawa Barat</title>
+    <title>OSRM Tile Service - Jawa</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
+            display: flex; flex-direction: column; height: 100vh;
         }
         #header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px 20px;
+            color: white; padding: 12px 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex; justify-content: space-between; align-items: center;
         }
-        #header h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
+        #header h1 { font-size: 22px; }
+        #header p { font-size: 13px; opacity: 0.9; }
+
+        /* ── Tabs ────────────────────────────────── */
+        #tabs {
+            background: #f8f9fa; display: flex; border-bottom: 2px solid #e0e0e0;
         }
-        #header p {
-            font-size: 14px;
-            opacity: 0.9;
+        .tab-btn {
+            padding: 10px 20px; border: none; background: none; cursor: pointer;
+            font-size: 14px; font-weight: 600; color: #666; position: relative;
+            transition: color .2s;
         }
-        #controls {
-            background: white;
-            padding: 15px 20px;
-            border-bottom: 1px solid #e0e0e0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .input-group {
-            display: flex;
-            gap: 5px;
-            align-items: center;
-        }
-        .input-group label {
-            font-size: 14px;
-            font-weight: 600;
-            min-width: 50px;
-        }
-        .input-group input {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            width: 150px;
-        }
-        button {
-            padding: 8px 16px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: background 0.3s;
-        }
-        button:hover {
-            background: #5568d3;
-        }
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        #map {
-            flex: 1;
-            position: relative;
-        }
-        #info {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            z-index: 1000;
-            max-width: 300px;
-            display: none;
-        }
-        #info.show {
-            display: block;
-        }
-        #info h3 {
-            margin-bottom: 10px;
+        .tab-btn:hover { color: #667eea; }
+        .tab-btn.active {
             color: #667eea;
         }
-        #info p {
-            margin: 5px 0;
-            font-size: 14px;
+        .tab-btn.active::after {
+            content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+            height: 3px; background: #667eea; border-radius: 3px 3px 0 0;
         }
-        .marker-start {
-            background-color: #22c55e;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        .tab-panel { display: none; background: white; padding: 12px 20px; border-bottom: 1px solid #e0e0e0; }
+        .tab-panel.active { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+        /* ── Controls shared ─────────────────────── */
+        .input-group { display: flex; gap: 5px; align-items: center; }
+        .input-group label { font-size: 13px; font-weight: 600; min-width: 45px; }
+        .input-group input, .input-group select {
+            padding: 7px 10px; border: 1px solid #ddd; border-radius: 4px;
+            font-size: 13px;
         }
-        .marker-end {
-            background-color: #ef4444;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        .input-group input { width: 150px; }
+        button, .btn {
+            padding: 7px 14px; background: #667eea; color: white; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;
+            transition: background 0.2s; display: inline-flex; align-items: center; gap: 4px;
         }
+        button:hover, .btn:hover { background: #5568d3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-outline {
+            background: white; color: #667eea; border: 1.5px solid #667eea;
+        }
+        .btn-outline:hover { background: #f0f2ff; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #22c55e; }
+        .btn-success:hover { background: #16a34a; }
+
+        .separator { width: 1px; height: 28px; background: #ddd; margin: 0 4px; }
+
+        /* ── Map ─────────────────────────────────── */
+        #map { flex: 1; position: relative; }
+
+        /* ── Info panel (route) ──────────────────── */
+        #info {
+            position: absolute; bottom: 20px; left: 20px; background: white;
+            padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000; max-width: 300px; display: none;
+        }
+        #info.show { display: block; }
+        #info h3 { margin-bottom: 8px; color: #667eea; font-size: 15px; }
+        #info p { margin: 4px 0; font-size: 13px; }
+
+        /* ── Boundary sidebar ────────────────────── */
+        #boundary-panel {
+            position: absolute; top: 10px; right: 10px; width: 320px; max-height: calc(100% - 20px);
+            background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+            z-index: 1000; display: none; flex-direction: column; overflow: hidden;
+        }
+        #boundary-panel.show { display: flex; }
+        #boundary-panel .bp-header {
+            padding: 12px 14px; background: #667eea; color: white;
+            font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center;
+        }
+        #boundary-panel .bp-header button {
+            background: rgba(255,255,255,0.2); padding: 3px 8px; font-size: 12px;
+        }
+        #boundary-panel .bp-body { padding: 12px 14px; overflow-y: auto; flex: 1; }
+        #boundary-panel .bp-body p { font-size: 13px; margin: 4px 0; }
+        #boundary-panel .bp-body .label { color: #888; font-size: 12px; }
+        #boundary-panel .bp-body .value { font-weight: 600; }
+        .bp-children { margin-top: 8px; }
+        .bp-children .child-item {
+            padding: 6px 8px; background: #f8f9fa; border-radius: 4px; margin-bottom: 4px;
+            font-size: 12px; cursor: pointer; transition: background .15s;
+        }
+        .bp-children .child-item:hover { background: #e8eaff; }
+
+        /* ── Split panel ─────────────────────────── */
+        #split-panel {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: white; padding: 14px 20px; border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2); z-index: 1001; display: none;
+            text-align: center; min-width: 420px;
+        }
+        #split-panel.show { display: block; }
+        #split-panel h4 { margin-bottom: 8px; color: #764ba2; }
+        #split-panel p { font-size: 13px; color: #555; margin-bottom: 10px; }
+        #split-inputs { margin: 10px 0; text-align: left; }
+        #split-inputs .split-region {
+            display: flex; gap: 6px; margin-bottom: 6px; align-items: center;
+        }
+        #split-inputs input {
+            padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; flex: 1;
+        }
+        #split-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+
+        /* ── Legend ───────────────────────────────── */
+        .legend {
+            position: absolute; bottom: 20px; right: 10px; background: white;
+            padding: 10px 14px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 999; display: none; font-size: 12px;
+        }
+        .legend.show { display: block; }
+        .legend h4 { margin-bottom: 6px; font-size: 13px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+        .legend-color { width: 18px; height: 12px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.2); }
+
+        /* Toast */
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #333; color: white; padding: 10px 20px; border-radius: 6px;
+            z-index: 9999; font-size: 13px; opacity: 0; transition: opacity .3s;
+        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #ef4444; }
+        .toast.success { background: #22c55e; }
     </style>
 </head>
 <body>
     <div id="header">
-        <h1>🗺️ OSRM Tile Service - Jawa Barat</h1>
-        <p>Routing dan Tile Server untuk Wilayah Jawa Barat</p>
+        <div>
+            <h1>🗺️ OSRM Service - Pulau Jawa</h1>
+            <p>Routing, Tiles & Administrative Boundaries</p>
+        </div>
     </div>
-    
-    <div id="controls">
+
+    <!-- Tabs -->
+    <div id="tabs">
+        <button class="tab-btn active" data-tab="routing">🛣️ Routing</button>
+        <button class="tab-btn" data-tab="boundaries">🏛️ Boundaries</button>
+    </div>
+
+    <!-- Tab Panel: Routing -->
+    <div id="panel-routing" class="tab-panel active">
         <div class="input-group">
             <label>Start:</label>
             <input type="text" id="start" placeholder="lon,lat" value="107.6191,-6.9175">
@@ -136,11 +170,32 @@
             <input type="text" id="end" placeholder="lon,lat" value="107.6098,-6.9145">
         </div>
         <button id="routeBtn">🛣️ Cari Rute</button>
-        <button id="clearBtn">🗑️ Clear</button>
+        <button id="clearBtn" class="btn-outline">🗑️ Clear</button>
+    </div>
+
+    <!-- Tab Panel: Boundaries -->
+    <div id="panel-boundaries" class="tab-panel">
+        <div class="input-group">
+            <label>Level:</label>
+            <select id="boundaryLevel">
+                <option value="province">Provinsi</option>
+                <option value="city" selected>Kota / Kabupaten</option>
+                <option value="district">Kecamatan</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <label>Parent:</label>
+            <input type="text" id="boundaryParent" placeholder="Kode (opsional)" value="">
+        </div>
+        <button id="loadBoundaryBtn">📥 Muat Layer</button>
+        <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
+        <div class="separator"></div>
+        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
     </div>
 
     <div id="map"></div>
-    
+
+    <!-- Route info -->
     <div id="info">
         <h3>📊 Informasi Rute</h3>
         <p><strong>Jarak:</strong> <span id="distance">-</span></p>
@@ -148,184 +203,467 @@
         <p><strong>Status:</strong> <span id="status">-</span></p>
     </div>
 
+    <!-- Boundary detail panel -->
+    <div id="boundary-panel">
+        <div class="bp-header">
+            <span id="bp-title">Detail Wilayah</span>
+            <button onclick="closeBoundaryPanel()">✕</button>
+        </div>
+        <div class="bp-body" id="bp-body"></div>
+    </div>
+
+    <!-- Split panel -->
+    <div id="split-panel">
+        <h4>✂️ Split Wilayah</h4>
+        <p id="split-target-label">Pilih wilayah lalu gambar garis potong di peta</p>
+        <div id="split-inputs"></div>
+        <div id="split-actions">
+            <button id="splitExecBtn" class="btn-success" disabled>✂️ Eksekusi Split</button>
+            <button id="splitCancelBtn" class="btn-danger">Batal</button>
+        </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend" id="legend">
+        <h4>🎨 Legenda</h4>
+        <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
+        <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
+        <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Use relative URL to go through Nginx
-        const API_URL = window.location.origin;
-        
-        // Initialize map - center on Bandung
-        const map = L.map('map').setView([-6.9175, 107.6191], 13);
-        
-        // Use backend tiles (backend handles OSM fallback)
-        L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 18,
-            minZoom: 2
-        }).addTo(map);
-        
-        console.log('Map initialized with local tiles:', `${API_URL}/tiles/{z}/{x}/{y}.png`);
+    // ════════════════════════════════════════════════════════
+    //  GLOBALS
+    // ════════════════════════════════════════════════════════
+    const API_URL = window.location.origin;
+    const map = L.map('map').setView([-6.9175, 107.6191], 10);
 
-        let startMarker = null;
-        let endMarker = null;
-        let routeLine = null;
+    L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 18, minZoom: 2
+    }).addTo(map);
 
-        // Elements
-        const startInput = document.getElementById('start');
-        const endInput = document.getElementById('end');
-        const routeBtn = document.getElementById('routeBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const info = document.getElementById('info');
-        const distanceEl = document.getElementById('distance');
-        const durationEl = document.getElementById('duration');
-        const statusEl = document.getElementById('status');
+    // ── Routing state ───────────────────────────
+    let startMarker = null, endMarker = null, routeLine = null;
+    const startInput = document.getElementById('start');
+    const endInput   = document.getElementById('end');
+    const routeBtn   = document.getElementById('routeBtn');
+    const clearBtn   = document.getElementById('clearBtn');
+    const info       = document.getElementById('info');
+    const distanceEl = document.getElementById('distance');
+    const durationEl = document.getElementById('duration');
+    const statusEl   = document.getElementById('status');
 
-        // Parse coordinate string
-        function parseCoord(coordStr) {
-            const [lon, lat] = coordStr.split(',').map(s => parseFloat(s.trim()));
-            return { lon, lat };
-        }
+    // ── Boundary state ──────────────────────────
+    let boundaryLayer = null;          // L.geoJSON layer on map
+    let boundaryData  = null;          // raw GeoJSON FeatureCollection
+    let selectedFeature = null;        // currently highlighted feature
+    let highlightLayer  = null;        // highlight overlay
 
-        // Format distance
-        function formatDistance(meters) {
-            if (meters < 1000) {
-                return `${Math.round(meters)} m`;
-            }
-            return `${(meters / 1000).toFixed(2)} km`;
-        }
+    // ── Split state ─────────────────────────────
+    let splitMode       = false;
+    let splitTarget     = null;        // feature to split
+    let splitLine       = null;        // L.polyline being drawn
+    let splitPoints     = [];          // latlng array for cut line
+    let splitLineLayer  = null;        // final drawn line
 
-        // Format duration
-        function formatDuration(seconds) {
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            
-            if (hours > 0) {
-                return `${hours}j ${minutes}m ${secs}d`;
-            }
-            if (minutes > 0) {
-                return `${minutes}m ${secs}d`;
-            }
-            return `${secs}d`;
-        }
+    // ── Color palette ───────────────────────────
+    const COLORS = {
+        province: { fill: '#667eea', border: '#4c5fd7', weight: 2.5 },
+        city:     { fill: '#f59e0b', border: '#d97706', weight: 2 },
+        district: { fill: '#10b981', border: '#059669', weight: 1.5 },
+    };
 
-        // Get route
-        async function getRoute() {
-            try {
-                routeBtn.disabled = true;
-                statusEl.textContent = 'Mencari rute...';
-                info.classList.add('show');
+    // ════════════════════════════════════════════════════════
+    //  TABS
+    // ════════════════════════════════════════════════════════
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+        });
+    });
 
-                const start = parseCoord(startInput.value);
-                const end = parseCoord(endInput.value);
+    // ════════════════════════════════════════════════════════
+    //  TOAST
+    // ════════════════════════════════════════════════════════
+    function toast(msg, type = '') {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast show ' + type;
+        setTimeout(() => el.classList.remove('show'), 3000);
+    }
 
-                // Add markers
-                if (startMarker) map.removeLayer(startMarker);
-                if (endMarker) map.removeLayer(endMarker);
+    // ════════════════════════════════════════════════════════
+    //  ROUTING (unchanged logic, refactored)
+    // ════════════════════════════════════════════════════════
+    function parseCoord(s) {
+        const [lon, lat] = s.split(',').map(v => parseFloat(v.trim()));
+        return { lon, lat };
+    }
+    function fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m/1000).toFixed(2)} km`; }
+    function fmtDur(s) {
+        const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), d = Math.floor(s%60);
+        if (h > 0) return `${h}j ${m}m ${d}d`;
+        if (m > 0) return `${m}m ${d}d`;
+        return `${d}d`;
+    }
 
-                startMarker = L.circleMarker([start.lat, start.lon], {
-                    radius: 8,
-                    fillColor: '#22c55e',
-                    color: 'white',
-                    weight: 2,
-                    fillOpacity: 1
-                }).addTo(map);
+    async function getRoute() {
+        try {
+            routeBtn.disabled = true;
+            statusEl.textContent = 'Mencari rute...';
+            info.classList.add('show');
+            const s = parseCoord(startInput.value), e = parseCoord(endInput.value);
+            if (startMarker) map.removeLayer(startMarker);
+            if (endMarker)   map.removeLayer(endMarker);
+            startMarker = L.circleMarker([s.lat, s.lon], { radius:8, fillColor:'#22c55e', color:'white', weight:2, fillOpacity:1 }).addTo(map);
+            endMarker   = L.circleMarker([e.lat, e.lon], { radius:8, fillColor:'#ef4444', color:'white', weight:2, fillOpacity:1 }).addTo(map);
+            const resp = await fetch(`${API_URL}/route?start=${s.lon},${s.lat}&end=${e.lon},${e.lat}`);
+            const data = await resp.json();
+            if (!data.success || !data.data.routes?.length) throw new Error('Rute tidak ditemukan');
+            const route = data.data.routes[0];
+            if (routeLine) map.removeLayer(routeLine);
+            const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+            routeLine = L.polyline(coords, { color:'#667eea', weight:5, opacity:0.7 }).addTo(map);
+            map.fitBounds(L.latLngBounds(coords), { padding:[50,50] });
+            distanceEl.textContent = fmtDist(route.distance);
+            durationEl.textContent = fmtDur(route.duration);
+            statusEl.textContent = '✅ Berhasil';
+        } catch (err) {
+            console.error(err);
+            statusEl.textContent = `❌ ${err.message}`;
+            distanceEl.textContent = '-'; durationEl.textContent = '-';
+        } finally { routeBtn.disabled = false; }
+    }
 
-                endMarker = L.circleMarker([end.lat, end.lon], {
-                    radius: 8,
-                    fillColor: '#ef4444',
-                    color: 'white',
-                    weight: 2,
-                    fillOpacity: 1
-                }).addTo(map);
+    function clearRoute() {
+        [startMarker, endMarker, routeLine].forEach(l => { if (l) map.removeLayer(l); });
+        startMarker = endMarker = routeLine = null;
+        info.classList.remove('show');
+        distanceEl.textContent = durationEl.textContent = statusEl.textContent = '-';
+    }
 
-                // Request route
-                const response = await fetch(
-                    `${API_URL}/route?start=${start.lon},${start.lat}&end=${end.lon},${end.lat}`
-                );
-                const data = await response.json();
+    let clickMode = 'start';
+    map.on('click', e => {
+        if (splitMode) return; // handled by split click handler
+        const coord = `${e.latlng.lng.toFixed(6)},${e.latlng.lat.toFixed(6)}`;
+        if (clickMode === 'start') { startInput.value = coord; clickMode = 'end'; }
+        else { endInput.value = coord; clickMode = 'start'; }
+    });
 
-                if (!data.success || !data.data.routes || data.data.routes.length === 0) {
-                    throw new Error('Rute tidak ditemukan');
+    routeBtn.addEventListener('click', getRoute);
+    clearBtn.addEventListener('click', clearRoute);
+    [startInput, endInput].forEach(i => i.addEventListener('keypress', e => { if (e.key === 'Enter') getRoute(); }));
+
+    // ════════════════════════════════════════════════════════
+    //  BOUNDARY LAYER
+    // ════════════════════════════════════════════════════════
+    const boundaryLevel  = document.getElementById('boundaryLevel');
+    const boundaryParent = document.getElementById('boundaryParent');
+    const loadBtn        = document.getElementById('loadBoundaryBtn');
+    const clearBndBtn    = document.getElementById('clearBoundaryBtn');
+    const legend         = document.getElementById('legend');
+
+    async function loadBoundaries() {
+        const level      = boundaryLevel.value;
+        const parentCode = boundaryParent.value.trim() || undefined;
+        const zoom       = map.getZoom();
+
+        loadBtn.disabled = true;
+        loadBtn.textContent = '⏳ Memuat...';
+
+        try {
+            let url = `${API_URL}/api/boundaries/${level}?zoom=${zoom}`;
+            if (parentCode) url += `&parent_code=${encodeURIComponent(parentCode)}`;
+
+            const resp = await fetch(url);
+            const data = await resp.json();
+
+            if (!data.success) throw new Error(data.error || 'Gagal memuat boundary');
+
+            // Remove existing layer
+            clearBoundaries(false);
+
+            boundaryData = data;
+            const colors = COLORS[level] || COLORS.city;
+
+            boundaryLayer = L.geoJSON(data, {
+                style: () => ({
+                    color: colors.border,
+                    fillColor: colors.fill,
+                    fillOpacity: 0.18,
+                    weight: colors.weight,
+                }),
+                onEachFeature: (feature, layer) => {
+                    // Tooltip with name
+                    layer.bindTooltip(feature.properties.name, {
+                        sticky: true, className: 'boundary-tooltip', direction: 'top'
+                    });
+                    // Click to show detail
+                    layer.on('click', e => {
+                        L.DomEvent.stopPropagation(e);
+                        selectBoundaryFeature(feature, layer);
+                    });
                 }
+            }).addTo(map);
 
-                const route = data.data.routes[0];
-
-                // Draw route
-                if (routeLine) map.removeLayer(routeLine);
-                
-                const coordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                routeLine = L.polyline(coordinates, {
-                    color: '#667eea',
-                    weight: 5,
-                    opacity: 0.7
-                }).addTo(map);
-
-                // Fit bounds
-                const bounds = L.latLngBounds(coordinates);
-                map.fitBounds(bounds, { padding: [50, 50] });
-
-                // Update info
-                distanceEl.textContent = formatDistance(route.distance);
-                durationEl.textContent = formatDuration(route.duration);
-                statusEl.textContent = '✅ Berhasil';
-
-            } catch (error) {
-                console.error('Error:', error);
-                statusEl.textContent = `❌ Error: ${error.message}`;
-                distanceEl.textContent = '-';
-                durationEl.textContent = '-';
-            } finally {
-                routeBtn.disabled = false;
+            // Fit map to bounds
+            if (boundaryLayer.getBounds().isValid()) {
+                map.fitBounds(boundaryLayer.getBounds(), { padding: [40, 40] });
             }
+
+            legend.classList.add('show');
+            toast(`✅ ${data.features?.length || 0} wilayah dimuat`, 'success');
+
+        } catch (err) {
+            console.error(err);
+            toast(`❌ ${err.message}`, 'error');
+        } finally {
+            loadBtn.disabled = false;
+            loadBtn.textContent = '📥 Muat Layer';
         }
+    }
 
-        // Clear map
-        function clearMap() {
-            if (startMarker) {
-                map.removeLayer(startMarker);
-                startMarker = null;
-            }
-            if (endMarker) {
-                map.removeLayer(endMarker);
-                endMarker = null;
-            }
-            if (routeLine) {
-                map.removeLayer(routeLine);
-                routeLine = null;
-            }
-            info.classList.remove('show');
-            distanceEl.textContent = '-';
-            durationEl.textContent = '-';
-            statusEl.textContent = '-';
+    function clearBoundaries(hidePanel = true) {
+        if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+        if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
+        boundaryData = null;
+        selectedFeature = null;
+        if (hidePanel) {
+            closeBoundaryPanel();
+            legend.classList.remove('show');
         }
+    }
 
-        // Click map to set coordinates
-        let clickMode = 'start';
-        map.on('click', (e) => {
-            const coord = `${e.latlng.lng.toFixed(6)},${e.latlng.lat.toFixed(6)}`;
-            
-            if (clickMode === 'start') {
-                startInput.value = coord;
-                clickMode = 'end';
-            } else {
-                endInput.value = coord;
-                clickMode = 'start';
+    function selectBoundaryFeature(feature, layer) {
+        // Highlight
+        if (highlightLayer) map.removeLayer(highlightLayer);
+        highlightLayer = L.geoJSON(feature, {
+            style: { color: '#764ba2', fillColor: '#764ba2', fillOpacity: 0.30, weight: 3 }
+        }).addTo(map);
+
+        selectedFeature = feature;
+        showBoundaryPanel(feature);
+    }
+
+    function showBoundaryPanel(feature) {
+        const p = feature.properties;
+        const panel = document.getElementById('boundary-panel');
+        const body  = document.getElementById('bp-body');
+        document.getElementById('bp-title').textContent = p.name;
+
+        let html = `
+            <p><span class="label">Kode:</span> <span class="value">${p.code}</span></p>
+            <p><span class="label">Level:</span> <span class="value">${p.admin_level}</span></p>
+            <p><span class="label">Luas:</span> <span class="value">${p.area_km2 ?? '-'} km²</span></p>
+            <p><span class="label">Populasi:</span> <span class="value">${p.population ?? '-'}</span></p>
+            <p><span class="label">ID:</span> <span class="value">${p.id}</span></p>
+        `;
+
+        // Load detail for children list
+        fetchBoundaryDetail(p.id).then(detail => {
+            if (detail && detail.properties?.children?.length) {
+                let childHtml = '<div class="bp-children"><p class="label" style="margin-bottom:4px">Sub-wilayah:</p>';
+                detail.properties.children.forEach(c => {
+                    childHtml += `<div class="child-item" onclick="drillDown('${c.code}')">${c.code} — ${c.name}</div>`;
+                });
+                childHtml += '</div>';
+                body.innerHTML = html + childHtml;
             }
         });
 
-        // Event listeners
-        routeBtn.addEventListener('click', getRoute);
-        clearBtn.addEventListener('click', clearMap);
+        body.innerHTML = html;
+        panel.classList.add('show');
+    }
 
-        // Enter key to search
-        [startInput, endInput].forEach(input => {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') getRoute();
+    function closeBoundaryPanel() {
+        document.getElementById('boundary-panel').classList.remove('show');
+        if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
+        selectedFeature = null;
+    }
+
+    async function fetchBoundaryDetail(id) {
+        try {
+            const resp = await fetch(`${API_URL}/api/boundaries/detail/${id}?zoom=${map.getZoom()}`);
+            const data = await resp.json();
+            return data.success !== false ? data : null;
+        } catch { return null; }
+    }
+
+    /** Drill down: load children of a clicked sub-region */
+    function drillDown(code) {
+        // Determine next level
+        const cur = boundaryLevel.value;
+        const next = cur === 'province' ? 'city' : cur === 'city' ? 'district' : null;
+        if (!next) { toast('Tidak ada sub-level lagi', 'error'); return; }
+        boundaryLevel.value = next;
+        boundaryParent.value = code;
+        loadBoundaries();
+        closeBoundaryPanel();
+    }
+
+    loadBtn.addEventListener('click', loadBoundaries);
+    clearBndBtn.addEventListener('click', () => clearBoundaries(true));
+
+    // ════════════════════════════════════════════════════════
+    //  POLYGON SPLIT
+    // ════════════════════════════════════════════════════════
+    const splitModeBtn   = document.getElementById('splitModeBtn');
+    const splitPanel     = document.getElementById('split-panel');
+    const splitExecBtn   = document.getElementById('splitExecBtn');
+    const splitCancelBtn = document.getElementById('splitCancelBtn');
+    const splitInputsDiv = document.getElementById('split-inputs');
+    const splitLabel     = document.getElementById('split-target-label');
+
+    splitModeBtn.addEventListener('click', () => {
+        if (!boundaryLayer) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
+        if (splitMode) { cancelSplit(); return; }
+        splitMode = true;
+        splitModeBtn.classList.remove('btn-outline');
+        splitModeBtn.classList.add('btn-danger');
+        splitModeBtn.textContent = '✂️ Cancel Split';
+        map.getContainer().style.cursor = 'crosshair';
+        toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
+
+        // Step 1: user clicks a polygon to select target
+        boundaryLayer.eachLayer(layer => {
+            layer.once('click', e => {
+                if (!splitMode) return;
+                L.DomEvent.stopPropagation(e);
+                splitTarget = { feature: layer.feature, layer };
+                selectBoundaryFeature(layer.feature, layer);
+                splitLabel.textContent = `Memotong: ${layer.feature.properties.name} (${layer.feature.properties.code})`;
+                splitPanel.classList.add('show');
+                toast('Klik pada peta untuk menggambar garis potong. Double-click untuk selesai.', 'success');
+                startDrawing();
             });
         });
+    });
 
-        console.log('🗺️ OSRM Tile Service Demo');
-        console.log('Click on map to set start/end points');
+    function startDrawing() {
+        splitPoints = [];
+        if (splitLineLayer) { map.removeLayer(splitLineLayer); splitLineLayer = null; }
+
+        const onMapClick = e => {
+            if (!splitMode) return;
+            splitPoints.push(e.latlng);
+            if (splitLineLayer) map.removeLayer(splitLineLayer);
+            splitLineLayer = L.polyline(splitPoints, { color: '#ef4444', weight: 3, dashArray: '8,6' }).addTo(map);
+        };
+
+        const onDblClick = e => {
+            if (!splitMode) return;
+            L.DomEvent.stopPropagation(e);
+            L.DomEvent.preventDefault(e);
+            map.off('click', onMapClick);
+            map.off('dblclick', onDblClick);
+            map.doubleClickZoom.enable();
+            if (splitPoints.length < 2) {
+                toast('Garis potong butuh minimal 2 titik', 'error');
+                return;
+            }
+            // Guess piece count = 2
+            buildSplitInputs(2);
+            splitExecBtn.disabled = false;
+            toast('Isi nama & kode wilayah baru, lalu klik Eksekusi', 'success');
+        };
+
+        map.doubleClickZoom.disable();
+        map.on('click', onMapClick);
+        map.on('dblclick', onDblClick);
+    }
+
+    function buildSplitInputs(count) {
+        let html = '';
+        for (let i = 1; i <= count; i++) {
+            html += `<div class="split-region">
+                <span style="font-weight:600;min-width:18px">${i}.</span>
+                <input type="text" id="splitName${i}" placeholder="Nama wilayah baru">
+                <input type="text" id="splitCode${i}" placeholder="Kode wilayah" style="width:110px">
+            </div>`;
+        }
+        html += `<p style="font-size:11px;color:#888;margin-top:4px">Jumlah potongan mungkin berbeda tergantung geometri. Server akan memvalidasi.</p>`;
+        splitInputsDiv.innerHTML = html;
+    }
+
+    splitExecBtn.addEventListener('click', async () => {
+        if (!splitTarget || splitPoints.length < 2) return;
+
+        // Collect names & codes
+        const regions = [];
+        for (let i = 1; ; i++) {
+            const nameEl = document.getElementById('splitName' + i);
+            const codeEl = document.getElementById('splitCode' + i);
+            if (!nameEl) break;
+            if (!nameEl.value.trim() || !codeEl.value.trim()) {
+                toast('Isi semua nama dan kode wilayah', 'error'); return;
+            }
+            regions.push({ name: nameEl.value.trim(), code: codeEl.value.trim() });
+        }
+
+        const cutLine = {
+            type: 'LineString',
+            coordinates: splitPoints.map(p => [p.lng, p.lat])
+        };
+
+        splitExecBtn.disabled = true;
+        splitExecBtn.textContent = '⏳ Memproses...';
+
+        try {
+            const resp = await fetch(`${API_URL}/api/boundaries/split`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    boundary_id: splitTarget.feature.properties.id,
+                    cut_line: cutLine,
+                    new_regions: regions
+                })
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error);
+
+            toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
+            cancelSplit();
+            // Reload layer
+            loadBoundaries();
+
+        } catch (err) {
+            console.error(err);
+            toast(`❌ Split gagal: ${err.message}`, 'error');
+            splitExecBtn.disabled = false;
+            splitExecBtn.textContent = '✂️ Eksekusi Split';
+        }
+    });
+
+    function cancelSplit() {
+        splitMode = false;
+        splitTarget = null;
+        splitPoints = [];
+        if (splitLineLayer) { map.removeLayer(splitLineLayer); splitLineLayer = null; }
+        splitPanel.classList.remove('show');
+        splitExecBtn.disabled = true;
+        splitExecBtn.textContent = '✂️ Eksekusi Split';
+        splitInputsDiv.innerHTML = '';
+        splitModeBtn.classList.add('btn-outline');
+        splitModeBtn.classList.remove('btn-danger');
+        splitModeBtn.textContent = '✂️ Mode Split';
+        map.getContainer().style.cursor = '';
+        map.doubleClickZoom.enable();
+    }
+
+    splitCancelBtn.addEventListener('click', cancelSplit);
+
+    // ════════════════════════════════════════════════════════
+    //  INIT
+    // ════════════════════════════════════════════════════════
+    console.log('🗺️ OSRM Service + Boundaries Demo');
     </script>
 </body>
 </html>
