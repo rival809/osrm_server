@@ -94,52 +94,8 @@ CREATE TRIGGER trg_boundaries_insert
     BEFORE INSERT ON administrative_boundaries
     FOR EACH ROW EXECUTE FUNCTION fn_boundaries_before_insert();
 
--- ============================================================
--- Seed: sample data for testing (Jawa Barat hierarchy)
--- ============================================================
+-- Seed data dihapus — gunakan script import-boundaries.js
+-- untuk import data boundary asli dari GADM GeoJSON.
+-- Lihat: scripts/import-boundaries.js
 
--- Provinsi Jawa Barat (simplified rectangle for demo)
-INSERT INTO administrative_boundaries (admin_level, code, name, geom) VALUES
-('province', '32', 'Jawa Barat',
- ST_Multi(ST_GeomFromGeoJSON('{
-   "type": "Polygon",
-   "coordinates": [[[105.0,-7.8],[108.8,-7.8],[108.8,-5.9],[105.0,-5.9],[105.0,-7.8]]]
- }')));
-
--- Kota Bandung (simplified)
-INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom) VALUES
-((SELECT id FROM administrative_boundaries WHERE code = '32'),
- 'city', '32.73', 'Kota Bandung',
- ST_Multi(ST_GeomFromGeoJSON('{
-   "type": "Polygon",
-   "coordinates": [[[107.55,-6.97],[107.71,-6.97],[107.71,-6.85],[107.55,-6.85],[107.55,-6.97]]]
- }')));
-
--- Kota Cimahi (simplified)
-INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom) VALUES
-((SELECT id FROM administrative_boundaries WHERE code = '32'),
- 'city', '32.74', 'Kota Cimahi',
- ST_Multi(ST_GeomFromGeoJSON('{
-   "type": "Polygon",
-   "coordinates": [[[107.51,-6.92],[107.56,-6.92],[107.56,-6.84],[107.51,-6.84],[107.51,-6.92]]]
- }')));
-
--- Kecamatan Bandung Wetan
-INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom) VALUES
-((SELECT id FROM administrative_boundaries WHERE code = '32.73'),
- 'district', '32.73.01', 'Bandung Wetan',
- ST_Multi(ST_GeomFromGeoJSON('{
-   "type": "Polygon",
-   "coordinates": [[[107.61,-6.92],[107.63,-6.92],[107.63,-6.90],[107.61,-6.90],[107.61,-6.92]]]
- }')));
-
--- Kecamatan Coblong
-INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom) VALUES
-((SELECT id FROM administrative_boundaries WHERE code = '32.73'),
- 'district', '32.73.02', 'Coblong',
- ST_Multi(ST_GeomFromGeoJSON('{
-   "type": "Polygon",
-   "coordinates": [[[107.60,-6.89],[107.63,-6.89],[107.63,-6.87],[107.60,-6.87],[107.60,-6.89]]]
- }')));
-
-SELECT 'Schema created and seeded successfully.' AS status;
+SELECT 'Schema created successfully. Run import-boundaries.js to load real data.' AS status;
