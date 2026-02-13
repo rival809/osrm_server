@@ -15,7 +15,7 @@
 param(
     [string]$Mode = "interactive",  # interactive, auto, production
     [string]$Region = "java",       # java, indonesia, custom
-    [string]$Environment = "development"  # development, production
+    [string]$Environment = "production"  # development, production
 )
 
 # Colors for better output
@@ -168,23 +168,21 @@ function Setup-Environment {
     Write-Step "Setting up environment variables" "Creating .env configuration"
     if (-not (Test-Path ".env")) {
         $envContent = @"
-# OSRM Service Configuration
+# OSRM Service Configuration (Lightweight Proxy Mode)
 NODE_ENV=$Environment
-PORT=8080
+PORT=81
 
-# OSRM Backend
-OSRM_URL=http://localhost:5000
+# OSRM Backend (for routing)
+OSRM_URL=http://localhost:5003
 
-# Cache Configuration
-CACHE_DIR=./cache
-CACHE_MODE=smart
-PRELOAD_ENABLED=false
-TILE_CACHE_TTL=86400000
-MAX_CACHE_SIZE_MB=2000
+# Tileserver (for map tiles) - REQUIRED for self-hosted setup
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=100
+# Memory Management
+MAX_MEMORY_MB=10000
+
+# Logging
+LOG_LEVEL=info
 "@
         $envContent | Out-File -FilePath ".env" -Encoding UTF8 -Force
         Write-Success "Created .env file"
@@ -302,6 +300,79 @@ function Download-OSMData {
     } catch {
         Write-Error "Failed to download OSM data: $($_.Exception.Message)"
         Write-Host "You can download manually from: $url" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Convert-PbfToMbtiles {
+    Write-Section "TILESERVER SETUP - Convert PBF to MBTiles"
+    
+    $pbfFile = "data\java-latest.osm.pbf"
+    $mbtilesFile = "data\java.mbtiles"
+    
+    if (-not (Test-Path $pbfFile)) {
+        Write-Error "PBF file not found. Please download first."
+        return $false
+    }
+    
+    # Check if MBTiles already exists
+    if (Test-Path $mbtilesFile) {
+        $fileSize = (Get-Item $mbtilesFile).Length
+        $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
+        Write-Success "MBTiles file already exists: $mbtilesFile ($fileSizeMB MB)"
+        
+        if ($Mode -eq "interactive") {
+            Write-Host ""
+            $regenerate = Read-Host "Do you want to regenerate MBTiles? (y/N)"
+            if ($regenerate -ne "y") {
+                Write-Success "Using existing MBTiles file"
+                return $true
+            }
+            Write-Warning "Regenerating MBTiles..."
+            Remove-Item $mbtilesFile -Force
+        } else {
+            Write-Success "Using existing MBTiles (auto mode)"
+            return $true
+        }
+    }
+    
+    Write-Step "Converting PBF to MBTiles format" "This may take 10-30 minutes"
+    Write-Host ""
+    
+    # Pull planetiler image
+    Write-Host "Pulling planetiler Docker image..." -ForegroundColor Cyan
+    docker pull ghcr.io/onthegomap/planetiler:latest
+    
+    # Get absolute path for Windows
+    $currentPath = (Get-Location).Path
+    $dataPath = Join-Path $currentPath "data"
+    
+    # Convert using planetiler
+    Write-Host "Running conversion with planetiler..." -ForegroundColor Cyan
+    Write-Host "   This will take 10-30 minutes depending on file size..." -ForegroundColor Gray
+    
+    docker run -it --rm `
+        -v "${dataPath}:/data" `
+        -e JAVA_TOOL_OPTIONS="-Xmx2g" `
+        ghcr.io/onthegomap/planetiler:latest `
+        --download `
+        --area=indonesia `
+        --bounds=105.0,-8.8,114.0,-5.9 `
+        --output=/data/java.mbtiles `
+        --osm-path=/data/java-latest.osm.pbf
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to convert PBF to MBTiles"
+        return $false
+    }
+    
+    if (Test-Path $mbtilesFile) {
+        $fileSize = (Get-Item $mbtilesFile).Length
+        $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
+        Write-Success "MBTiles created successfully: $mbtilesFile ($fileSizeMB MB)"
+        return $true
+    } else {
+        Write-Error "MBTiles file was not created"
         return $false
     }
 }
@@ -589,53 +660,49 @@ function Test-Deployment {
 function Show-CompletionSummary {
     Write-Section "SETUP COMPLETE" "Green"
     
-    Write-Host "[SUCCESS] OSRM data preparation completed!" -ForegroundColor Green
+    Write-Host "[SUCCESS] OSRM self-hosted setup completed!" -ForegroundColor Green
     Write-Host ""
     Write-Host "What's Ready:" -ForegroundColor Cyan
-    Write-Host "   ✓ Prerequisites installed (Node.js)" -ForegroundColor White
-    Write-Host "   ✓ Environment configured" -ForegroundColor White
-    Write-Host "   ✓ OSM data downloaded" -ForegroundColor White
-    Write-Host "   ✓ OSRM routing data processed" -ForegroundColor White
+    Write-Host "   [OK] Prerequisites installed" -ForegroundColor White
+    Write-Host "   [OK] Environment configured" -ForegroundColor White
+    Write-Host "   [OK] OSM data downloaded (~800MB)" -ForegroundColor White
+    Write-Host "   [OK] MBTiles generated for tileserver" -ForegroundColor White
+    Write-Host "   [OK] OSRM routing data processed (26 files)" -ForegroundColor White
     Write-Host ""
-    Write-Host "Next Steps - Start Services Manually:" -ForegroundColor Cyan
-    Write-Host "   1. Build and start services:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "      Development mode (8GB RAM):" -ForegroundColor White
-    Write-Host "      docker-compose build --no-cache" -ForegroundColor Gray
-    Write-Host "      docker-compose up -d" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "      Production mode (2+ vCPU, 8GB+ RAM):" -ForegroundColor White
-    Write-Host "      docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache" -ForegroundColor Gray
-    Write-Host "      docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d" -ForegroundColor Gray
+    Write-Host "Next Steps - Start Services:" -ForegroundColor Cyan
+    Write-Host "   1. Build and start all containers:" -ForegroundColor White
+    Write-Host "      docker compose build --no-cache" -ForegroundColor Gray
+    Write-Host "      docker compose up -d" -ForegroundColor Gray
     Write-Host ""
     Write-Host "   2. Check service status:" -ForegroundColor White
-    Write-Host "      docker-compose ps" -ForegroundColor Gray
-    Write-Host "      docker-compose logs -f" -ForegroundColor Gray
+    Write-Host "      docker compose ps" -ForegroundColor Gray
+    Write-Host "      docker compose logs -f" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Service Management (works for both dev and prod):" -ForegroundColor Cyan
-    Write-Host "   * Stop:           docker-compose down" -ForegroundColor White
-    Write-Host "   * Restart:        docker-compose restart" -ForegroundColor White
-    Write-Host "   * View logs:      docker-compose logs -f" -ForegroundColor White
+    Write-Host "Service Management:" -ForegroundColor Cyan
+    Write-Host "   * Stop:           docker compose down" -ForegroundColor White
+    Write-Host "   * Restart:        docker compose restart" -ForegroundColor White
+    Write-Host "   * View logs:      docker compose logs -f" -ForegroundColor White
     Write-Host ""
     Write-Host "Available Endpoints (after services start):" -ForegroundColor Cyan
-    Write-Host "   * Public API:     http://localhost" -ForegroundColor White
-    Write-Host "   * Direct API:     http://localhost:8080" -ForegroundColor White
-    Write-Host "   * OSRM Backend:   http://localhost:5000" -ForegroundColor White
+    Write-Host "   * OSRM Tile Proxy:  http://localhost:81" -ForegroundColor White
+    Write-Host "   * OSRM Backend:     http://localhost:5003" -ForegroundColor White
+    Write-Host "   * Tileserver:       http://localhost:5001" -ForegroundColor White
     Write-Host ""
-    Write-Host "For production deployment, see PRODUCTION.md" -ForegroundColor Yellow
+    Write-Host "[OK] 100% Self-Hosted - No external tile dependencies!" -ForegroundColor Green
 }
 
 # Main execution
 function Main {
     Write-Section "OSRM MASTER SETUP" "Green"
-    Write-Host "Complete End-to-End Setup for Windows" -ForegroundColor White
+    Write-Host "Complete End-to-End Self-Hosted Setup for Windows" -ForegroundColor White
     Write-Host ""
     Write-Host "This script will:" -ForegroundColor Cyan
     Write-Host "  - Install prerequisites (Node.js)" -ForegroundColor Gray
     Write-Host "  - Setup environment and dependencies" -ForegroundColor Gray
     Write-Host "  - Download Java Island OSM data (~800MB)" -ForegroundColor Gray
+    Write-Host "  - Convert PBF to MBTiles for tileserver (10-30 min)" -ForegroundColor Gray
     Write-Host "  - Process OSRM routing data (10-20 min)" -ForegroundColor Gray
-    Write-Host "  - Prepare for manual service deployment" -ForegroundColor Gray
+    Write-Host "  - Prepare for Docker deployment" -ForegroundColor Gray
     Write-Host ""
     
     if ($Mode -eq "interactive") {
@@ -659,6 +726,11 @@ function Main {
     
     if (-not (Download-OSMData)) {
         Write-Error "OSM data download failed"
+        exit 1
+    }
+    
+    if (-not (Convert-PbfToMbtiles)) {
+        Write-Error "MBTiles conversion failed"
         exit 1
     }
     

@@ -19,7 +19,7 @@ set -e  # Exit on any error
 # Configuration
 MODE="${1:-interactive}"        # interactive, auto, production
 REGION="${2:-java}"            # java, indonesia, custom
-ENVIRONMENT="${3:-development}" # development, production
+ENVIRONMENT="${3:-production}" # development, production
 
 # Colors
 RED='\033[0;31m'
@@ -199,23 +199,21 @@ setup_environment() {
     print_step "Setting up environment variables" "Creating .env configuration"
     if [ ! -f ".env" ]; then
         cat > .env << EOF
-# OSRM Service Configuration
+# OSRM Service Configuration (Lightweight Proxy Mode)
 NODE_ENV=$ENVIRONMENT
-PORT=8080
+PORT=81
 
-# OSRM Backend
-OSRM_URL=http://localhost:5000
+# OSRM Backend (for routing)
+OSRM_URL=http://localhost:5003
 
-# Cache Configuration
-CACHE_DIR=./cache
-CACHE_MODE=smart
-PRELOAD_ENABLED=false
-TILE_CACHE_TTL=86400000
-MAX_CACHE_SIZE_MB=2000
+# Tileserver (for map tiles) - REQUIRED for self-hosted setup
+TILE_SERVER_URL=http://localhost:5001/styles/basic-preview
 
-# Rate Limiting
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=100
+# Memory Management
+MAX_MEMORY_MB=10000
+
+# Logging
+LOG_LEVEL=info
 EOF
         print_success "Created .env file"
     else
@@ -298,6 +296,75 @@ download_osm_data() {
     print_error "Neither curl nor wget found. Please install one of them."
     print_warning "You can download manually from: $url"
     return 1
+}
+
+# Convert PBF to MBTiles (for tileserver)
+convert_pbf_to_mbtiles() {
+    print_section "TILESERVER SETUP - Convert PBF to MBTiles"
+    
+    local pbf_file="data/java-latest.osm.pbf"
+    local mbtiles_file="data/java.mbtiles"
+    
+    if [ ! -f "$pbf_file" ]; then
+        print_error "PBF file not found. Please download first."
+        return 1
+    fi
+    
+    # Check if MBTiles already exists
+    if [ -f "$mbtiles_file" ]; then
+        local size=$(du -h "$mbtiles_file" | cut -f1)
+        print_success "MBTiles file already exists: $mbtiles_file ($size)"
+        
+        if [ "$MODE" = "interactive" ]; then
+            echo ""
+            read -p "Do you want to regenerate MBTiles? (y/N): " regenerate
+            if [ "$regenerate" != "y" ] && [ "$regenerate" != "Y" ]; then
+                print_success "Using existing MBTiles file"
+                return 0
+            fi
+            print_warning "Regenerating MBTiles..."
+            rm -f "$mbtiles_file"
+        else
+            print_success "Using existing MBTiles (auto mode)"
+            return 0
+        fi
+    fi
+    
+    print_step "Converting PBF to MBTiles format" "This may take 10-30 minutes"
+    echo ""
+    
+    # Pull planetiler image
+    echo -e "${CYAN}Pulling planetiler Docker image...${NC}"
+    docker pull ghcr.io/onthegomap/planetiler:latest
+    
+    # Get absolute path
+    local absolute_data_dir="$(pwd)/data"
+    
+    # Convert using planetiler
+    echo -e "${CYAN}Running conversion with planetiler...${NC}"
+    echo -e "${GRAY}   This will take 10-30 minutes depending on file size...${NC}"
+    
+    if ! docker run -it --rm \
+        -v "${absolute_data_dir}:/data" \
+        -e JAVA_TOOL_OPTIONS="-Xmx2g" \
+        ghcr.io/onthegomap/planetiler:latest \
+        --download \
+        --area=indonesia \
+        --bounds=105.0,-8.8,114.0,-5.9 \
+        --output=/data/java.mbtiles \
+        --osm-path=/data/java-latest.osm.pbf; then
+        print_error "Failed to convert PBF to MBTiles"
+        return 1
+    fi
+    
+    if [ -f "$mbtiles_file" ]; then
+        local size=$(du -h "$mbtiles_file" | cut -f1)
+        print_success "MBTiles created successfully: $mbtiles_file ($size)"
+        return 0
+    else
+        print_error "MBTiles file was not created"
+        return 1
+    fi
 }
 
 # Process OSRM data
@@ -570,53 +637,49 @@ test_deployment() {
 show_completion_summary() {
     print_section "SETUP COMPLETE" 
     
-    echo -e "${GREEN}[SUCCESS] OSRM data preparation completed!${NC}"
+    echo -e "${GREEN}[SUCCESS] OSRM self-hosted setup completed!${NC}"
     echo ""
     echo -e "${CYAN}What's Ready:${NC}"
-    echo -e "${NC}   ✓ Prerequisites installed (Node.js, Docker)${NC}"
+    echo -e "${NC}   ✓ Prerequisites installed${NC}"
     echo -e "${NC}   ✓ Environment configured${NC}"
-    echo -e "${NC}   ✓ OSM data downloaded${NC}"
-    echo -e "${NC}   ✓ OSRM routing data processed${NC}"
+    echo -e "${NC}   ✓ OSM data downloaded (~800MB)${NC}"
+    echo -e "${NC}   ✓ MBTiles generated for tileserver${NC}"
+    echo -e "${NC}   ✓ OSRM routing data processed (26 files)${NC}"
     echo ""
-    echo -e "${CYAN}Next Steps - Start Services Manually:${NC}"
-    echo -e "${NC}   1. Build and start services:${NC}"
-    echo ""
-    echo -e "${NC}      Development mode (8GB RAM):${NC}"
-    echo -e "${NC}      docker-compose build --no-cache${NC}"
-    echo -e "${NC}      docker-compose up -d${NC}"
-    echo ""
-    echo -e "${NC}      Production mode (2+ vCPU, 8GB+ RAM):${NC}"
-    echo -e "${NC}      docker-compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache${NC}"
-    echo -e "${NC}      docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d${NC}"
+    echo -e "${CYAN}Next Steps - Start Services:${NC}"
+    echo -e "${NC}   1. Build and start all containers:${NC}"
+    echo -e "${NC}      docker compose build --no-cache${NC}"
+    echo -e "${NC}      docker compose up -d${NC}"
     echo ""
     echo -e "${NC}   2. Check service status:${NC}"
-    echo -e "${NC}      docker-compose ps${NC}"
-    echo -e "${NC}      docker-compose logs -f${NC}"
+    echo -e "${NC}      docker compose ps${NC}"
+    echo -e "${NC}      docker compose logs -f${NC}"
     echo ""
-    echo -e "${CYAN}Service Management (works for both dev and prod):${NC}"
-    echo -e "${NC}   * Stop:           docker-compose down${NC}"
-    echo -e "${NC}   * Restart:        docker-compose restart${NC}"
-    echo -e "${NC}   * View logs:      docker-compose logs -f${NC}"
+    echo -e "${CYAN}Service Management:${NC}"
+    echo -e "${NC}   * Stop:           docker compose down${NC}"
+    echo -e "${NC}   * Restart:        docker compose restart${NC}"
+    echo -e "${NC}   * View logs:      docker compose logs -f${NC}"
     echo ""
     echo -e "${CYAN}Available Endpoints (after services start):${NC}"
-    echo -e "${NC}   * Public API:     http://localhost${NC}"
-    echo -e "${NC}   * Direct API:     http://localhost:8080${NC}"
-    echo -e "${NC}   * OSRM Backend:   http://localhost:5000${NC}"
+    echo -e "${NC}   * OSRM Tile Proxy:  http://localhost:81${NC}"
+    echo -e "${NC}   * OSRM Backend:     http://localhost:5003${NC}"
+    echo -e "${NC}   * Tileserver:       http://localhost:5001${NC}"
     echo ""
-    echo -e "${YELLOW}For production deployment, see PRODUCTION.md${NC}"
+    echo -e "${GREEN}✅ 100% Self-Hosted - No external tile dependencies!${NC}"
 }
 
 # Main execution
 main() {
     print_section "OSRM MASTER SETUP" 
-    echo -e "${NC}Complete End-to-End Setup for Linux${NC}"
+    echo -e "${NC}Complete End-to-End Self-Hosted Setup for Linux${NC}"
     echo ""
     echo -e "${CYAN}This script will:${NC}"
     echo -e "${GRAY}  - Install prerequisites (Node.js)${NC}"
     echo -e "${GRAY}  - Setup environment and dependencies${NC}"
     echo -e "${GRAY}  - Download Java Island OSM data (~800MB)${NC}"
+    echo -e "${GRAY}  - Convert PBF to MBTiles for tileserver (10-30 min)${NC}"
     echo -e "${GRAY}  - Process OSRM routing data (10-20 min)${NC}"
-    echo -e "${GRAY}  - Prepare for manual service deployment${NC}"
+    echo -e "${GRAY}  - Prepare for Docker deployment${NC}"
     echo ""
     
     if [ "$MODE" = "interactive" ]; then
@@ -631,6 +694,7 @@ main() {
     install_prerequisites || { print_error "Prerequisites installation failed"; exit 1; }
     setup_environment || { print_error "Environment setup failed"; exit 1; }
     download_osm_data || { print_error "OSM data download failed"; exit 1; }
+    convert_pbf_to_mbtiles || { print_error "MBTiles conversion failed"; exit 1; }
     process_osrm_data || { print_error "OSRM data processing failed"; exit 1; }
     
     show_completion_summary

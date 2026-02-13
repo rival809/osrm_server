@@ -38,14 +38,14 @@ OSRM Service adalah **internal microservice** dengan lightweight proxy architect
 Client Request
     ↓
 [osrm-tile-service] Port 81 - Lightweight Proxy
-    ├─→ /route → [osrm-backend] Port 5000 (Routing)
+    ├─→ /route → [osrm-backend] Port 5003 (Routing)
     └─→ /tiles → [tileserver] Port 8000 (Tiles from MBTiles)
 
 Backend Sambara (Gateway) :8080
     ↓ HTTP (Private Network)
 OSRM Service :81 (Internal - No rate limit)
     ↓
-OSRM Backend :5000 + Tileserver :8000
+OSRM Backend :5003 + Tileserver :8000
 ```
 
 ---

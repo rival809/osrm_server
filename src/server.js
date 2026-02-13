@@ -51,10 +51,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static('public'));
 
 // OSRM URL
-const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
+const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
 
 // Tileserver URL (required for self-hosted setup)
-const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:8000/styles/basic-preview';
+const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:5001/styles/basic-preview';
+
+// Nominatim URL (for reverse geocoding)
+const NOMINATIM_URL = process.env.NOMINATIM_URL || 'http://localhost:5002';
 
 // Initialize Memory Monitor
 const memoryMonitor = new MemoryMonitor({
@@ -71,6 +74,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 logger.info('Tileserver URL:', TILE_SERVER_URL);
+logger.info('Nominatim URL:', NOMINATIM_URL);
 
 // Apply rate limiting (disabled for internal microservice - let gateway handle it)
 // For production: Rate limiting should be handled by Backend Sambara Gateway
@@ -107,15 +111,26 @@ app.get('/health', async (req, res) => {
     } catch (e) {
       tileserverStatus = 'unreachable';
     }
+
+    // Check if nominatim is accessible
+    let nominatimStatus = 'unknown';
+    try {
+      await axios.get(`${NOMINATIM_URL}/status.php`, { timeout: 2000 });
+      nominatimStatus = 'ok';
+    } catch (e) {
+      nominatimStatus = 'unreachable';
+    }
     
     res.json({
       status: 'ok',
-      service: 'OSRM Tile Service (Self-Hosted Proxy)',
+      service: 'OSRM Tile Service (Self-Hosted Proxy + Geocoding)',
       region: 'Java Island',
       architecture: 'lightweight-proxy',
       tileServer: TILE_SERVER_URL,
       tileserverStatus,
       osrmBackend: OSRM_URL,
+      nominatim: NOMINATIM_URL,
+      nominatimStatus,
       memory: {
         current: memoryStats.current,
         percent: memoryStats.percent,
@@ -129,6 +144,222 @@ app.get('/health', async (req, res) => {
       service: 'OSRM Tile Service',
       error: error.message,
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * Reverse Geocoding endpoint - Get location name from coordinates
+ * GET /geocode/reverse?lat=-6.9175&lon=107.6191
+ */
+app.get('/geocode/reverse', [
+  query('lat')
+    .notEmpty()
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('Latitude must be a valid number between -90 and 90'),
+  query('lon')
+    .notEmpty()
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('Longitude must be a valid number between -180 and 180'),
+  handleValidationErrors
+], async (req, res) => {
+  const startTime = Date.now();
+  const { lat, lon, zoom = 18, format = 'json' } = req.query;
+  
+  try {
+    logger.info('Reverse geocoding request received', {
+      lat,
+      lon,
+      zoom,
+      ip: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    // Build Nominatim URL
+    const nominatimUrl = `${NOMINATIM_URL}/reverse`;
+    const params = {
+      lat: parseFloat(lat),
+      lon: parseFloat(lon),
+      zoom: parseInt(zoom) || 18,
+      format: format || 'json',
+      addressdetails: 1,
+      extratags: 1,
+      namedetails: 1,
+      'accept-language': 'id,en' // Prioritas bahasa Indonesia
+    };
+
+    logger.info('Requesting Nominatim', { nominatimUrl, params });
+
+    // Request to Nominatim with timeout
+    const response = await axios.get(nominatimUrl, { 
+      params,
+      timeout: 10000 // 10 seconds timeout
+    });
+
+    logger.info('Nominatim responded', { 
+      status: response.status,
+      place_id: response.data.place_id,
+      display_name: response.data.display_name
+    });
+
+    const responseTime = Date.now() - startTime;
+    
+    // Format response
+    const result = {
+      success: true,
+      region: 'Java Island',
+      mode: 'offline',
+      responseTime: `${responseTime}ms`,
+      coordinates: {
+        lat: parseFloat(lat),
+        lon: parseFloat(lon)
+      },
+      location: {
+        display_name: response.data.display_name,
+        name: response.data.name || response.data.display_name?.split(',')[0],
+        place_id: response.data.place_id,
+        osm_type: response.data.osm_type,
+        osm_id: response.data.osm_id,
+        type: response.data.type,
+        class: response.data.class
+      },
+      address: response.data.address || {},
+      boundingbox: response.data.boundingbox || []
+    };
+
+    logger.info('Reverse geocoding completed', {
+      lat,
+      lon,
+      location: result.location.display_name,
+      responseTime: `${responseTime}ms`
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    
+    logger.error('Reverse geocoding error', {
+      error: error.message,
+      stack: error.stack,
+      lat,
+      lon,
+      responseTime: `${responseTime}ms`,
+      ip: req.ip
+    });
+    
+    // Check if Nominatim returned "Unable to geocode"
+    if (error.response?.status === 200 && error.response?.data?.error) {
+      return res.status(404).json({
+        success: false,
+        error: 'Location not found',
+        message: 'No address found for these coordinates',
+        coordinates: { lat: parseFloat(lat), lon: parseFloat(lon) },
+        responseTime: `${responseTime}ms`
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reverse geocode',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      responseTime: `${responseTime}ms`
+    });
+  }
+});
+
+/**
+ * Forward Geocoding endpoint - Search for locations by name
+ * GET /geocode/search?q=Bandung
+ */
+app.get('/geocode/search', [
+  query('q')
+    .notEmpty()
+    .isLength({ min: 2, max: 200 })
+    .withMessage('Query must be between 2 and 200 characters'),
+  handleValidationErrors
+], async (req, res) => {
+  const startTime = Date.now();
+  const { q, limit = 5, countrycodes = 'id', format = 'json' } = req.query;
+  
+  try {
+    logger.info('Forward geocoding request received', {
+      query: q,
+      limit,
+      ip: req.ip
+    });
+
+    // Build Nominatim URL
+    const nominatimUrl = `${NOMINATIM_URL}/search`;
+    const params = {
+      q,
+      format: format || 'json',
+      limit: parseInt(limit) || 5,
+      countrycodes: countrycodes || 'id',
+      addressdetails: 1,
+      extratags: 1,
+      namedetails: 1,
+      'accept-language': 'id,en'
+    };
+
+    logger.info('Requesting Nominatim search', { nominatimUrl, params });
+
+    // Request to Nominatim with timeout
+    const response = await axios.get(nominatimUrl, { 
+      params,
+      timeout: 10000
+    });
+
+    const responseTime = Date.now() - startTime;
+    
+    // Format response
+    const results = response.data.map(item => ({
+      display_name: item.display_name,
+      name: item.name || item.display_name?.split(',')[0],
+      place_id: item.place_id,
+      osm_type: item.osm_type,
+      osm_id: item.osm_id,
+      type: item.type,
+      class: item.class,
+      coordinates: {
+        lat: parseFloat(item.lat),
+        lon: parseFloat(item.lon)
+      },
+      address: item.address || {},
+      boundingbox: item.boundingbox || []
+    }));
+
+    logger.info('Forward geocoding completed', {
+      query: q,
+      resultsCount: results.length,
+      responseTime: `${responseTime}ms`
+    });
+
+    res.json({
+      success: true,
+      region: 'Java Island',
+      mode: 'offline',
+      responseTime: `${responseTime}ms`,
+      query: q,
+      count: results.length,
+      results
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    
+    logger.error('Forward geocoding error', {
+      error: error.message,
+      query: q,
+      responseTime: `${responseTime}ms`,
+      ip: req.ip
+    });
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to search location',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+      responseTime: `${responseTime}ms`
     });
   }
 });
@@ -305,13 +536,14 @@ process.on('SIGINT', () => {
  */
 app.listen(PORT, '0.0.0.0', () => {
   logger.info('='.repeat(50));
-  logger.info(`🚀 OSRM Service Started (Lightweight Proxy)`);
+  logger.info(`🚀 OSRM Service Started (Lightweight Proxy + Geocoding)`);
   logger.info('='.repeat(50));
   logger.info(`📍 Server: http://0.0.0.0:${PORT}`);
   logger.info(`🌍 Region: Java Island`);
   logger.info(`🔧 Architecture: Lightweight Proxy (Self-Hosted)`);
   logger.info(`🗺️  Tileserver: ${TILE_SERVER_URL}`);
   logger.info(`🛣️  OSRM Backend: ${OSRM_URL}`);
+  logger.info(`📍 Nominatim: ${NOMINATIM_URL}`);
   logger.info(`🛡️  Security: Helmet, Rate Limiting, Validation`);
   logger.info(`📊 Monitoring: Memory tracking, Structured logging`);
   logger.info('');
@@ -319,6 +551,8 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info(`   🏥 Health: http://localhost:${PORT}/health`);
   logger.info(`   🛣️  Routes: http://localhost:${PORT}/route?start=lon,lat&end=lon,lat`);
   logger.info(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png (proxy)`);
+  logger.info(`   📍 Reverse Geocoding: http://localhost:${PORT}/geocode/reverse?lat=-6.9175&lon=107.6191`);
+  logger.info(`   🔍 Search Location: http://localhost:${PORT}/geocode/search?q=Bandung`);
   logger.info('');
   logger.info('🌐 Web UI: http://localhost:' + PORT);
   logger.info('='.repeat(50));
