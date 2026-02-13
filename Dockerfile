@@ -15,6 +15,7 @@ RUN npm install --production
 # Copy application files
 COPY src ./src
 COPY public ./public
+COPY sql ./sql
 
 # Expose port (configurable via environment variable, default 81)
 EXPOSE 81

@@ -57,6 +57,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./data:/data:ro
+      - ./sql:/docker-entrypoint-initdb.d:ro
     shm_size: 1gb
     restart: unless-stopped
     networks:
@@ -113,12 +114,18 @@ services:
       - OSRM_URL=http://osrm-backend:5000
       - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
       - NOMINATIM_URL=http://nominatim:8080
+      - PGHOST=postgres
+      - PGPORT=5432
+      - PGDATABASE=nominatim
+      - PGUSER=nominatim
+      - PGPASSWORD=nominatim123
       - MAX_MEMORY_MB=2000
       - LOG_LEVEL=info
     depends_on:
       - tileserver
       - osrm-backend
       - nominatim
+      - postgres
     restart: unless-stopped
     networks:
       - osrm-network

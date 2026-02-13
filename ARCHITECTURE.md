@@ -19,6 +19,9 @@
 │  • GET /tiles/:z/:x/:y.png  - Map tiles (proxy to Tileserver)   │
 │  • GET /geocode/reverse     - Reverse geocoding (koordinat→nama) │
 │  • GET /geocode/search      - Forward geocoding (nama→koordinat) │
+│  • GET /api/boundaries/:lvl - Admin boundary GeoJSON layers     │
+│  • POST /api/boundaries/split - Split polygon permanently       │
+│  • POST /api/boundaries/merge - Merge polygons back together    │
 │                                                                   │
 └────┬──────────────┬─────────────────┬──────────────┬────────────┘
      │              │                 │              │
@@ -28,25 +31,24 @@
 │  OSRM   │  │TILESERVER│   │  NOMINATIM   │  │ Direct   │
 │ Backend │  │   -GL    │   │   API        │  │ Response │
 │Port 5003│  │Port 5001 │   │  Port 5002   │  │          │
+│         │  │          │   │              │  │          │
+│         │  │          │   │ Built-in     │  │          │
+│         │  │          │   │ PostgreSQL   │  │          │
 └────┬────┘  └────┬─────┘   └──────┬───────┘  └──────────┘
      │            │                 │
      │            │                 │
      ▼            ▼                 ▼
 ┌─────────┐  ┌──────────┐   ┌──────────────┐
-│ OSRM    │  │  MBTiles │   │  PostgreSQL  │
-│  Data   │  │   File   │   │  + PostGIS   │
-│ Files   │  │          │   │  Port 5432   │
-│ (.osrm) │  │(java.    │   │              │
-│         │  │mbtiles)  │   │  Database:   │
-│         │  │          │   │  nominatim   │
-└─────────┘  └──────────┘   └──────┬───────┘
-                                    │
-                                    ▼
-                             ┌─────────────┐
-                             │   Docker    │
-                             │   Volume    │
-                             │postgres-data│
-                             └─────────────┘
+│ OSRM    │  │  MBTiles │   │   Docker     │
+│  Data   │  │   File   │   │   Volumes    │
+│ Files   │  │          │   │              │
+│ (.osrm) │  │(java.    │   │nominatim-data│
+│         │  │mbtiles)  │   │nominatim-    │
+│         │  │          │   │flatnode      │
+└─────────┘  └──────────┘   └──────────────┘
+
+Note: PostgreSQL container (port 5432) exists but is NOT used by Nominatim.
+      Nominatim uses its own built-in PostgreSQL instance.
 ```
 
 ## Container Details
@@ -139,8 +141,10 @@ Role: Reverse & forward geocoding
 
 **Data Source:**
 
-- PostgreSQL database (imported from PBF)
+- **Built-in PostgreSQL 14** (inside container)
+- Data imported from PBF file mounted at `/nominatim/data.osm.pbf`
 - Takes 2-4 hours to import Java Island data
+- Stores data in Docker volumes: `nominatim-data` and `nominatim-flatnode`
 
 **API Endpoints:**
 
@@ -148,9 +152,15 @@ Role: Reverse & forward geocoding
 - `/search?q=NAME` - Search for locations
 - `/status.php` - Check import status
 
+**Important Note:**
+
+- Nominatim container has its **own PostgreSQL instance**
+- Does NOT connect to external `postgres` container
+- Self-contained with all dependencies
+
 ---
 
-### 5. **postgres** (Database for Geocoding)
+### 5. **postgres** (Standalone Database - PostGIS)
 
 ```yaml
 Container: osrm-postgres
@@ -158,15 +168,21 @@ Port: 5432 (external) → 5432 (internal)
 Image: postgis/postgis:16-3.4
 Memory: 2-4GB
 Storage: 10-20GB for Java Island
-Role: Store geocoding data
+Role: Administrative boundary data (PostGIS)
 ```
 
-**Responsibilities:**
+**Purpose:**
 
-- Store OSM data (roads, places, addresses)
-- Spatial indexing with PostGIS
-- Fast coordinate-based lookups
-- Full-text search for place names
+- Stores administrative boundary polygons (Provinsi, Kota/Kabupaten, Kecamatan)
+- Provides GeoJSON output via `ST_AsGeoJSON()` and `ST_SimplifyPreserveTopology()`
+- Supports polygon splitting (`ST_Split`) and merging (`ST_Union`)
+- Pre-configured with PostGIS for spatial data
+- Auto-initialized with schema from `./sql/` on first boot
+
+**⚠️ Important:**
+
+- **Nominatim does NOT use this container** — it has its own built-in PostgreSQL 14
+- SQL files in `./sql/` directory are mounted to `/docker-entrypoint-initdb.d/` and run once on first startup
 
 **Database:**
 
@@ -191,7 +207,7 @@ Role: Store geocoding data
    └─ Proxies to: http://nominatim:8080/reverse
 
 3. nominatim processes request
-   ├─ Queries PostgreSQL database
+   ├─ Queries internal PostgreSQL 14 database
    ├─ Finds nearest address/place
    └─ Returns formatted result
 
@@ -213,7 +229,7 @@ Response Time: 10-100ms
    └─ Proxies to: http://nominatim:8080/search
 
 3. nominatim processes request
-   ├─ Full-text search in PostgreSQL
+   ├─ Full-text search in internal PostgreSQL
    ├─ Ranks results by relevance
    └─ Returns top matches
 
@@ -268,6 +284,59 @@ Response Time: 50-500ms
 Response Time: 20-200ms
 ```
 
+### Example 5: Administrative Boundary Request
+
+```
+1. Client Request:
+   GET http://localhost:81/api/boundaries/city?parent_code=32&zoom=12
+
+2. osrm-tile-service receives request
+   ├─ Validates level param (province/city/district)
+   ├─ Computes simplification tolerance from zoom level
+   └─ Queries PostGIS: fn_get_boundaries_geojson()
+
+3. PostGIS (osrm-postgres) processes request
+   ├─ Filters by admin_level and parent
+   ├─ Simplifies geometry with ST_SimplifyPreserveTopology
+   ├─ Converts to GeoJSON with ST_AsGeoJSON
+   └─ Returns FeatureCollection
+
+4. osrm-tile-service returns GeoJSON to client
+
+Response Time: 20-100ms
+```
+
+### Example 6: Polygon Split Request
+
+```
+1. Client Request:
+   POST http://localhost:81/api/boundaries/split
+   Body: {
+     "boundary_id": 5,
+     "cut_line": { "type": "LineString", "coordinates": [...] },
+     "new_regions": [
+       { "name": "Region A", "code": "32.73.01A" },
+       { "name": "Region B", "code": "32.73.01B" }
+     ]
+   }
+
+2. osrm-tile-service receives request
+   ├─ Validates body (boundary_id, cut_line, new_regions)
+   └─ Begins database transaction
+
+3. PostGIS (osrm-postgres) processes split
+   ├─ fn_split_boundary() called inside transaction
+   ├─ ST_Split(polygon, line) creates geometry pieces
+   ├─ Deactivates original boundary (is_active=false)
+   ├─ Inserts new boundaries for each piece
+   ├─ Records audit trail in boundary_split_history
+   └─ COMMIT
+
+4. osrm-tile-service returns new region IDs + areas
+
+Response Time: 100-500ms
+```
+
 ---
 
 ## Network Architecture
@@ -281,8 +350,8 @@ osrm-network (bridge)
 ├─ osrm-tile-service (gateway: port 81)
 ├─ osrm-backend (internal: port 5003)
 ├─ tileserver (internal: port 8080)
-├─ nominatim (internal: port 8080)
-└─ postgres (internal: port 5432)
+├─ nominatim (internal: port 8080) - with built-in PostgreSQL
+└─ postgres (internal: port 5432) - standalone, not used by Nominatim
 ```
 
 **Internal DNS:**
@@ -309,15 +378,20 @@ osrm-network (bridge)
 
 ```
 postgres-data (Docker volume)
-└─ PostgreSQL database files
-   └─ ~10-20GB for Java Island
+└─ PostgreSQL database files (standalone, not used by Nominatim)
+   └─ ~10-20GB capacity
 
 nominatim-data (Docker volume)
-└─ Nominatim cache & indexes
-   └─ ~5-10GB
+└─ Nominatim's internal PostgreSQL 14 data
+   └─ /var/lib/postgresql/14/main
+   └─ ~10-20GB for Java Island
+
+nominatim-flatnode (Docker volume)
+└─ Nominatim flatnode file (optional optimization)
+   └─ ~10-15GB for Java Island
 
 ./data (Bind mount - Host directory)
-├─ java-latest.osm.pbf     (~550MB)
+├─ java-latest.osm.pbf     (~550MB - mounted to Nominatim)
 ├─ java-latest.osrm.*      (~1.5GB total - OSRM files)
 └─ java.mbtiles            (~2GB - Map tiles database)
 ```
@@ -363,24 +437,26 @@ nominatim-data (Docker volume)
 ### ⚠️ Default Credentials
 
 ```
-PostgreSQL:
+Standalone PostgreSQL (not used by Nominatim):
   User: nominatim
   Password: nominatim123
 
-⚠️ Change in production!
+Nominatim built-in PostgreSQL:
+  Managed internally by Nominatim container
+  No external credentials needed
+
+⚠️ Change in production if using standalone postgres!
 ```
 
-Edit `docker-compose.yml`:
+Edit `docker-compose.yml` for standalone postgres:
 
 ```yaml
 postgres:
   environment:
     - POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD
-
-nominatim:
-  environment:
-    - NOMINATIM_DATABASE_DSN=pgsql:host=postgres;...;password=YOUR_SECURE_PASSWORD
 ```
+
+**Note:** Nominatim's internal PostgreSQL doesn't need external configuration.
 
 ---
 

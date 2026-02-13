@@ -6,6 +6,8 @@ const compression = require('compression');
 const { body, query, validationResult } = require('express-validator');
 const logger = require('./logger');
 const MemoryMonitor = require('./memoryMonitor');
+const { checkHealth: checkPostGIS } = require('./db');
+const boundaryRoutes = require('./boundaryRoutes');
 
 // Initialize Express
 const app = express();
@@ -49,6 +51,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files
 app.use(express.static('public'));
+
+// Administrative Boundary API
+app.use('/api/boundaries', boundaryRoutes);
 
 // OSRM URL
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
@@ -120,6 +125,9 @@ app.get('/health', async (req, res) => {
     } catch (e) {
       nominatimStatus = 'unreachable';
     }
+
+    // Check PostGIS
+    const postgisHealth = await checkPostGIS();
     
     res.json({
       status: 'ok',
@@ -131,6 +139,7 @@ app.get('/health', async (req, res) => {
       osrmBackend: OSRM_URL,
       nominatim: NOMINATIM_URL,
       nominatimStatus,
+      postgis: postgisHealth,
       memory: {
         current: memoryStats.current,
         percent: memoryStats.percent,
@@ -553,6 +562,8 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png (proxy)`);
   logger.info(`   📍 Reverse Geocoding: http://localhost:${PORT}/geocode/reverse?lat=-6.9175&lon=107.6191`);
   logger.info(`   🔍 Search Location: http://localhost:${PORT}/geocode/search?q=Bandung`);
+  logger.info(`   🗺️  Boundaries:     http://localhost:${PORT}/api/boundaries/city`);
+  logger.info(`   ✂️  Split:          POST http://localhost:${PORT}/api/boundaries/split`);
   logger.info('');
   logger.info('🌐 Web UI: http://localhost:' + PORT);
   logger.info('='.repeat(50));
