@@ -1,0 +1,77 @@
+# Docker Compose - LITE Version (Without Nominatim Geocoding)
+# Hemat ~130GB disk space dengan disable Nominatim & PostgreSQL
+# Usage: docker compose -f docker-compose.lite.yml up -d
+
+services:
+  # Tile Server - Generates tiles from PBF file
+  tileserver:
+    image: maptiler/tileserver-gl:latest
+    container_name: osrm-tileserver
+    ports:
+      - "5001:8080"
+    volumes:
+      - ./data:/data:ro
+      - ./tileserver-config:/config
+    environment:
+      - VERBOSE=1
+    command: >
+      --verbose
+      --port 8080
+      --mbtiles /data/java.mbtiles
+    restart: unless-stopped
+    networks:
+      - osrm-network
+
+  # OSRM Backend - Routing engine
+  osrm-backend:
+    image: ghcr.io/project-osrm/osrm-backend:v6.0.0
+    container_name: osrm-backend
+    ports:
+      - "5003:5000"
+    volumes:
+      - ./data:/data:ro
+    command: >
+      osrm-routed
+      --algorithm mld
+      --max-table-size 10000
+      /data/java-latest.osrm
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /proc/1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # OSRM Tile Service - Lightweight Proxy (Routing & Tiles Only)
+  osrm-tile-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: osrm-tile-service
+    ports:
+      - "81:81"
+    environment:
+      - NODE_ENV=production
+      - PORT=81
+      - OSRM_URL=http://osrm-backend:5000
+      - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
+      - MAX_MEMORY_MB=2000
+      - LOG_LEVEL=info
+    depends_on:
+      - tileserver
+      - osrm-backend
+    restart: unless-stopped
+    networks:
+      - osrm-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:81/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  osrm-network:
+    driver: bridge
