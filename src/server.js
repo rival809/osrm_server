@@ -59,8 +59,7 @@ app.use(express.static('public'));
 app.use('/api/boundaries', boundaryRoutes);
 
 // ── Legacy GeoJSON routes (mirrors old Go/Gin project) ─────────────
-// GET /jabar, /kecamatan/:kodeKab, /kelurahan/:kodeKab,
-// GET /desa_fix, /desa, /api/geojson/kabupaten, /api/geojson/kecamatan/:p3d_id
+// GET /api/geojson/kabupaten, /api/geojson/kecamatan/:p3d_id, /api/geojson/desa
 app.use('/', legacyGeoRoutes);
 
 // OSRM URL
