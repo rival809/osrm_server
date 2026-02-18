@@ -4,14 +4,14 @@
  * These routes mirror the Go/Gin project endpoints so that any client
  * that was hitting the old backend works identically against this service.
  *
- * GET  /jabar_fix                    → jabar.json (kabupaten/kota layer)
+ * GET  /jabar                        → province_boundaries DB query (kabupaten/kota)
  * GET  /kecamatan/:kodeKab           → kecamatan by kabupaten code (DB query)
  * GET  /kelurahan/:kodeKab           → Kelurahan/{kodeKab}_kelurahan.geojson
  * GET  /desa_fix?kode=<kd_kecamatan> → filter desa.geojson in-memory
  * GET  /desa?kode=<kd_kecamatan>     → desa from village_boundaries DB table
  *
  * Also exposes the same data through the /api/geojson prefix:
- * GET  /api/geojson/kabupaten        → same as /jabar_fix (jabar.json)
+ * GET  /api/geojson/kabupaten        → same as /jabar (province_boundaries DB)
  * GET  /api/geojson/kecamatan/:p3d_id → same as /kecamatan/:kodeKab
  */
 
@@ -38,11 +38,56 @@ function sendFile(res, filePath, cacheSeconds = 3600) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  GET /jabar_fix  →  jabar.json (kabupaten/kota layer)
+//  GET /jabar
+//  Mirrors the legacy Go/Gin GetMapJabar handler.
+//  Queries province_boundaries table.
+//  Optional filter: ?p3d_id=10200  (or set via JWT claim in future)
 // ═══════════════════════════════════════════════════════
-router.get('/jabar_fix', (req, res) => {
-  const filePath = path.join(BOUNDARIES_DIR, 'jabar.json');
-  sendFile(res, filePath);
+router.get('/jabar', async (req, res) => {
+  // p3d_id filter: support query param (JWT claim can be added later)
+  const p3dId = (req.query.p3d_id || req.p3dId || '').toString().trim() || null;
+
+  const sql = `
+    SELECT json_build_object(
+      'type',        'FeatureCollection',
+      'name',        'Jabar_By_Kab',
+      'crs', json_build_object(
+        'type',       'name',
+        'properties', json_build_object('name','urn:ogc:def:crs:OGC:1.3:CRS84')
+      ),
+      'features', COALESCE(
+        json_agg(
+          json_build_object(
+            'type',       'Feature',
+            'properties', json_build_object(
+              'OBJECTID', id,
+              'PROVINSI', 'JAWA BARAT',
+              'PROVNO',   '32',
+              'KABKOTNO', RIGHT(p3d_id, 2),
+              'KABKOT',   p3d,
+              'ID_KAB',   p3d_id::text
+            ),
+            'geometry', ST_AsGeoJSON(geom_postgis)::json
+          )
+        ),
+        '[]'::json
+      )
+    ) AS fc
+    FROM province_boundaries
+    WHERE ($1::text IS NULL OR p3d_id = $1::text)
+  `;
+
+  try {
+    const { rows } = await pool.query(sql, [p3dId]);
+    const fc = rows[0]?.fc;
+    if (!fc) return res.status(404).json({ error: 'No province data found' });
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    res.send(JSON.stringify(fc));
+  } catch (err) {
+    logger.error('GET /jabar error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ═══════════════════════════════════════════════════════
@@ -199,10 +244,51 @@ router.get('/desa', async (req, res) => {
 //  /api/geojson/* aliases (same data, /api prefix)
 // ═══════════════════════════════════════════════════════
 
-/** GET /api/geojson/kabupaten  →  jabar.json (kabupaten/kota layer) */
-router.get('/api/geojson/kabupaten', (req, res) => {
-  const filePath = path.join(BOUNDARIES_DIR, 'jabar.json');
-  sendFile(res, filePath);
+/** GET /api/geojson/kabupaten  →  same as /jabar (province_boundaries DB) */
+router.get('/api/geojson/kabupaten', async (req, res) => {
+  const p3dId = (req.query.p3d_id || req.p3dId || '').toString().trim() || null;
+
+  const sql = `
+    SELECT json_build_object(
+      'type',        'FeatureCollection',
+      'name',        'Jabar_By_Kab',
+      'crs', json_build_object(
+        'type',       'name',
+        'properties', json_build_object('name','urn:ogc:def:crs:OGC:1.3:CRS84')
+      ),
+      'features', COALESCE(
+        json_agg(
+          json_build_object(
+            'type',       'Feature',
+            'properties', json_build_object(
+              'OBJECTID', id,
+              'PROVINSI', 'JAWA BARAT',
+              'PROVNO',   '32',
+              'KABKOTNO', RIGHT(p3d_id, 2),
+              'KABKOT',   p3d,
+              'ID_KAB',   p3d_id::text
+            ),
+            'geometry', ST_AsGeoJSON(geom_postgis)::json
+          )
+        ),
+        '[]'::json
+      )
+    ) AS fc
+    FROM province_boundaries
+    WHERE ($1::text IS NULL OR p3d_id = $1::text)
+  `;
+
+  try {
+    const { rows } = await pool.query(sql, [p3dId]);
+    const fc = rows[0]?.fc;
+    if (!fc) return res.status(404).json({ error: 'No province data found' });
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    res.send(JSON.stringify(fc));
+  } catch (err) {
+    logger.error('GET /api/geojson/kabupaten error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /** GET /api/geojson/kecamatan/:p3d_id  →  same as /kecamatan/:kodeKab */
