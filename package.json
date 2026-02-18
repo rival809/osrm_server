@@ -21,6 +21,8 @@
     "db:import:provinces:dry": "DRY_RUN=1 node scripts/import-province-boundaries.js",
     "db:import:districts": "node scripts/import-district-boundaries.js",
     "db:import:districts:dry": "DRY_RUN=1 node scripts/import-district-boundaries.js",
+    "db:import:villages": "node scripts/import-village-boundaries.js",
+    "db:import:villages:dry": "DRY_RUN=1 node scripts/import-village-boundaries.js",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
