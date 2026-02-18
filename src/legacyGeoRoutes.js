@@ -4,14 +4,14 @@
  * These routes mirror the Go/Gin project endpoints so that any client
  * that was hitting the old backend works identically against this service.
  *
- * GET  /jabar_fix                    → Jabar_By_Kab.geojson (kabupaten layer)
+ * GET  /jabar_fix                    → jabar.json (kabupaten/kota layer)
  * GET  /kecamatan/:kodeKab           → kecamatan by kabupaten code (DB query)
  * GET  /kelurahan/:kodeKab           → Kelurahan/{kodeKab}_kelurahan.geojson
  * GET  /desa_fix?kode=<kd_kecamatan> → filter desa.geojson in-memory
  * GET  /desa?kode=<kd_kecamatan>     → desa from village_boundaries DB table
  *
  * Also exposes the same data through the /api/geojson prefix:
- * GET  /api/geojson/kabupaten        → same as /jabar_fix
+ * GET  /api/geojson/kabupaten        → same as /jabar_fix (jabar.json)
  * GET  /api/geojson/kecamatan/:p3d_id → same as /kecamatan/:kodeKab
  */
 
@@ -38,10 +38,10 @@ function sendFile(res, filePath, cacheSeconds = 3600) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  GET /jabar_fix  →  Jabar_By_Kab.geojson
+//  GET /jabar_fix  →  jabar.json (kabupaten/kota layer)
 // ═══════════════════════════════════════════════════════
 router.get('/jabar_fix', (req, res) => {
-  const filePath = path.join(BOUNDARIES_DIR, 'Jabar_By_Kab.geojson');
+  const filePath = path.join(BOUNDARIES_DIR, 'jabar.json');
   sendFile(res, filePath);
 });
 
@@ -199,9 +199,9 @@ router.get('/desa', async (req, res) => {
 //  /api/geojson/* aliases (same data, /api prefix)
 // ═══════════════════════════════════════════════════════
 
-/** GET /api/geojson/kabupaten  →  Jabar_By_Kab.geojson */
+/** GET /api/geojson/kabupaten  →  jabar.json (kabupaten/kota layer) */
 router.get('/api/geojson/kabupaten', (req, res) => {
-  const filePath = path.join(BOUNDARIES_DIR, 'Jabar_By_Kab.geojson');
+  const filePath = path.join(BOUNDARIES_DIR, 'jabar.json');
   sendFile(res, filePath);
 });
 
