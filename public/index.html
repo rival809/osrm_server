@@ -270,12 +270,16 @@
     const statusEl   = document.getElementById('status');
 
     // ── Boundary state ──────────────────────────
-    let boundaryLayer = null;          // L.geoJSON layer on map
-    let boundaryData  = null;          // raw GeoJSON FeatureCollection
+    let boundaryLayers  = { city: null, district: null, village: null }; // per-level layers
+    let boundaryData    = {};          // raw GeoJSON per level
     let selectedFeature = null;        // currently highlighted feature
     let highlightLayer  = null;        // highlight overlay
-    let currentLevel    = 'city';      // current loaded level
-    let breadcrumbStack = [];          // [{level, code, name}]
+    let currentLevel    = 'city';      // last interacted level
+    // legacy alias (used by split & clear)
+    Object.defineProperty(window, 'boundaryLayer', {
+        get() { return boundaryLayers.city || boundaryLayers.district || boundaryLayers.village; },
+        configurable: true
+    });
 
     // ── Split state ─────────────────────────────
     let splitMode       = false;
@@ -373,114 +377,90 @@
     // ════════════════════════════════════════════════════════
     const clearBndBtn = document.getElementById('clearBoundaryBtn');
     const legend      = document.getElementById('legend');
-    const hintEl      = document.getElementById('dblclick-hint');
     const bcEl        = document.getElementById('breadcrumb');
 
-    const NEXT_LEVEL = { city: 'district', district: 'village', village: null };
     const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan', village: 'Kel/Desa' };
-    const DRILL_HINT  = { city: 'kecamatan', district: 'kelurahan/desa', village: null };
+    // Legacy – needed by split reload
+    const NEXT_LEVEL = { city: 'district', district: 'village', village: null };
 
-    function showHint(level) {
-        const next = DRILL_HINT[level];
-        if (!next) return;
-        hintEl.textContent = `Double-klik wilayah untuk lihat ${next}`;
-        hintEl.classList.add('show');
-        setTimeout(() => hintEl.classList.remove('show'), 3000);
-    }
-
-    function renderBreadcrumb() {
-        if (!breadcrumbStack.length) { bcEl.classList.remove('show'); return; }
-        bcEl.classList.add('show');
-        // First item always = Kab/Kota (root)
-        let html = `<span class="bc-item" onclick="breadcrumbJump(0)">Kab/Kota</span>`;
-        breadcrumbStack.forEach((item, i) => {
-            html += `<span class="bc-sep">›</span>`;
-            if (i === breadcrumbStack.length - 1) {
-                html += `<span class="bc-current">${item.name}</span>`;
-            } else {
-                html += `<span class="bc-item" onclick="breadcrumbJump(${i + 1})">${item.name}</span>`;
+    /** Build one L.geoJSON layer for a given level & GeoJSON data */
+    function buildLayer(level, data) {
+        const colors = COLORS[level] || COLORS.city;
+        return L.geoJSON(data, {
+            style: () => ({
+                color: colors.border,
+                fillColor: colors.fill,
+                fillOpacity: level === 'city' ? 0.15 : level === 'district' ? 0.10 : 0.07,
+                weight: colors.weight,
+            }),
+            onEachFeature: (feature, layer) => {
+                layer.bindTooltip(feature.properties.name, {
+                    sticky: true, className: 'boundary-tooltip', direction: 'top'
+                });
+                layer.on('click', e => {
+                    L.DomEvent.stopPropagation(e);
+                    currentLevel = level;
+                    selectBoundaryFeature(feature, layer);
+                });
             }
         });
-        bcEl.innerHTML = html;
     }
 
-    function breadcrumbJump(depth) {
-        // depth=0 → back to root (city), depth=1 → first drill, etc.
-        if (depth === 0) {
-            breadcrumbStack = [];
-            loadBoundaries('city', null);
-        } else {
-            const item = breadcrumbStack[depth - 1];
-            breadcrumbStack = breadcrumbStack.slice(0, depth);
-            loadBoundaries(NEXT_LEVEL[item.level] || item.level, item.code);
-        }
-    }
+    /** Load all three levels simultaneously */
+    async function loadAllBoundaries() {
+        const zoom = map.getZoom();
+        clearBoundaries(false);
 
-    async function loadBoundaries(level, parentCode) {
-        currentLevel = level || 'city';
-        const zoom   = map.getZoom();
+        const levels = ['city', 'district', 'village'];
+        const results = await Promise.allSettled(
+            levels.map(lvl =>
+                fetch(`${API_URL}/api/boundaries/${lvl}?zoom=${zoom}`).then(r => r.json())
+            )
+        );
 
-        try {
-            let url = `${API_URL}/api/boundaries/${currentLevel}?zoom=${zoom}`;
-            if (parentCode) url += `&parent_code=${encodeURIComponent(parentCode)}`;
-
-            const resp = await fetch(url);
-            const data = await resp.json();
-            if (!data.success) throw new Error(data.error || 'Gagal memuat boundary');
-
-            clearBoundaries(false);
-            boundaryData = data;
-            const colors = COLORS[currentLevel] || COLORS.city;
-
-            boundaryLayer = L.geoJSON(data, {
-                style: () => ({
-                    color: colors.border,
-                    fillColor: colors.fill,
-                    fillOpacity: 0.18,
-                    weight: colors.weight,
-                }),
-                onEachFeature: (feature, layer) => {
-                    layer.bindTooltip(feature.properties.name, {
-                        sticky: true, className: 'boundary-tooltip', direction: 'top'
-                    });
-                    // Single click → show detail panel
-                    layer.on('click', e => {
-                        L.DomEvent.stopPropagation(e);
-                        selectBoundaryFeature(feature, layer);
-                    });
-                    // Double click → drill down to next level
-                    layer.on('dblclick', e => {
-                        L.DomEvent.stopPropagation(e);
-                        const next = NEXT_LEVEL[currentLevel];
-                        if (!next) { toast('Sudah di level terdalam (kelurahan/desa)', 'error'); return; }
-                        const p = feature.properties;
-                        breadcrumbStack.push({ level: currentLevel, code: p.code, name: p.name });
-                        renderBreadcrumb();
-                        closeBoundaryPanel();
-                        loadBoundaries(next, p.code);
-                    });
-                }
-            }).addTo(map);
-
-            if (boundaryLayer.getBounds().isValid()) {
-                map.fitBounds(boundaryLayer.getBounds(), { padding: [40, 40] });
+        let loaded = 0;
+        let firstBounds = null;
+        levels.forEach((lvl, i) => {
+            const res = results[i];
+            if (res.status === 'fulfilled' && res.value.success) {
+                const data = res.value;
+                boundaryData[lvl] = data;
+                const layer = buildLayer(lvl, data);
+                boundaryLayers[lvl] = layer;
+                layer.addTo(map);
+                if (!firstBounds && layer.getBounds().isValid()) firstBounds = layer.getBounds();
+                loaded++;
+            } else {
+                console.warn(`Layer ${lvl} gagal:`, res.reason || res.value?.error);
             }
+        });
 
-            legend.classList.add('show');
-            renderBreadcrumb();
-            showHint(currentLevel);
-            toast(`✅ ${data.features?.length || 0} ${LEVEL_LABEL[currentLevel]} dimuat`, 'success');
-
-        } catch (err) {
-            console.error(err);
-            toast(`❌ ${err.message}`, 'error');
+        if (firstBounds) map.fitBounds(firstBounds, { padding: [40, 40] });
+        legend.classList.add('show');
+        bcEl.classList.remove('show');
+        if (loaded > 0) {
+            const counts = levels.map(lvl => {
+                const fc = boundaryData[lvl];
+                return fc?.features?.length ? `${fc.features.length} ${LEVEL_LABEL[lvl]}` : null;
+            }).filter(Boolean).join(', ');
+            toast(`✅ ${counts} dimuat`, 'success');
+        } else {
+            toast('❌ Gagal memuat semua layer boundary', 'error');
         }
+    }
+
+    // Alias for split reload compatibility
+    function loadBoundaries(level, parentCode) {
+        // Ignore drill params — always load all
+        return loadAllBoundaries();
     }
 
     function clearBoundaries(hidePanel = true) {
-        if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+        ['city','district','village'].forEach(lvl => {
+            if (boundaryLayers[lvl]) { map.removeLayer(boundaryLayers[lvl]); boundaryLayers[lvl] = null; }
+        });
         if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
-        boundaryData = null;
+        boundaryData = {};
         selectedFeature = null;
         if (hidePanel) {
             closeBoundaryPanel();
@@ -543,32 +523,27 @@
         } catch { return null; }
     }
 
-    /** Drill down: load children of a clicked sub-region */
+    /** drillDown: kept for click compatibility but no-op in all-layers mode */
     function drillDown(code) {
-        const next = NEXT_LEVEL[currentLevel];
-        if (!next) { toast('Sudah di level terdalam', 'error'); return; }
-        const feature = boundaryData?.features?.find(f => f.properties.code === code);
-        const name = feature?.properties?.name || code;
-        breadcrumbStack.push({ level: currentLevel, code, name });
-        renderBreadcrumb();
-        closeBoundaryPanel();
-        loadBoundaries(next, code);
+        const feature = Object.values(boundaryData)
+            .flatMap(fc => fc?.features || [])
+            .find(f => f.properties.code === code);
+        if (feature) selectBoundaryFeature(feature, null);
     }
 
     clearBndBtn.addEventListener('click', () => {
-        breadcrumbStack = [];
         clearBoundaries(true);
     });
 
-    // Auto-load kab/kota saat tab Boundaries dibuka
+    // Auto-load semua layer saat tab Boundaries dibuka
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
-            if (btn.dataset.tab === 'boundaries' && !boundaryLayer) {
-                loadBoundaries('city', null);
+            if (btn.dataset.tab === 'boundaries' && !boundaryLayers.city) {
+                loadAllBoundaries();
             }
         });
     });
@@ -617,7 +592,8 @@
     const splitLabel     = document.getElementById('split-target-label');
 
     splitModeBtn.addEventListener('click', () => {
-        if (!boundaryLayer) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
+        const anyLayer = boundaryLayers.city || boundaryLayers.district || boundaryLayers.village;
+        if (!anyLayer) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
         if (splitMode) { cancelSplit(); return; }
         splitMode = true;
         splitModeBtn.classList.remove('btn-outline');
@@ -626,17 +602,20 @@
         map.getContainer().style.cursor = 'crosshair';
         toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
 
-        // Step 1: user clicks a polygon to select target
-        boundaryLayer.eachLayer(layer => {
-            layer.once('click', e => {
-                if (!splitMode) return;
-                L.DomEvent.stopPropagation(e);
-                splitTarget = { feature: layer.feature, layer };
-                selectBoundaryFeature(layer.feature, layer);
-                splitLabel.textContent = `Memotong: ${layer.feature.properties.name} (${layer.feature.properties.code})`;
-                splitPanel.classList.add('show');
-                toast('Klik pada peta untuk menggambar garis potong. Double-click untuk selesai.', 'success');
-                startDrawing();
+        // Step 1: user clicks a polygon from any layer to select target
+        ['city','district','village'].forEach(lvl => {
+            if (!boundaryLayers[lvl]) return;
+            boundaryLayers[lvl].eachLayer(layer => {
+                layer.once('click', e => {
+                    if (!splitMode) return;
+                    L.DomEvent.stopPropagation(e);
+                    splitTarget = { feature: layer.feature, layer };
+                    selectBoundaryFeature(layer.feature, layer);
+                    splitLabel.textContent = `Memotong: ${layer.feature.properties.name} (${layer.feature.properties.code})`;
+                    splitPanel.classList.add('show');
+                    toast('Klik pada peta untuk menggambar garis potong. Double-click untuk selesai.', 'success');
+                    startDrawing();
+                });
             });
         });
     });
@@ -725,8 +704,8 @@
 
             toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
             cancelSplit();
-            // Reload layer — pakai level & parent yang sama
-            loadBoundaries(currentLevel, breadcrumbStack.length ? breadcrumbStack[breadcrumbStack.length-1].code : null);
+            // Reload semua layer
+            loadAllBoundaries();
 
         } catch (err) {
             console.error(err);
