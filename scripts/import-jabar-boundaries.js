@@ -450,14 +450,17 @@ async function main() {
 
   try {
     if (!DRY_RUN) {
-      await client.query('BEGIN');
-
-      // Ensure village level exists in enum
+      // ALTER TYPE ... ADD VALUE cannot run inside a transaction block
+      // so we do it before BEGIN
       try {
         await client.query("ALTER TYPE admin_level_enum ADD VALUE IF NOT EXISTS 'village'");
+        console.log('   ✅ Enum village ditambahkan');
       } catch (e) {
-        // Already exists or not supported — ignore
+        // Already exists — ignore
+        console.log('   ℹ️  Enum village sudah ada');
       }
+
+      await client.query('BEGIN');
 
       // Clear previous data
       console.log('\n🗑️  Menghapus data boundary lama...');
