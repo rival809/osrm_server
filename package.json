@@ -17,6 +17,8 @@
     "db:import:jabar": "node scripts/import-jabar-boundaries.js",
     "db:import:jabar:dry": "DRY_RUN=1 node scripts/import-jabar-boundaries.js",
     "db:import:jabar:kab": "SKIP_KECAMATAN=1 node scripts/import-jabar-boundaries.js",
+    "db:import:districts": "node scripts/import-district-boundaries.js",
+    "db:import:districts:dry": "DRY_RUN=1 node scripts/import-district-boundaries.js",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
