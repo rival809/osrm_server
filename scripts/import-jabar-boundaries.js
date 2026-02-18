@@ -64,26 +64,36 @@ function ensureMultiPolygon(geometry) {
 
 /**
  * Upsert satu boundary row, return id
+ * Uses SAVEPOINT so a single failed insert doesn't abort the whole transaction
  */
 async function upsertBoundary(client, { parentId, adminLevel, code, name, geom, metadata }) {
   const geomJson = JSON.stringify(geom);
   const metaJson = JSON.stringify(metadata || {});
 
-  const result = await client.query(`
-    INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom, metadata)
-    VALUES ($1, $2::admin_level_enum, $3, $4, ST_SetSRID(ST_GeomFromGeoJSON($5), 4326), $6::jsonb)
-    ON CONFLICT (code) DO UPDATE SET
-      parent_id   = EXCLUDED.parent_id,
-      admin_level = EXCLUDED.admin_level,
-      name        = EXCLUDED.name,
-      geom        = ST_SetSRID(ST_GeomFromGeoJSON($5), 4326),
-      metadata    = EXCLUDED.metadata,
-      is_active   = TRUE,
-      updated_at  = NOW()
-    RETURNING id
-  `, [parentId, adminLevel, code, name, geomJson, metaJson]);
+  const savepointName = `sp_${code.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  await client.query(`SAVEPOINT ${savepointName}`);
 
-  return result.rows[0].id;
+  try {
+    const result = await client.query(`
+      INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom, metadata)
+      VALUES ($1, $2::admin_level_enum, $3, $4, ST_SetSRID(ST_GeomFromGeoJSON($5), 4326), $6::jsonb)
+      ON CONFLICT (code) DO UPDATE SET
+        parent_id   = EXCLUDED.parent_id,
+        admin_level = EXCLUDED.admin_level,
+        name        = EXCLUDED.name,
+        geom        = ST_SetSRID(ST_GeomFromGeoJSON($5), 4326),
+        metadata    = EXCLUDED.metadata,
+        is_active   = TRUE,
+        updated_at  = NOW()
+      RETURNING id
+    `, [parentId, adminLevel, code, name, geomJson, metaJson]);
+
+    await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+    return result.rows[0].id;
+  } catch (err) {
+    await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+    throw err;
+  }
 }
 
 // ─── Step 1: Province ──────────────────────────────────────
@@ -346,6 +356,7 @@ async function importKelurahan(client, kecMap, kabMap) {
   let desaImported = 0;
   let desaFailed = 0;
   let desaSkipped = 0;
+  let desaUpdated = 0;
 
   for (const feature of desaFeatures) {
     const props = feature.properties;
@@ -380,24 +391,47 @@ async function importKelurahan(client, kecMap, kabMap) {
       continue;
     }
 
+    const spName = `sp_desa_${code.replace(/[^a-zA-Z0-9]/g, '_')}`;
     try {
-      await upsertBoundary(client, {
-        parentId, adminLevel: 'village', code, name, geom, metadata
-      });
-      desaImported++;
+      await client.query(`SAVEPOINT ${spName}`);
 
-      if (desaImported % 500 === 0) {
-        process.stdout.write(`   ✔ ${desaImported} desa imported...\r`);
+      // Check if already imported from kelurahan data — update metadata only (keep geometry from kelurahan)
+      const existing = await client.query(
+        'SELECT id FROM administrative_boundaries WHERE code = $1',
+        [code]
+      );
+
+      if (existing.rows.length > 0) {
+        // Merge desa metadata (population etc.) into existing kelurahan row
+        await client.query(`
+          UPDATE administrative_boundaries
+          SET metadata = metadata || $1::jsonb,
+              updated_at = NOW()
+          WHERE code = $2
+        `, [JSON.stringify(metadata), code]);
+        desaUpdated++;
+      } else {
+        await upsertBoundary(client, {
+          parentId, adminLevel: 'village', code, name, geom, metadata
+        });
+        desaImported++;
+      }
+
+      await client.query(`RELEASE SAVEPOINT ${spName}`);
+
+      if ((desaImported + desaUpdated) % 500 === 0) {
+        process.stdout.write(`   ✔ ${desaImported} new + ${desaUpdated} updated...\r`);
       }
     } catch (err) {
+      try { await client.query(`ROLLBACK TO SAVEPOINT ${spName}`); } catch (_) {}
       desaFailed++;
-      if (desaFailed <= 5) {
+      if (desaFailed <= 10) {
         console.error(`     ❌ [${code}] ${name}: ${err.message}`);
       }
     }
   }
 
-  console.log(`   → Total desa: ${desaImported}, failed: ${desaFailed}, skipped: ${desaSkipped}`);
+  console.log(`   → Desa: ${desaImported} new, ${desaUpdated} updated, ${desaFailed} failed, ${desaSkipped} skipped`);
 }
 
 // ─── Step 5: Update province geometry ──────────────────────
