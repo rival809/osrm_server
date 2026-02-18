@@ -220,7 +220,7 @@
     </div>
 
     <!-- double-click hint -->
-    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
+    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk drill down</div>
 
     <!-- Split panel -->
     <div id="split-panel">
@@ -239,7 +239,7 @@
         <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
         <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
-        <div class="legend-item"><span class="legend-color" style="background:#ec4899"></span> Kelurahan/Desa</div>
+        <div class="legend-item"><span class="legend-color" style="background:#ec4899"></span> Desa</div>
     </div>
 
     <!-- Toast -->
@@ -376,9 +376,9 @@
     const legend      = document.getElementById('legend');
     const bcEl        = document.getElementById('breadcrumb');
 
-    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan', village: 'Kel/Desa' };
+    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan', village: 'Desa' };
     const NEXT_LEVEL  = { city: 'district', district: 'village', village: null };
-    const DRILL_HINT  = { city: 'kecamatan', district: 'kelurahan/desa' };
+    const DRILL_HINT  = { city: 'kecamatan', district: 'desa' };
 
     // ── Breadcrumb ──────────────────────────────
     function renderBreadcrumb() {
@@ -396,9 +396,8 @@
         bcEl.innerHTML = html;
     }
 
-    // jumpTo(0) = back to root (only city), jumpTo(1) = keep city drill into drillStack[0], etc.
+    // jumpTo(0) = back to city root, jumpTo(1) = back to kecamatan (remove village)
     function jumpTo(depth) {
-        // Remove layers deeper than depth
         if (depth === 0) {
             removeLayerLevel('district');
             removeLayerLevel('village');
@@ -425,19 +424,26 @@
     function normProps(feature, level) {
         const p = feature.properties || {};
         if (level === 'city') {
-            // jabar.json format
             return {
-                name:   p.KABKOT  || p.name || '(tanpa nama)',
+                name:   p.KABKOT  || p.KABKOT || p.name || '(tanpa nama)',
                 p3d_id: p.ID_KAB  || p.id_kab || null,
                 level:  'city',
             };
-        } else {
-            // kecamatan dari API singsat
-            // Field name bisa bervariasi: name, kecamatan, nama_kecamatan
+        } else if (level === 'district') {
             return {
-                name:   p.name || p.kecamatan || p.nama_kecamatan || p.nama || '(tanpa nama)',
-                p3d_id: p.p3d_id || p.kd_wil_proses || null,
+                name:   p.nm_kecamatan || p.name || p.kecamatan || p.nama || '(tanpa nama)',
+                // kd_kecamatan = district_id, dipakai untuk drill ke desa
+                district_id: p.kd_kecamatan || p.district_id || p.kode || null,
+                p3d_id:      p.ID_KAB || p.p3d_id || null,
                 level:  'district',
+            };
+        } else {
+            // village
+            return {
+                name:   p.village || p.name || p.nama || '(tanpa nama)',
+                unique_code: p.unique_code || null,
+                p3d_id: p.p3d_id || null,
+                level:  'village',
             };
         }
     }
@@ -464,37 +470,40 @@
                     currentLevel = level;
                     selectBoundaryFeature(feature, layer, level);
                 });
-                // Double click → drill into kecamatan (only from city level)
+                // Double click → drill into next level
                 if (level === 'city') {
                     layer.on('dblclick', e => {
                         L.DomEvent.stop(e);
-                        const n = normProps(feature, level);
+                        const n = normProps(feature, 'city');
                         if (!n.p3d_id) { toast('p3d_id tidak ditemukan untuk wilayah ini', 'error'); return; }
                         closeBoundaryPanel();
                         drillInto('city', n.p3d_id, n.name);
+                    });
+                } else if (level === 'district') {
+                    layer.on('dblclick', e => {
+                        L.DomEvent.stop(e);
+                        const n = normProps(feature, 'district');
+                        if (!n.district_id) { toast('kode kecamatan tidak ditemukan', 'error'); return; }
+                        closeBoundaryPanel();
+                        drillIntoDesa(n.district_id, n.name);
                     });
                 }
             }
         });
     }
 
-    /** Drill into kecamatan layer by p3d_id */
+    /** Drill city → kecamatan */
     async function drillInto(fromLevel, p3dId, parentName) {
-        if (fromLevel !== 'city') return; // hanya support drill city → kecamatan
+        if (fromLevel !== 'city') return;
 
         removeLayerLevel('district');
         removeLayerLevel('village');
-        drillStack = [{ level: fromLevel, code: p3dId, name: parentName }];
+        drillStack = [{ level: 'city', code: p3dId, name: parentName }];
 
         try {
             const resp = await fetch(`${API_URL}/api/geojson/kecamatan/${encodeURIComponent(p3dId)}`);
             if (!resp.ok) throw new Error(`Data kecamatan untuk p3d_id ${p3dId} tidak ditemukan`);
-            const data = await resp.json();
-
-            // API singsat mengembalikan object dengan key 'data' atau langsung FeatureCollection
-            const geojson = data.type === 'FeatureCollection' ? data
-                          : data.data ? data.data
-                          : data;
+            const geojson = await resp.json();
 
             boundaryData.district = geojson;
             const layer = buildLayer('district', geojson);
@@ -505,7 +514,40 @@
 
             renderBreadcrumb();
             const count = geojson.features?.length || 0;
-            toast(`✅ ${count} kecamatan di ${parentName} dimuat`, 'success');
+            toast(`✅ ${count} kecamatan di ${parentName} · Double-klik untuk lihat desa`, 'success');
+
+        } catch (err) {
+            console.error(err);
+            toast(`❌ ${err.message}`, 'error');
+        }
+    }
+
+    /** Drill kecamatan → desa via /api/geojson/desa?kode=<district_id> */
+    async function drillIntoDesa(districtId, kecamatanName) {
+        removeLayerLevel('village');
+        drillStack = drillStack.slice(0, 1); // keep city entry
+        drillStack.push({ level: 'district', code: districtId, name: kecamatanName });
+
+        try {
+            const resp = await fetch(`${API_URL}/api/geojson/desa?kode=${encodeURIComponent(districtId)}`);
+            if (!resp.ok) throw new Error(`Data desa untuk kecamatan ${districtId} tidak ditemukan`);
+            const geojson = await resp.json();
+
+            const features = geojson.features || [];
+            if (!features.length) {
+                toast(`⚠️ Tidak ada data desa untuk kecamatan ${kecamatanName}`, 'error');
+                return;
+            }
+
+            boundaryData.village = geojson;
+            const layer = buildLayer('village', geojson);
+            boundaryLayers.village = layer;
+            layer.addTo(map);
+
+            if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+
+            renderBreadcrumb();
+            toast(`✅ ${features.length} desa di ${kecamatanName} dimuat`, 'success');
 
         } catch (err) {
             console.error(err);
@@ -532,6 +574,7 @@
             legend.classList.add('show');
             bcEl.classList.remove('show');
             const count = data.features?.length || 0;
+            const count = data.features?.length || 0;
             toast(`✅ ${count} Kab/Kota dimuat · Double-klik untuk lihat kecamatan`, 'success');
         } catch (err) {
             console.error(err);
@@ -541,6 +584,7 @@
 
     // Alias for split reload compatibility
     function loadBoundaries() { return loadAllBoundaries(); }
+    window.drillIntoDesa = drillIntoDesa;
 
     function clearBoundaries(hidePanel = true) {
         ['city','district','village'].forEach(lvl => {
@@ -575,14 +619,20 @@
         const body  = document.getElementById('bp-body');
         document.getElementById('bp-title').textContent = norm.name;
 
-        // Drill button hanya untuk level city
         const safeP3d  = String(norm.p3d_id || '').replace(/'/g, "\'");
         const safeName = norm.name.replace(/'/g, "\'");
-        const drillBtn = (level === 'city' && norm.p3d_id)
-            ? `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
+        const safeDistId = String(norm.district_id || '').replace(/'/g, "\'");
+
+        let drillBtn = '';
+        if (level === 'city' && norm.p3d_id) {
+            drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
                 onclick="drillInto('city','${safeP3d}','${safeName}');closeBoundaryPanel()">
-                &#9654; Tampilkan Kecamatan di Peta</button>`
-            : '';
+                &#9654; Tampilkan Kecamatan</button>`;
+        } else if (level === 'district' && norm.district_id) {
+            drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
+                onclick="drillIntoDesa('${safeDistId}','${safeName}');closeBoundaryPanel()">
+                &#9654; Tampilkan Desa</button>`;
+        }
 
         // Tampilkan semua properties asli
         const propsHtml = Object.entries(p)
@@ -598,6 +648,7 @@
         selectedFeature = null;
     };
     window.drillInto = drillInto;
+    window.drillIntoDesa = drillIntoDesa;
 
     async function fetchBoundaryDetail(id) {
         try {
