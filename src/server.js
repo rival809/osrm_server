@@ -8,6 +8,8 @@ const logger = require('./logger');
 const MemoryMonitor = require('./memoryMonitor');
 const { checkHealth: checkPostGIS } = require('./db');
 const boundaryRoutes = require('./boundaryRoutes');
+const fs = require('fs');
+const path = require('path');
 
 // Initialize Express
 const app = express();
@@ -54,6 +56,28 @@ app.use(express.static('public'));
 
 // Administrative Boundary API
 app.use('/api/boundaries', boundaryRoutes);
+
+// ── Static GeoJSON file routes ──────────────────────────────────
+
+const BOUNDARIES_DIR = path.join(__dirname, '..', 'data', 'boundaries');
+
+/** GET /api/geojson/kabupaten → jabar.json (layer per kab/kota) */
+app.get('/api/geojson/kabupaten', (req, res) => {
+  const filePath = path.join(BOUNDARIES_DIR, 'jabar.json');
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'File not found' });
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.sendFile(filePath);
+});
+
+/** GET /api/geojson/kecamatan/:p3d_id → kab/{p3d_id}.json (layer per kecamatan) */
+app.get('/api/geojson/kecamatan/:p3d_id', (req, res) => {
+  const { p3d_id } = req.params;
+  if (!/^\d+$/.test(p3d_id)) return res.status(400).json({ success: false, error: 'Invalid p3d_id' });
+  const filePath = path.join(BOUNDARIES_DIR, 'kab', `${p3d_id}.json`);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: `Data for p3d_id ${p3d_id} not found` });
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.sendFile(filePath);
+});
 
 // OSRM URL
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
