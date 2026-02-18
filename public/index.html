@@ -104,6 +104,24 @@
         }
         .bp-children .child-item:hover { background: #e8eaff; }
 
+        /* Breadcrumb */
+        #breadcrumb {
+            padding: 6px 14px; background: #f0f2ff; border-bottom: 1px solid #dde;
+            font-size: 12px; display: none; flex-wrap: wrap; gap: 2px; align-items: center;
+        }
+        #breadcrumb.show { display: flex; }
+        .bc-item { color: #667eea; cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+        .bc-item:hover { background: #dde3ff; }
+        .bc-sep { color: #aaa; padding: 0 2px; }
+        .bc-current { color: #333; font-weight: 600; padding: 2px 4px; }
+        .dblclick-hint {
+            position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.65); color: white; padding: 6px 14px;
+            border-radius: 20px; font-size: 12px; z-index: 999; pointer-events: none;
+            opacity: 0; transition: opacity .4s;
+        }
+        .dblclick-hint.show { opacity: 1; }
+
         /* ── Split panel ─────────────────────────── */
         #split-panel {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -175,22 +193,11 @@
 
     <!-- Tab Panel: Boundaries -->
     <div id="panel-boundaries" class="tab-panel">
-        <div class="input-group">
-            <label>Level:</label>
-            <select id="boundaryLevel">
-                <option value="province">Provinsi</option>
-                <option value="city" selected>Kota / Kabupaten</option>
-                <option value="district">Kecamatan</option>
-            </select>
-        </div>
-        <div class="input-group">
-            <label>Parent:</label>
-            <input type="text" id="boundaryParent" placeholder="Kode (opsional)" value="">
-        </div>
-        <button id="loadBoundaryBtn">📥 Muat Layer</button>
+        <div id="breadcrumb"></div>
         <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
         <div class="separator"></div>
         <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
+        <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk drill down</span>
     </div>
 
     <div id="map"></div>
@@ -212,6 +219,9 @@
         <div class="bp-body" id="bp-body"></div>
     </div>
 
+    <!-- double-click hint -->
+    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
+
     <!-- Split panel -->
     <div id="split-panel">
         <h4>✂️ Split Wilayah</h4>
@@ -229,6 +239,7 @@
         <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
         <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
+        <div class="legend-item"><span class="legend-color" style="background:#ec4899"></span> Kelurahan/Desa</div>
     </div>
 
     <!-- Toast -->
@@ -263,6 +274,8 @@
     let boundaryData  = null;          // raw GeoJSON FeatureCollection
     let selectedFeature = null;        // currently highlighted feature
     let highlightLayer  = null;        // highlight overlay
+    let currentLevel    = 'city';      // current loaded level
+    let breadcrumbStack = [];          // [{level, code, name}]
 
     // ── Split state ─────────────────────────────
     let splitMode       = false;
@@ -276,19 +289,12 @@
         province: { fill: '#667eea', border: '#4c5fd7', weight: 2.5 },
         city:     { fill: '#f59e0b', border: '#d97706', weight: 2 },
         district: { fill: '#10b981', border: '#059669', weight: 1.5 },
+        village:  { fill: '#ec4899', border: '#db2777', weight: 1 },
     };
 
     // ════════════════════════════════════════════════════════
-    //  TABS
+    //  TABS  (handled later in BOUNDARY section with auto-load)
     // ════════════════════════════════════════════════════════
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-            btn.classList.add('active');
-            document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
-        });
-    });
 
     // ════════════════════════════════════════════════════════
     //  TOAST
@@ -365,34 +371,66 @@
     // ════════════════════════════════════════════════════════
     //  BOUNDARY LAYER
     // ════════════════════════════════════════════════════════
-    const boundaryLevel  = document.getElementById('boundaryLevel');
-    const boundaryParent = document.getElementById('boundaryParent');
-    const loadBtn        = document.getElementById('loadBoundaryBtn');
-    const clearBndBtn    = document.getElementById('clearBoundaryBtn');
-    const legend         = document.getElementById('legend');
+    const clearBndBtn = document.getElementById('clearBoundaryBtn');
+    const legend      = document.getElementById('legend');
+    const hintEl      = document.getElementById('dblclick-hint');
+    const bcEl        = document.getElementById('breadcrumb');
 
-    async function loadBoundaries() {
-        const level      = boundaryLevel.value;
-        const parentCode = boundaryParent.value.trim() || undefined;
-        const zoom       = map.getZoom();
+    const NEXT_LEVEL = { city: 'district', district: 'village', village: null };
+    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan', village: 'Kel/Desa' };
+    const DRILL_HINT  = { city: 'kecamatan', district: 'kelurahan/desa', village: null };
 
-        loadBtn.disabled = true;
-        loadBtn.textContent = '⏳ Memuat...';
+    function showHint(level) {
+        const next = DRILL_HINT[level];
+        if (!next) return;
+        hintEl.textContent = `Double-klik wilayah untuk lihat ${next}`;
+        hintEl.classList.add('show');
+        setTimeout(() => hintEl.classList.remove('show'), 3000);
+    }
+
+    function renderBreadcrumb() {
+        if (!breadcrumbStack.length) { bcEl.classList.remove('show'); return; }
+        bcEl.classList.add('show');
+        // First item always = Kab/Kota (root)
+        let html = `<span class="bc-item" onclick="breadcrumbJump(0)">Kab/Kota</span>`;
+        breadcrumbStack.forEach((item, i) => {
+            html += `<span class="bc-sep">›</span>`;
+            if (i === breadcrumbStack.length - 1) {
+                html += `<span class="bc-current">${item.name}</span>`;
+            } else {
+                html += `<span class="bc-item" onclick="breadcrumbJump(${i + 1})">${item.name}</span>`;
+            }
+        });
+        bcEl.innerHTML = html;
+    }
+
+    function breadcrumbJump(depth) {
+        // depth=0 → back to root (city), depth=1 → first drill, etc.
+        if (depth === 0) {
+            breadcrumbStack = [];
+            loadBoundaries('city', null);
+        } else {
+            const item = breadcrumbStack[depth - 1];
+            breadcrumbStack = breadcrumbStack.slice(0, depth);
+            loadBoundaries(NEXT_LEVEL[item.level] || item.level, item.code);
+        }
+    }
+
+    async function loadBoundaries(level, parentCode) {
+        currentLevel = level || 'city';
+        const zoom   = map.getZoom();
 
         try {
-            let url = `${API_URL}/api/boundaries/${level}?zoom=${zoom}`;
+            let url = `${API_URL}/api/boundaries/${currentLevel}?zoom=${zoom}`;
             if (parentCode) url += `&parent_code=${encodeURIComponent(parentCode)}`;
 
             const resp = await fetch(url);
             const data = await resp.json();
-
             if (!data.success) throw new Error(data.error || 'Gagal memuat boundary');
 
-            // Remove existing layer
             clearBoundaries(false);
-
             boundaryData = data;
-            const colors = COLORS[level] || COLORS.city;
+            const colors = COLORS[currentLevel] || COLORS.city;
 
             boundaryLayer = L.geoJSON(data, {
                 style: () => ({
@@ -402,32 +440,40 @@
                     weight: colors.weight,
                 }),
                 onEachFeature: (feature, layer) => {
-                    // Tooltip with name
                     layer.bindTooltip(feature.properties.name, {
                         sticky: true, className: 'boundary-tooltip', direction: 'top'
                     });
-                    // Click to show detail
+                    // Single click → show detail panel
                     layer.on('click', e => {
                         L.DomEvent.stopPropagation(e);
                         selectBoundaryFeature(feature, layer);
                     });
+                    // Double click → drill down to next level
+                    layer.on('dblclick', e => {
+                        L.DomEvent.stopPropagation(e);
+                        const next = NEXT_LEVEL[currentLevel];
+                        if (!next) { toast('Sudah di level terdalam (kelurahan/desa)', 'error'); return; }
+                        const p = feature.properties;
+                        breadcrumbStack.push({ level: currentLevel, code: p.code, name: p.name });
+                        renderBreadcrumb();
+                        closeBoundaryPanel();
+                        loadBoundaries(next, p.code);
+                    });
                 }
             }).addTo(map);
 
-            // Fit map to bounds
             if (boundaryLayer.getBounds().isValid()) {
                 map.fitBounds(boundaryLayer.getBounds(), { padding: [40, 40] });
             }
 
             legend.classList.add('show');
-            toast(`✅ ${data.features?.length || 0} wilayah dimuat`, 'success');
+            renderBreadcrumb();
+            showHint(currentLevel);
+            toast(`✅ ${data.features?.length || 0} ${LEVEL_LABEL[currentLevel]} dimuat`, 'success');
 
         } catch (err) {
             console.error(err);
             toast(`❌ ${err.message}`, 'error');
-        } finally {
-            loadBtn.disabled = false;
-            loadBtn.textContent = '📥 Muat Layer';
         }
     }
 
@@ -499,21 +545,67 @@
 
     /** Drill down: load children of a clicked sub-region */
     function drillDown(code) {
-        // Determine next level
-        const cur = boundaryLevel.value;
-        const next = cur === 'province' ? 'city' : cur === 'city' ? 'district' : null;
-        if (!next) { toast('Tidak ada sub-level lagi', 'error'); return; }
-        boundaryLevel.value = next;
-        boundaryParent.value = code;
-        loadBoundaries();
+        const next = NEXT_LEVEL[currentLevel];
+        if (!next) { toast('Sudah di level terdalam', 'error'); return; }
+        const feature = boundaryData?.features?.find(f => f.properties.code === code);
+        const name = feature?.properties?.name || code;
+        breadcrumbStack.push({ level: currentLevel, code, name });
+        renderBreadcrumb();
         closeBoundaryPanel();
+        loadBoundaries(next, code);
     }
 
-    loadBtn.addEventListener('click', loadBoundaries);
-    clearBndBtn.addEventListener('click', () => clearBoundaries(true));
+    clearBndBtn.addEventListener('click', () => {
+        breadcrumbStack = [];
+        clearBoundaries(true);
+    });
+
+    // Auto-load kab/kota saat tab Boundaries dibuka
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+            if (btn.dataset.tab === 'boundaries' && !boundaryLayer) {
+                loadBoundaries('city', null);
+            }
+        });
+    });
+    // ════════════════════════════════════════════════════════
+    const lookupPopup = L.popup({ maxWidth: 280 });
+
+    map.on('contextmenu', async e => {
+        const { lat, lng } = e.latlng;
+        lookupPopup.setLatLng(e.latlng).setContent('<i>Mencari wilayah...</i>').openOn(map);
+
+        try {
+            const resp = await fetch(`${API_URL}/api/boundaries/lookup?lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`);
+            const data = await resp.json();
+
+            if (!data.success || !data.results.length) {
+                lookupPopup.setContent('<b>Tidak ditemukan</b><br>Koordinat di luar boundary yang tersedia.');
+                return;
+            }
+
+            const levelLabel = { province: 'Provinsi', city: 'Kota/Kab', district: 'Kecamatan', village: 'Kel/Desa' };
+            let rows = data.results.map(r =>
+                `<tr><td style="color:#888;padding:2px 6px 2px 0">${levelLabel[r.admin_level] || r.admin_level}</td>
+                 <td style="font-weight:600">${r.name}</td>
+                 <td style="color:#aaa;font-size:11px;padding-left:4px">${r.code}</td></tr>`
+            ).join('');
+
+            lookupPopup.setContent(`
+                <b>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</b>
+                <table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>
+            `);
+        } catch (err) {
+            lookupPopup.setContent(`❌ ${err.message}`);
+        }
+    });
 
     // ════════════════════════════════════════════════════════
-    //  POLYGON SPLIT
+    //  COORDINATE LOOKUP (right-click)
     // ════════════════════════════════════════════════════════
     const splitModeBtn   = document.getElementById('splitModeBtn');
     const splitPanel     = document.getElementById('split-panel');
@@ -522,7 +614,8 @@
     const splitInputsDiv = document.getElementById('split-inputs');
     const splitLabel     = document.getElementById('split-target-label');
 
-    splitModeBtn.addEventListener('click', () => {
+    // ════════════════════════════════════════════════════════
+    //  POLYGON SPLIT
         if (!boundaryLayer) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
         if (splitMode) { cancelSplit(); return; }
         splitMode = true;
@@ -545,7 +638,6 @@
                 startDrawing();
             });
         });
-    });
 
     function startDrawing() {
         splitPoints = [];
@@ -631,8 +723,8 @@
 
             toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
             cancelSplit();
-            // Reload layer
-            loadBoundaries();
+            // Reload layer — pakai level & parent yang sama
+            loadBoundaries(currentLevel, breadcrumbStack.length ? breadcrumbStack[breadcrumbStack.length-1].code : null);
 
         } catch (err) {
             console.error(err);
