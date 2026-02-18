@@ -573,6 +573,8 @@
         });
     });
     // ════════════════════════════════════════════════════════
+    //  COORDINATE LOOKUP (right-click)
+    // ════════════════════════════════════════════════════════
     const lookupPopup = L.popup({ maxWidth: 280 });
 
     map.on('contextmenu', async e => {
@@ -605,7 +607,7 @@
     });
 
     // ════════════════════════════════════════════════════════
-    //  COORDINATE LOOKUP (right-click)
+    //  POLYGON SPLIT
     // ════════════════════════════════════════════════════════
     const splitModeBtn   = document.getElementById('splitModeBtn');
     const splitPanel     = document.getElementById('split-panel');
@@ -614,8 +616,7 @@
     const splitInputsDiv = document.getElementById('split-inputs');
     const splitLabel     = document.getElementById('split-target-label');
 
-    // ════════════════════════════════════════════════════════
-    //  POLYGON SPLIT
+    splitModeBtn.addEventListener('click', () => {
         if (!boundaryLayer) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
         if (splitMode) { cancelSplit(); return; }
         splitMode = true;
@@ -638,6 +639,7 @@
                 startDrawing();
             });
         });
+    });
 
     function startDrawing() {
         splitPoints = [];
