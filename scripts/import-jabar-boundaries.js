@@ -76,12 +76,12 @@ async function upsertBoundary(client, { parentId, adminLevel, code, name, geom, 
   try {
     const result = await client.query(`
       INSERT INTO administrative_boundaries (parent_id, admin_level, code, name, geom, metadata)
-      VALUES ($1, $2::admin_level_enum, $3, $4, ST_SetSRID(ST_GeomFromGeoJSON($5), 4326), $6::jsonb)
+      VALUES ($1, $2::admin_level_enum, $3, $4, ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)), $6::jsonb)
       ON CONFLICT (code) DO UPDATE SET
         parent_id   = EXCLUDED.parent_id,
         admin_level = EXCLUDED.admin_level,
         name        = EXCLUDED.name,
-        geom        = ST_SetSRID(ST_GeomFromGeoJSON($5), 4326),
+        geom        = ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($5), 4326)),
         metadata    = EXCLUDED.metadata,
         is_active   = TRUE,
         updated_at  = NOW()
