@@ -161,6 +161,11 @@
         .toast.show { opacity: 1; }
         .toast.error { background: #ef4444; }
         .toast.success { background: #22c55e; }
+
+        /* Fix: suppress browser focus outline on Leaflet SVG paths */
+        .leaflet-container path:focus,
+        .leaflet-overlay-pane svg:focus,
+        .leaflet-overlay-pane path:focus { outline: none !important; }
     </style>
 </head>
 <body>
