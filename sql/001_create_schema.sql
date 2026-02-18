@@ -13,7 +13,7 @@ DROP TABLE IF EXISTS administrative_boundaries CASCADE;
 DROP TYPE IF EXISTS admin_level_enum CASCADE;
 
 -- Enum for administrative levels
-CREATE TYPE admin_level_enum AS ENUM ('province', 'city', 'district');
+CREATE TYPE admin_level_enum AS ENUM ('province', 'city', 'district', 'village');
 
 -- Main table
 CREATE TABLE administrative_boundaries (
@@ -94,8 +94,8 @@ CREATE TRIGGER trg_boundaries_insert
     BEFORE INSERT ON administrative_boundaries
     FOR EACH ROW EXECUTE FUNCTION fn_boundaries_before_insert();
 
--- Seed data dihapus — gunakan script import-boundaries.js
--- untuk import data boundary asli dari GADM GeoJSON.
--- Lihat: scripts/import-boundaries.js
+-- Seed data dihapus — gunakan script import untuk load data.
+-- Data Jabar (BPS): scripts/import-jabar-boundaries.js
+-- Data GADM:        scripts/import-boundaries.js
 
-SELECT 'Schema created successfully. Run import-boundaries.js to load real data.' AS status;
+SELECT 'Schema created successfully. Run import-jabar-boundaries.js to load Jabar BPS data.' AS status;

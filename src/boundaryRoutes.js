@@ -37,13 +37,13 @@ function simplifyForZoom(zoom) {
 }
 
 // ─── GET /api/boundaries/:level ────────────────────────────────
-// level = province | city | district
+// level = province | city | district | village
 // Optional query params: parent_code, zoom, bbox (minLon,minLat,maxLon,maxLat)
 
 router.get(
   '/:level',
   [
-    param('level').isIn(['province', 'city', 'district']).withMessage('Level must be province, city, or district'),
+    param('level').isIn(['province', 'city', 'district', 'village']).withMessage('Level must be province, city, district, or village'),
     query('parent_code').optional().isString(),
     query('zoom').optional().isInt({ min: 0, max: 20 }),
     query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/),
@@ -139,7 +139,7 @@ router.get(
   [
     query('lat').isFloat({ min: -90, max: 90 }).withMessage('Invalid latitude'),
     query('lon').isFloat({ min: -180, max: 180 }).withMessage('Invalid longitude'),
-    query('level').optional().isIn(['province', 'city', 'district']),
+    query('level').optional().isIn(['province', 'city', 'district', 'village']),
     handleValidation,
   ],
   async (req, res) => {
