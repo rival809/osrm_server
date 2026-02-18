@@ -221,9 +221,12 @@ async function importKecamatan(client, kabMap) {
 
     for (const feature of features) {
       const props = feature.properties;
-      // Build kecamatan code: kabCode + 2-digit kecamatan
-      const kecNum = String(parseInt(props.kd_kecamatan, 10)).padStart(2, '0');
-      const code   = kabCode + kecNum;   // e.g. "320104"
+      // Build kecamatan code: kd_propinsi(2) + kd_dati2(2) + kd_kecamatan(3) = 7 digits
+      // e.g. "32" + "01" + "004" = "3201004"
+      const provNum = props.kd_propinsi.padStart(2, '0');
+      const kabNum  = props.kd_dati2.padStart(2, '0');
+      const kecNum  = props.kd_kecamatan.padStart(3, '0');
+      const code   = provNum + kabNum + kecNum;   // e.g. "3201004"
       const name   = props.nm_kecamatan || `Kecamatan ${kecNum}`;
       const geom   = ensureMultiPolygon(feature.geometry);
 
@@ -287,11 +290,14 @@ async function importKelurahan(client, kecMap, kabMap) {
       for (const feature of features) {
         const props = feature.properties;
 
-        // Build codes
-        const kecNum = String(parseInt(props.kd_kecamatan, 10)).padStart(2, '0');
-        const kelNum = String(parseInt(props.kd_kelurahan, 10)).padStart(4, '0');
-        const kecCode = kabCode + kecNum;                // e.g. "320124"
-        const code    = kecCode + kelNum;                // e.g. "3201240011"
+        // Build codes: kd_propinsi(2) + kd_dati2(2) + kd_kecamatan(3) + kd_kelurahan(3) = 10 digits
+        // e.g. "32" + "01" + "024" + "011" = "3201024011"
+        const provNum = props.kd_propinsi.padStart(2, '0');
+        const kabNum  = props.kd_dati2.padStart(2, '0');
+        const kecNum  = props.kd_kecamatan.padStart(3, '0');
+        const kelNum  = props.kd_kelurahan.padStart(3, '0');
+        const kecCode = provNum + kabNum + kecNum;       // e.g. "3201024"
+        const code    = kecCode + kelNum;                // e.g. "3201024011"
         const name    = props.nm_kelurahan || `Kelurahan ${kelNum}`;
         const geom    = ensureMultiPolygon(feature.geometry);
 
