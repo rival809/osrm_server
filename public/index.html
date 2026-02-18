@@ -442,7 +442,7 @@
                 const next = NEXT_LEVEL[level];
                 if (next) {
                     layer.on('dblclick', e => {
-                        L.DomEvent.stopPropagation(e);
+                        L.DomEvent.stop(e);   // stop propagation + preventDefault — prevents map zoom
                         const p = feature.properties;
                         closeBoundaryPanel();
                         drillInto(level, p.code, p.name);
@@ -507,6 +507,7 @@
             const layer = buildLayer('city', data);
             boundaryLayers.city = layer;
             layer.addTo(map);
+            map.doubleClickZoom.disable(); // disable map zoom on dblclick while boundary active
 
             if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [40, 40] });
             legend.classList.add('show');
@@ -530,6 +531,7 @@
         boundaryData = {};
         drillStack = [];
         selectedFeature = null;
+        map.doubleClickZoom.enable(); // restore zoom when boundaries cleared
         if (hidePanel) {
             closeBoundaryPanel();
             legend.classList.remove('show');
@@ -553,20 +555,34 @@
         const body  = document.getElementById('bp-body');
         document.getElementById('bp-title').textContent = p.name;
 
+        const nextLevel = NEXT_LEVEL[p.admin_level];
+        const nextLabel = nextLevel ? LEVEL_LABEL[nextLevel] : null;
+
+        // "Tampilkan di Peta" button — only if next level exists
+        const drillBtn = nextLabel
+            ? `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
+                onclick="drillInto('${p.admin_level}','${p.code}','${p.name.replace(/'/g,"\\'")}');closeBoundaryPanel()">
+                ▶ Tampilkan ${nextLabel} di Peta</button>`
+            : '';
+
         let html = `
+            ${drillBtn}
             <p><span class="label">Kode:</span> <span class="value">${p.code}</span></p>
-            <p><span class="label">Level:</span> <span class="value">${p.admin_level}</span></p>
+            <p><span class="label">Level:</span> <span class="value">${LEVEL_LABEL[p.admin_level] || p.admin_level}</span></p>
             <p><span class="label">Luas:</span> <span class="value">${p.area_km2 ?? '-'} km²</span></p>
             <p><span class="label">Populasi:</span> <span class="value">${p.population ?? '-'}</span></p>
             <p><span class="label">ID:</span> <span class="value">${p.id}</span></p>
         `;
 
-        // Load detail for children list
+        // Load children list (informational only)
         fetchBoundaryDetail(p.id).then(detail => {
             if (detail && detail.properties?.children?.length) {
-                let childHtml = '<div class="bp-children"><p class="label" style="margin-bottom:4px">Sub-wilayah:</p>';
+                const childLabel = nextLabel || 'Sub-wilayah';
+                let childHtml = `<div class="bp-children"><p class="label" style="margin-bottom:4px">${childLabel}:</p>`;
                 detail.properties.children.forEach(c => {
-                    childHtml += `<div class="child-item" onclick="drillDown('${c.code}')">${c.code} — ${c.name}</div>`;
+                    // Click on child item: drill into that specific child's sub-level
+                    const childNext = NEXT_LEVEL[p.admin_level]; // e.g. 'district' when viewing 'city'
+                    childHtml += `<div class="child-item" onclick="drillInto('${p.admin_level}','${p.code}','${p.name.replace(/'/g,"\\'")}');closeBoundaryPanel()">${c.code} — ${c.name}</div>`;
                 });
                 childHtml += '</div>';
                 body.innerHTML = html + childHtml;
@@ -576,12 +592,12 @@
         body.innerHTML = html;
         panel.classList.add('show');
     }
-
-    function closeBoundaryPanel() {
+    window.closeBoundaryPanel = () => {
         document.getElementById('boundary-panel').classList.remove('show');
         if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
         selectedFeature = null;
-    }
+    };
+    window.drillInto = drillInto;
 
     async function fetchBoundaryDetail(id) {
         try {
@@ -590,16 +606,6 @@
             return data.success !== false ? data : null;
         } catch { return null; }
     }
-
-    /** drillDown from panel child-list click */
-    function drillDown(code) {
-        // Find which level & feature owns this code
-        for (const [lvl, fc] of Object.entries(boundaryData)) {
-            const feat = fc?.features?.find(f => f.properties.code === code);
-            if (feat) { drillInto(lvl, code, feat.properties.name); return; }
-        }
-    }
-    window.drillDown = drillDown;
 
     clearBndBtn.addEventListener('click', () => {
         clearBoundaries(true);
