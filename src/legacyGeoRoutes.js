@@ -64,10 +64,21 @@ router.get('/api/geojson/desa', async (req, res) => {
 // ═══════════════════════════════════════════════════════
 //  GET /api/geojson/kabupaten
 //  Queries province_boundaries table.
-//  Optional filter: ?p3d_id=10200
+//  No param          → all kabupaten
+//  ?p3d_id=10200     → single kabupaten (backward compat)
+//  ?ids=10200,10300  → multiple kabupaten (comma-separated kd_wil)
 // ═══════════════════════════════════════════════════════
 router.get('/api/geojson/kabupaten', async (req, res) => {
-  const p3dId = (req.query.p3d_id || req.p3dId || '').toString().trim() || null;
+  const singleId  = (req.query.p3d_id || '').toString().trim();
+  const idsParam  = (req.query.ids   || '').trim();
+  const parsedIds = idsParam
+    ? idsParam.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
+    : [];
+
+  // Build filter array: single id takes precedence, then multi-ids, then null = all
+  const filterIds = singleId
+    ? [singleId]
+    : parsedIds.length > 0 ? parsedIds : null;
 
   const sql = `
     SELECT json_build_object(
@@ -96,11 +107,11 @@ router.get('/api/geojson/kabupaten', async (req, res) => {
       )
     ) AS fc
     FROM province_boundaries
-    WHERE ($1::text IS NULL OR p3d_id = $1::text)
+    WHERE ($1::text[] IS NULL OR p3d_id = ANY($1::text[]))
   `;
 
   try {
-    const { rows } = await pool.query(sql, [p3dId]);
+    const { rows } = await pool.query(sql, [filterIds]);
     const fc = rows[0]?.fc;
     if (!fc) return res.status(404).json({ error: 'No province data found' });
     res.set('Cache-Control', 'public, max-age=3600');

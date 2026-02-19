@@ -218,6 +218,10 @@
     <!-- Tab Panel: Boundaries -->
     <div id="panel-boundaries" class="tab-panel">
         <div id="breadcrumb"></div>
+        <div class="input-group">
+            <input type="text" id="kdWilInput" placeholder="kd_wil (misal: 12020, 12030)" style="width:220px" title="Kosongkan untuk muat semua kabupaten">
+            <button id="muatKabBtn" title="Muat kabupaten sesuai kd_wil (kosong = semua)">🔍 Muat</button>
+        </div>
         <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
         <button id="allKecamatanBtn" class="btn-outline" style="display:none" title="Muat kecamatan dari semua kabupaten sekaligus">🗺️ Semua Kecamatan</button>
         <button id="clearKecamatanBtn" class="btn-outline" style="display:none" title="Hapus semua layer kecamatan">✕ Hapus Kecamatan</button>
@@ -689,10 +693,13 @@
     }
     window.loadAllKecamatan = loadAllKecamatan;
 
-    async function loadAllBoundaries() {
+    async function loadAllBoundaries(ids = []) {
         clearBoundaries(false);
+        const btn = document.getElementById('muatKabBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
         try {
-            const resp = await fetch(`${API_URL}/api/geojson/kabupaten`);
+            const qs   = ids.length > 0 ? `?ids=${ids.join(',')}` : '';
+            const resp = await fetch(`${API_URL}/api/geojson/kabupaten${qs}`);
             if (!resp.ok) throw new Error('Gagal memuat data kabupaten');
             const data = await resp.json();
             addBoundaryLevel('city', data);
@@ -702,8 +709,10 @@
             bcEl.classList.remove('show');
             const allKecBtn = document.getElementById('allKecamatanBtn');
             if (allKecBtn) allKecBtn.style.display = '';
-            toast(`✅ ${data.features?.length||0} Kab/Kota dimuat · Klik wilayah untuk toggle kecamatan`, 'success');
+            const label = ids.length > 0 ? `${data.features?.length||0} Kab/Kota (filter: ${ids.join(', ')})` : `${data.features?.length||0} Kab/Kota`;
+            toast(`✅ ${label} dimuat · Klik wilayah untuk toggle kecamatan`, 'success');
         } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
+        finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Muat'; } }
     }
 
     function loadBoundaries() { return loadAllBoundaries(); }
@@ -751,6 +760,18 @@
     };
 
     clearBndBtn.addEventListener('click', () => clearBoundaries(true));
+
+    const muatKabBtn = document.getElementById('muatKabBtn');
+    if (muatKabBtn) {
+        muatKabBtn.addEventListener('click', () => {
+            const raw = (document.getElementById('kdWilInput')?.value || '').trim();
+            const ids = raw ? raw.split(/[,\s]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s)) : [];
+            loadAllBoundaries(ids);
+        });
+        document.getElementById('kdWilInput')?.addEventListener('keypress', e => {
+            if (e.key === 'Enter') muatKabBtn.click();
+        });
+    }
 
     const allKecamatanBtn  = document.getElementById('allKecamatanBtn');
     const clearKecamatanBtn = document.getElementById('clearKecamatanBtn');
