@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSRM Tile Service - Jawa</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -266,7 +267,8 @@
     <div class="toast" id="toast"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
+    <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
     <script>
     // ════════════════════════════════════════════════════════
     //  GLOBALS
@@ -286,21 +288,9 @@
     }
 
     function buildVectorLayer() {
-        return L.vectorGrid.protobuf(`${API_URL}/tiles/pbf/{z}/{x}/{y}.pbf`, {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 18, minZoom: 2, maxNativeZoom: 14,
-            vectorTileLayerStyles: {
-                // style semua layer dengan warna default
-                '*': (properties, zoom) => ({
-                    weight: 0.5,
-                    color: '#aaa',
-                    fillColor: '#f0ede8',
-                    fill: true,
-                    fillOpacity: 1,
-                    opacity: 1
-                })
-            },
-            interactive: false
+        return L.maplibreGL({
+            style: `${API_URL}/tiles/style.json`,
+            attribution: '&copy; OpenMapTiles &copy; OpenStreetMap contributors',
         });
     }
 

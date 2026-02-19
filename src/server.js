@@ -578,6 +578,39 @@ app.get('/tiles/pbf/:z/:x/:y.pbf', async (req, res) => {
 
 // No helper functions needed for lightweight proxy mode
 
+/**
+ * Proxy tileserver style.json, rewriting tile source URLs to go through our PBF proxy.
+ * GET /tiles/style.json
+ */
+app.get('/tiles/style.json', async (req, res) => {
+  try {
+    const styleUrl = `${new URL(TILE_SERVER_URL).origin}/styles/basic-preview/style.json`;
+    const response = await axios.get(styleUrl, { timeout: 10000 });
+    const style = response.data;
+
+    // Rewrite vector tile sources to use our proxy endpoint
+    if (style.sources) {
+      for (const src of Object.values(style.sources)) {
+        if (src.tiles) {
+          src.tiles = src.tiles.map(t =>
+            t.replace(/^https?:\/\/[^/]+\/data\/[^/]+\//, `${req.protocol}://${req.get('host')}/tiles/pbf/`)
+          );
+        }
+        if (src.url) {
+          src.url = src.url.replace(/^https?:\/\/[^/]+/, `${req.protocol}://${req.get('host')}`);
+        }
+      }
+    }
+
+    res.set('Content-Type', 'application/json');
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(style);
+  } catch (error) {
+    logger.error('Style proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch style.json', message: error.message });
+  }
+});
+
 // Graceful shutdown handling
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
