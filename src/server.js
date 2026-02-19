@@ -606,6 +606,40 @@ app.get('/data/:name.json', async (req, res) => {
 });
 
 /**
+ * Proxy fonts from tileserver (used by MapLibre GL for label rendering).
+ * GET /fonts/*
+ */
+app.get('/fonts/*', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const fontUrl = `${tileBase}/fonts/${req.params[0]}`;
+    const response = await axios.get(fontUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    res.set('Content-Type', response.headers['content-type'] || 'application/x-protobuf');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(response.data));
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch font', message: error.message });
+  }
+});
+
+/**
+ * Proxy sprites from tileserver (used by MapLibre GL for icons).
+ * GET /sprites/*
+ */
+app.get('/sprites/*', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const spriteUrl = `${tileBase}/sprites/${req.params[0]}`;
+    const response = await axios.get(spriteUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    res.set('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(response.data));
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch sprite', message: error.message });
+  }
+});
+
+/**
  * Proxy tileserver style.json, rewriting tile source URLs to go through our PBF proxy.
  * GET /tiles/style.json
  */
@@ -627,6 +661,13 @@ app.get('/tiles/style.json', async (req, res) => {
           src.url = src.url.replace(/^https?:\/\/[^/]+/, `${req.protocol}://${req.get('host')}`);
         }
       }
+    }
+    // Rewrite glyphs (fonts) and sprites URLs
+    const origin = `${req.protocol}://${req.get('host')}`;
+    if (style.glyphs) style.glyphs = style.glyphs.replace(/^https?:\/\/[^/]+/, origin);
+    if (style.sprite) style.sprite = style.sprite.replace(/^https?:\/\/[^/]+/, origin);
+    if (Array.isArray(style.sprite)) {
+      style.sprite = style.sprite.map(s => ({ ...s, url: s.url.replace(/^https?:\/\/[^/]+/, origin) }));
     }
 
     res.set('Content-Type', 'application/json');

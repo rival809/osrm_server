@@ -299,7 +299,7 @@
         tileMode = mode;
         baseLayer = mode === 'pbf' ? buildVectorLayer() : buildPngLayer();
         baseLayer.addTo(map);
-        baseLayer.bringToBack();
+        if (baseLayer.bringToBack) baseLayer.bringToBack();
         document.getElementById('mode-png').classList.toggle('active', mode === 'png');
         document.getElementById('mode-pbf').classList.toggle('active', mode === 'pbf');
     }
