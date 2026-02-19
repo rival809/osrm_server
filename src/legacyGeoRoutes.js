@@ -2,9 +2,10 @@
  * GeoJSON Routes
  *
  * GET  /api/geojson/kabupaten              → province_boundaries (kabupaten/kota)
+ * GET  /api/geojson/kabupaten              → province_boundaries (kabupaten/kota)
  * GET  /api/geojson/kecamatan              → all district_boundaries
  * GET  /api/geojson/kecamatan?ids=a,b,c   → district_boundaries for specific p3d_ids
- * GET  /api/geojson/kecamatan/:p3d_id      → district_boundaries by kabupaten p3d_id
+ * GET  /api/geojson/kecamatan?kd_wil=X    → district_boundaries by kabupaten p3d_id (e.g. ?kd_wil=12020)
  * GET  /api/geojson/desa?kode=<district_id> → village_boundaries by kecamatan code
  */
 
@@ -113,12 +114,61 @@ router.get('/api/geojson/kabupaten', async (req, res) => {
 
 // ═══════════════════════════════════════════════════════
 //  GET /api/geojson/kecamatan
-//  No param  → all districts
-//  ?ids=a,b  → districts for specific p3d_ids (comma-separated)
+//  No param    → all districts
+//  ?ids=a,b    → districts for specific p3d_ids (comma-separated)
+//  ?kd_wil=X   → districts by kabupaten p3d_id (e.g. ?kd_wil=12020)
 // ═══════════════════════════════════════════════════════
 router.get('/api/geojson/kecamatan', async (req, res) => {
+  const kdWil   = (req.query.kd_wil || '').trim();
   const idsParam = (req.query.ids || '').trim();
   const ids = idsParam ? idsParam.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s)) : [];
+
+  // ?kd_wil=X → single kabupaten filter (same as /:p3d_id)
+  if (kdWil) {
+    if (!/^\d+$/.test(kdWil)) return res.status(400).json({ error: 'kd_wil must be numeric' });
+
+    const sql = `
+      SELECT json_build_object(
+        'type',        'FeatureCollection',
+        'name',        'Jabar_By_Kec',
+        'crs', json_build_object(
+          'type',       'name',
+          'properties', json_build_object('name','urn:ogc:def:crs:OGC:1.3:CRS84')
+        ),
+        'features', COALESCE(
+          json_agg(
+            json_build_object(
+              'type',       'Feature',
+              'properties', json_build_object(
+                'OBJECTID',       id,
+                'PROVINSI',       'JAWA BARAT',
+                'PROVNO',         '32',
+                'kd_kecamatan',   district_id,
+                'nm_kecamatan',   district,
+                'ID_KAB',         p3d_id
+              ),
+              'geometry', ST_AsGeoJSON(geom_postgis)::json
+            )
+          ),
+          '[]'::json
+        )
+      ) AS fc
+      FROM district_boundaries
+      WHERE p3d_id = $1
+    `;
+
+    try {
+      const { rows } = await pool.query(sql, [kdWil]);
+      const fc = rows[0]?.fc;
+      if (!fc) return res.status(404).json({ error: `No kecamatan for kd_wil=${kdWil}` });
+      res.set('Cache-Control', 'public, max-age=300');
+      res.set('Content-Type', 'application/json; charset=utf-8');
+      return res.send(JSON.stringify(fc));
+    } catch (err) {
+      logger.error('GET /api/geojson/kecamatan (kd_wil) error', { kdWil, error: err.message });
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   const sql = `
     SELECT json_build_object(
@@ -160,59 +210,6 @@ router.get('/api/geojson/kecamatan', async (req, res) => {
     res.send(JSON.stringify(fc));
   } catch (err) {
     logger.error('GET /api/geojson/kecamatan (bulk) error', { error: err.message });
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ═══════════════════════════════════════════════════════
-//  GET /api/geojson/kecamatan/:p3d_id
-//  p3d_id = kabupaten code string, e.g. "10200"
-//  Queries district_boundaries WHERE p3d_id = $1
-// ═══════════════════════════════════════════════════════
-router.get('/api/geojson/kecamatan/:p3d_id', async (req, res) => {
-  const kodeKab = req.params.p3d_id;
-  if (!/^\d+$/.test(kodeKab)) return res.status(400).json({ error: 'p3d_id must be numeric' });
-
-  // Forward to the /kecamatan/:kodeKab handler logic (query DB)
-  const sql = `
-    SELECT json_build_object(
-      'type',        'FeatureCollection',
-      'name',        'Jabar_By_Kab',
-      'crs', json_build_object(
-        'type',       'name',
-        'properties', json_build_object('name','urn:ogc:def:crs:OGC:1.3:CRS84')
-      ),
-      'features', COALESCE(
-        json_agg(
-          json_build_object(
-            'type',       'Feature',
-            'properties', json_build_object(
-              'OBJECTID',       id,
-              'PROVINSI',       'JAWA BARAT',
-              'PROVNO',         '32',
-              'kd_kecamatan',   district_id,
-              'nm_kecamatan',   district,
-              'ID_KAB',         p3d_id
-            ),
-            'geometry', ST_AsGeoJSON(geom_postgis)::json
-          )
-        ),
-        '[]'::json
-      )
-    ) AS fc
-    FROM district_boundaries
-    WHERE p3d_id = $1
-  `;
-
-  try {
-    const { rows } = await pool.query(sql, [kodeKab]);
-    const fc = rows[0]?.fc;
-    if (!fc) return res.status(404).json({ error: `No kecamatan for p3d_id=${kodeKab}` });
-    res.set('Cache-Control', 'public, max-age=300');
-    res.set('Content-Type', 'application/json; charset=utf-8');
-    res.send(JSON.stringify(fc));
-  } catch (err) {
-    logger.error('GET /api/geojson/kecamatan error', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

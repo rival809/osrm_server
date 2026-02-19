@@ -627,8 +627,8 @@
             return;
         }
         try {
-            const resp = await fetch(`${API_URL}/api/geojson/kecamatan/${encodeURIComponent(p3dId)}`);
-            if (!resp.ok) throw new Error(`Data kecamatan untuk p3d_id ${p3dId} tidak ditemukan`);
+            const resp = await fetch(`${API_URL}/api/geojson/kecamatan?kd_wil=${encodeURIComponent(p3dId)}`);
+            if (!resp.ok) throw new Error(`Data kecamatan untuk kd_wil=${p3dId} tidak ditemukan`);
             const geojson = await resp.json();
             loadedDistrictCities.set(p3dId, geojson.features || []);
             rebuildDistrictLayer();
