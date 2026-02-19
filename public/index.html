@@ -451,12 +451,13 @@
 
         map.on('mouseenter', fid, e => {
             map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mousemove', fid, e => {
             const f = e.features[0];
             const norm = normProps(f, level);
             const kd = level === 'city' ? norm.p3d_id : norm.district_id;
             tooltip.setLngLat(e.lngLat).setHTML(kd ? `${kd} - ${norm.name}` : norm.name).addTo(map);
         });
-        map.on('mousemove', fid, e => tooltip.setLngLat(e.lngLat));
         map.on('mouseleave', fid, () => { map.getCanvas().style.cursor = ''; tooltip.remove(); });
 
         map.on('click', fid, e => {
