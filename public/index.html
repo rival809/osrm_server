@@ -566,11 +566,7 @@
         const normForTooltip = normProps(feature, level || currentLevel);
         highlightLayer = L.geoJSON(feature, {
             style: { color: '#764ba2', fillColor: '#764ba2', fillOpacity: 0.30, weight: 3 },
-            onEachFeature: (f, l) => {
-                l.bindTooltip(normForTooltip.name, {
-                    sticky: true, className: 'boundary-tooltip', direction: 'top', permanent: false
-                });
-            }
+            interactive: false
         }).addTo(map);
 
         selectedFeature = feature;
