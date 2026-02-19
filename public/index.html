@@ -461,7 +461,9 @@
             }),
             onEachFeature: (feature, layer) => {
                 const norm = normProps(feature, level);
-                layer.bindTooltip(norm.name, {
+                const kd = level === 'city' ? norm.p3d_id : level === 'district' ? norm.district_id : null;
+                const tooltipText = kd ? `${kd} - ${norm.name}` : norm.name;
+                layer.bindTooltip(tooltipText, {
                     sticky: true, className: 'boundary-tooltip', direction: 'top'
                 });
                 // Single click → show detail panel
