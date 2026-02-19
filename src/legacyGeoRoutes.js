@@ -2,6 +2,8 @@
  * GeoJSON Routes
  *
  * GET  /api/geojson/kabupaten              → province_boundaries (kabupaten/kota)
+ * GET  /api/geojson/kecamatan              → all district_boundaries
+ * GET  /api/geojson/kecamatan?ids=a,b,c   → district_boundaries for specific p3d_ids
  * GET  /api/geojson/kecamatan/:p3d_id      → district_boundaries by kabupaten p3d_id
  * GET  /api/geojson/desa?kode=<district_id> → village_boundaries by kecamatan code
  */
@@ -105,6 +107,59 @@ router.get('/api/geojson/kabupaten', async (req, res) => {
     res.send(JSON.stringify(fc));
   } catch (err) {
     logger.error('GET /api/geojson/kabupaten error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════
+//  GET /api/geojson/kecamatan
+//  No param  → all districts
+//  ?ids=a,b  → districts for specific p3d_ids (comma-separated)
+// ═══════════════════════════════════════════════════════
+router.get('/api/geojson/kecamatan', async (req, res) => {
+  const idsParam = (req.query.ids || '').trim();
+  const ids = idsParam ? idsParam.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s)) : [];
+
+  const sql = `
+    SELECT json_build_object(
+      'type',        'FeatureCollection',
+      'name',        'Jabar_By_Kec',
+      'crs', json_build_object(
+        'type',       'name',
+        'properties', json_build_object('name','urn:ogc:def:crs:OGC:1.3:CRS84')
+      ),
+      'features', COALESCE(
+        json_agg(
+          json_build_object(
+            'type',       'Feature',
+            'properties', json_build_object(
+              'OBJECTID',       id,
+              'PROVINSI',       'JAWA BARAT',
+              'PROVNO',         '32',
+              'kd_kecamatan',   district_id,
+              'nm_kecamatan',   district,
+              'ID_KAB',         p3d_id
+            ),
+            'geometry', ST_AsGeoJSON(geom_postgis)::json
+          )
+        ),
+        '[]'::json
+      )
+    ) AS fc
+    FROM district_boundaries
+    WHERE ($1::text[] IS NULL OR p3d_id = ANY($1::text[]))
+  `;
+
+  try {
+    const param = ids.length > 0 ? ids : null;
+    const { rows } = await pool.query(sql, [param]);
+    const fc = rows[0]?.fc;
+    if (!fc) return res.status(404).json({ error: 'No kecamatan data found' });
+    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    res.send(JSON.stringify(fc));
+  } catch (err) {
+    logger.error('GET /api/geojson/kecamatan (bulk) error', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
