@@ -698,7 +698,7 @@
         const btn = document.getElementById('muatKabBtn');
         if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
         try {
-            const qs   = ids.length > 0 ? `?ids=${ids.join(',')}` : '';
+            const qs   = ids.length > 0 ? `?kd_wil=${ids.join(',')}` : '';
             const resp = await fetch(`${API_URL}/api/geojson/kabupaten${qs}`);
             if (!resp.ok) throw new Error('Gagal memuat data kabupaten');
             const data = await resp.json();

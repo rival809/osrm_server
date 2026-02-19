@@ -64,13 +64,13 @@ router.get('/api/geojson/desa', async (req, res) => {
 // ═══════════════════════════════════════════════════════
 //  GET /api/geojson/kabupaten
 //  Queries province_boundaries table.
-//  No param          → all kabupaten
-//  ?p3d_id=10200     → single kabupaten (backward compat)
-//  ?ids=10200,10300  → multiple kabupaten (comma-separated kd_wil)
+//  No param           → all kabupaten
+//  ?p3d_id=10200      → single kabupaten (backward compat)
+//  ?kd_wil=10200,10300 → multiple kabupaten (comma-separated)
 // ═══════════════════════════════════════════════════════
 router.get('/api/geojson/kabupaten', async (req, res) => {
   const singleId  = (req.query.p3d_id || '').toString().trim();
-  const idsParam  = (req.query.ids   || '').trim();
+  const idsParam  = (req.query.kd_wil || '').trim();
   const parsedIds = idsParam
     ? idsParam.split(',').map(s => s.trim()).filter(s => /^\d+$/.test(s))
     : [];
