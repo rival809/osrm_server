@@ -579,6 +579,33 @@ app.get('/tiles/pbf/:z/:x/:y.pbf', async (req, res) => {
 // No helper functions needed for lightweight proxy mode
 
 /**
+ * Proxy tileserver TileJSON for a data source.
+ * GET /data/:name.json  (e.g. /data/v3.json)
+ */
+app.get('/data/:name.json', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const tileJsonUrl = `${tileBase}/data/${req.params.name}.json`;
+    const response = await axios.get(tileJsonUrl, { timeout: 10000 });
+    const tj = response.data;
+
+    // Rewrite tile URLs to go through our PBF proxy
+    if (tj.tiles) {
+      tj.tiles = tj.tiles.map(t =>
+        t.replace(/^https?:\/\/[^/]+\/data\/[^/]+\//, `${req.protocol}://${req.get('host')}/tiles/pbf/`)
+      );
+    }
+
+    res.set('Content-Type', 'application/json');
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(tj);
+  } catch (error) {
+    logger.error('TileJSON proxy error:', error.message);
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch TileJSON', message: error.message });
+  }
+});
+
+/**
  * Proxy tileserver style.json, rewriting tile source URLs to go through our PBF proxy.
  * GET /tiles/style.json
  */
