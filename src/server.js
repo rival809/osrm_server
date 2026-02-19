@@ -68,8 +68,8 @@ const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
 // Tileserver URL (required for self-hosted setup)
 const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://127.0.0.1:5001/styles/basic-preview';
 
-// Tileserver data URL for vector PBF tiles (mbtiles)
-const TILE_SERVER_DATA_URL = process.env.TILE_SERVER_DATA_URL || 'http://127.0.0.1:5001/data/java';
+// Vector PBF uses same base path, just .pbf extension
+const TILE_SERVER_DATA_URL = process.env.TILE_SERVER_DATA_URL || TILE_SERVER_URL;
 
 // Nominatim URL (for reverse geocoding)
 const NOMINATIM_URL = process.env.NOMINATIM_URL || 'http://localhost:5002';
