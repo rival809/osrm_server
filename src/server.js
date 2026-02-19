@@ -71,7 +71,7 @@ const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://127.0.0.1:5001/st
 // Vector PBF: tileserver-gl serves at /data/<name>/{z}/{x}/{y}.pbf
 // Derive host from TILE_SERVER_URL so Docker env override applies automatically
 const TILE_SERVER_DATA_URL = process.env.TILE_SERVER_DATA_URL ||
-  `${new URL(TILE_SERVER_URL).origin}/data/java`;
+  `${new URL(TILE_SERVER_URL).origin}/data/v3`;
 
 // Nominatim URL (for reverse geocoding)
 const NOMINATIM_URL = process.env.NOMINATIM_URL || 'http://localhost:5002';

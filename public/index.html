@@ -288,7 +288,7 @@
     function buildVectorLayer() {
         return L.vectorGrid.protobuf(`${API_URL}/tiles/pbf/{z}/{x}/{y}.pbf`, {
             attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 18, minZoom: 2,
+            maxZoom: 18, minZoom: 2, maxNativeZoom: 14,
             vectorTileLayerStyles: {
                 // style semua layer dengan warna default
                 '*': (properties, zoom) => ({
