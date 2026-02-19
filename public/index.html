@@ -68,7 +68,8 @@
         .separator { width: 1px; height: 28px; background: #ddd; margin: 0 4px; }
 
         /* ── Map ─────────────────────────────────── */
-        #map { flex: 1; position: relative; }
+        #map-wrapper { flex: 1; position: relative; }
+        #map { width: 100%; height: 100%; position: relative; z-index: 1; }
 
         /* ── Info panel (route) ──────────────────── */
         #info {
@@ -168,6 +169,16 @@
         .leaflet-overlay-pane svg:focus,
         .leaflet-overlay-pane path:focus { outline: none !important; }
 
+        /* Native MapLibre GL base (behind Leaflet) */
+        #map-gl {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0; display: none;
+        }
+        #map-gl.show { display: block; }
+        /* When vector mode active, make Leaflet tile pane transparent */
+        #map.vector-mode .leaflet-tile-pane { display: none; }
+        #map.vector-mode { background: transparent; }
+
         /* Tile mode toggle */
         #tile-mode-toggle {
             display: flex; align-items: center; gap: 4px;
@@ -222,7 +233,10 @@
         <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk melihat kecamatan</span>
     </div>
 
-    <div id="map"></div>
+    <div id="map-wrapper" style="position:relative;flex:1;display:flex;flex-direction:column">
+        <div id="map-gl"></div>
+        <div id="map" style="flex:1;position:relative;z-index:1;background:transparent"></div>
+    </div>
 
     <!-- Route info -->
     <div id="info">
@@ -268,17 +282,23 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl.js"></script>
     <script>
     // ════════════════════════════════════════════════════════
     //  GLOBALS
     // ════════════════════════════════════════════════════════
     const API_URL = window.location.origin;
-    const map = L.map('map').setView([-6.9175, 107.6191], 10);
 
-    // ── Tile mode (png / pbf) ────────────────────
+    // ── #map wrapper must fill remaining height (flexbox fix) ──
+    const mapWrapper = document.getElementById('map-wrapper');
+    document.getElementById('map').style.height = '100%';
+
+    const map = L.map('map', { zoomControl: true }).setView([-6.9175, 107.6191], 10);
+
+    // ── Tile mode (png / vector) ──────────────────
     let tileMode = 'png';
-    let baseLayer = null;
+    let pngLayer  = null;
+    let glMap     = null;   // MapLibre GL instance
+    let _glSyncing = false;
 
     function buildPngLayer() {
         return L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
@@ -287,25 +307,63 @@
         });
     }
 
-    function buildVectorLayer() {
-        return L.maplibreGL({
-            style: `${API_URL}/tiles/style.json`,
-            attribution: '&copy; OpenMapTiles &copy; OpenStreetMap contributors',
-        });
+    function syncGLToLeaflet() {
+        if (!glMap) return;
+        const c = map.getCenter();
+        _glSyncing = true;
+        glMap.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1 });
+        _glSyncing = false;
+    }
+
+    function enableVectorMode() {
+        // Remove PNG layer
+        if (pngLayer) { map.removeLayer(pngLayer); pngLayer = null; }
+        document.getElementById('map').classList.add('vector-mode');
+
+        const glEl = document.getElementById('map-gl');
+        glEl.classList.add('show');
+
+        if (!glMap) {
+            const c = map.getCenter();
+            glMap = new maplibregl.Map({
+                container: 'map-gl',
+                style: `${API_URL}/tiles/style.json`,
+                center: [c.lng, c.lat],
+                zoom: map.getZoom() - 1,
+                interactive: false,   // Leaflet handles all interaction
+                attributionControl: false,
+                fadeDuration: 100,
+            });
+        } else {
+            syncGLToLeaflet();
+        }
+
+        map.on('move',    syncGLToLeaflet);
+        map.on('zoom',    syncGLToLeaflet);
+        map.on('resize',  () => glMap && glMap.resize());
+    }
+
+    function disableVectorMode() {
+        map.off('move',   syncGLToLeaflet);
+        map.off('zoom',   syncGLToLeaflet);
+        document.getElementById('map').classList.remove('vector-mode');
+        document.getElementById('map-gl').classList.remove('show');
+        pngLayer = buildPngLayer();
+        pngLayer.addTo(map);
+        pngLayer.bringToBack();
     }
 
     function setTileMode(mode) {
-        if (baseLayer) map.removeLayer(baseLayer);
         tileMode = mode;
-        baseLayer = mode === 'pbf' ? buildVectorLayer() : buildPngLayer();
-        baseLayer.addTo(map);
-        if (baseLayer.bringToBack) baseLayer.bringToBack();
+        if (mode === 'pbf') enableVectorMode();
+        else                disableVectorMode();
         document.getElementById('mode-png').classList.toggle('active', mode === 'png');
         document.getElementById('mode-pbf').classList.toggle('active', mode === 'pbf');
     }
 
     // Init dengan PNG
-    setTileMode('png');
+    pngLayer = buildPngLayer();
+    pngLayer.addTo(map);
 
     document.getElementById('tile-mode-toggle').addEventListener('click', () => {
         setTileMode(tileMode === 'png' ? 'pbf' : 'png');
