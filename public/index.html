@@ -202,7 +202,7 @@
         <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
         <div class="separator"></div>
         <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
-        <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk drill down</span>
+        <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk melihat kecamatan</span>
     </div>
 
     <div id="map"></div>
@@ -225,7 +225,7 @@
     </div>
 
     <!-- double-click hint -->
-    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk drill down</div>
+    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
 
     <!-- Split panel -->
     <div id="split-panel">
@@ -244,7 +244,6 @@
         <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
         <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
-        <div class="legend-item"><span class="legend-color" style="background:#ec4899"></span> Desa</div>
     </div>
 
     <!-- Toast -->
@@ -275,7 +274,7 @@
     const statusEl   = document.getElementById('status');
 
     // ── Boundary state ──────────────────────────
-    let boundaryLayers  = { city: null, district: null, village: null };
+    let boundaryLayers  = { city: null, district: null };
     let boundaryData    = {};          // raw GeoJSON per level
     let selectedFeature = null;
     let highlightLayer  = null;
@@ -381,9 +380,9 @@
     const legend      = document.getElementById('legend');
     const bcEl        = document.getElementById('breadcrumb');
 
-    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan', village: 'Desa' };
-    const NEXT_LEVEL  = { city: 'district', district: 'village', village: null };
-    const DRILL_HINT  = { city: 'kecamatan', district: 'desa' };
+    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan' };
+    const NEXT_LEVEL  = { city: 'district', district: null };
+    const DRILL_HINT  = { city: 'kecamatan' };
 
     // ── Breadcrumb ──────────────────────────────
     function renderBreadcrumb() {
@@ -401,15 +400,11 @@
         bcEl.innerHTML = html;
     }
 
-    // jumpTo(0) = back to city root, jumpTo(1) = back to kecamatan (remove village)
+    // jumpTo(0) = back to city root
     function jumpTo(depth) {
         if (depth === 0) {
             removeLayerLevel('district');
-            removeLayerLevel('village');
             drillStack = [];
-        } else if (depth === 1) {
-            removeLayerLevel('village');
-            drillStack = drillStack.slice(0, 1);
         }
         closeBoundaryPanel();
         renderBreadcrumb();
@@ -475,7 +470,7 @@
                     currentLevel = level;
                     selectBoundaryFeature(feature, layer, level);
                 });
-                // Double click → drill into next level
+                // Double click → langsung tampilkan kecamatan
                 if (level === 'city') {
                     layer.on('dblclick', e => {
                         L.DomEvent.stop(e);
@@ -483,14 +478,6 @@
                         if (!n.p3d_id) { toast('p3d_id tidak ditemukan untuk wilayah ini', 'error'); return; }
                         closeBoundaryPanel();
                         drillInto('city', n.p3d_id, n.name);
-                    });
-                } else if (level === 'district') {
-                    layer.on('dblclick', e => {
-                        L.DomEvent.stop(e);
-                        const n = normProps(feature, 'district');
-                        if (!n.district_id) { toast('kode kecamatan tidak ditemukan', 'error'); return; }
-                        closeBoundaryPanel();
-                        drillIntoDesa(n.district_id, n.name);
                     });
                 }
             }
@@ -519,7 +506,7 @@
 
             renderBreadcrumb();
             const count = geojson.features?.length || 0;
-            toast(`✅ ${count} kecamatan di ${parentName} · Double-klik untuk lihat desa`, 'success');
+            toast(`✅ ${count} kecamatan di ${parentName} dimuat`, 'success');
 
         } catch (err) {
             console.error(err);
@@ -527,38 +514,7 @@
         }
     }
 
-    /** Drill kecamatan → desa via /api/geojson/desa?kode=<district_id> */
-    async function drillIntoDesa(districtId, kecamatanName) {
-        removeLayerLevel('village');
-        drillStack = drillStack.slice(0, 1); // keep city entry
-        drillStack.push({ level: 'district', code: districtId, name: kecamatanName });
-
-        try {
-            const resp = await fetch(`${API_URL}/api/geojson/desa?kode=${encodeURIComponent(districtId)}`);
-            if (!resp.ok) throw new Error(`Data desa untuk kecamatan ${districtId} tidak ditemukan`);
-            const geojson = await resp.json();
-
-            const features = geojson.features || [];
-            if (!features.length) {
-                toast(`⚠️ Tidak ada data desa untuk kecamatan ${kecamatanName}`, 'error');
-                return;
-            }
-
-            boundaryData.village = geojson;
-            const layer = buildLayer('village', geojson);
-            boundaryLayers.village = layer;
-            layer.addTo(map);
-
-            if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [30, 30] });
-
-            renderBreadcrumb();
-            toast(`✅ ${features.length} desa di ${kecamatanName} dimuat`, 'success');
-
-        } catch (err) {
-            console.error(err);
-            toast(`❌ ${err.message}`, 'error');
-        }
-    }
+    // drillIntoDesa: dihapus (fitur desa dinonaktifkan)
 
     /** Initial load: kabupaten layer dari jabar.json */
     async function loadAllBoundaries() {
@@ -579,7 +535,7 @@
             legend.classList.add('show');
             bcEl.classList.remove('show');
             const count = data.features?.length || 0;
-            toast(`✅ ${count} Kab/Kota dimuat · Double-klik untuk lihat kecamatan`, 'success');
+            toast(`✅ ${count} Kab/Kota dimuat · Double-klik untuk melihat kecamatan`, 'success');
         } catch (err) {
             console.error(err);
             toast(`❌ ${err.message}`, 'error');
@@ -588,10 +544,9 @@
 
     // Alias for split reload compatibility
     function loadBoundaries() { return loadAllBoundaries(); }
-    window.drillIntoDesa = drillIntoDesa;
 
     function clearBoundaries(hidePanel = true) {
-        ['city','district','village'].forEach(lvl => {
+        ['city','district'].forEach(lvl => {
             if (boundaryLayers[lvl]) { map.removeLayer(boundaryLayers[lvl]); boundaryLayers[lvl] = null; }
         });
         if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
@@ -608,8 +563,14 @@
     function selectBoundaryFeature(feature, layer, level) {
         // Highlight
         if (highlightLayer) map.removeLayer(highlightLayer);
+        const normForTooltip = normProps(feature, level || currentLevel);
         highlightLayer = L.geoJSON(feature, {
-            style: { color: '#764ba2', fillColor: '#764ba2', fillOpacity: 0.30, weight: 3 }
+            style: { color: '#764ba2', fillColor: '#764ba2', fillOpacity: 0.30, weight: 3 },
+            onEachFeature: (f, l) => {
+                l.bindTooltip(normForTooltip.name, {
+                    sticky: true, className: 'boundary-tooltip', direction: 'top', permanent: false
+                });
+            }
         }).addTo(map);
 
         selectedFeature = feature;
@@ -625,17 +586,11 @@
 
         const safeP3d  = String(norm.p3d_id || '').replace(/'/g, "\'");
         const safeName = norm.name.replace(/'/g, "\'");
-        const safeDistId = String(norm.district_id || '').replace(/'/g, "\'");
-
         let drillBtn = '';
         if (level === 'city' && norm.p3d_id) {
             drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
                 onclick="drillInto('city','${safeP3d}','${safeName}');closeBoundaryPanel()">
                 &#9654; Tampilkan Kecamatan</button>`;
-        } else if (level === 'district' && norm.district_id) {
-            drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
-                onclick="drillIntoDesa('${safeDistId}','${safeName}');closeBoundaryPanel()">
-                &#9654; Tampilkan Desa</button>`;
         }
 
         // Tampilkan semua properties asli
@@ -652,7 +607,6 @@
         selectedFeature = null;
     };
     window.drillInto = drillInto;
-    window.drillIntoDesa = drillIntoDesa;
 
     async function fetchBoundaryDetail(id) {
         try {
@@ -735,7 +689,7 @@
         toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
 
         // Step 1: user clicks a polygon from any layer to select target
-        ['city','district','village'].forEach(lvl => {
+        ['city','district'].forEach(lvl => {
             if (!boundaryLayers[lvl]) return;
             boundaryLayers[lvl].eachLayer(layer => {
                 layer.once('click', e => {

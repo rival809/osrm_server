@@ -27,7 +27,9 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f osrm-api-1 osrm-api-2",
-    "docker:status": "docker-compose ps"
+    "docker:status": "docker-compose ps",
+    "db:import:villages:supplement": "node scripts/import-village-supplement.js",
+    "db:import:villages:supplement:dry": "DRY_RUN=1 node scripts/import-village-supplement.js"
   },
   "keywords": [
     "osrm",
