@@ -193,19 +193,19 @@
 <body>
     <div id="header">
         <div>
-            <h1>ðŸ—ºï¸ OSRM Service - Pulau Jawa</h1>
+            <h1>🗺️ OSRM Service - Pulau Jawa</h1>
             <p>Routing, Tiles & Administrative Boundaries</p>
         </div>
         <div id="tile-mode-toggle" title="Ganti mode render tile">
-            <span id="mode-png" class="active">ðŸ–¼ï¸ PNG</span>
-            <span id="mode-pbf">â¬¡ Vektor</span>
+            <span id="mode-png" class="active">🖼️ PNG</span>
+            <span id="mode-pbf">⬡ Vektor</span>
         </div>
     </div>
 
     <!-- Tabs -->
     <div id="tabs">
-        <button class="tab-btn active" data-tab="routing">ðŸ›£ï¸ Routing</button>
-        <button class="tab-btn" data-tab="boundaries">ðŸ›ï¸ Boundaries</button>
+        <button class="tab-btn active" data-tab="routing">🛣️ Routing</button>
+        <button class="tab-btn" data-tab="boundaries">🏛️ Boundaries</button>
     </div>
 
     <!-- Tab Panel: Routing -->
@@ -218,16 +218,16 @@
             <label>End:</label>
             <input type="text" id="end" placeholder="lon,lat" value="107.6098,-6.9145">
         </div>
-        <button id="routeBtn">ðŸ›£ï¸ Cari Rute</button>
-        <button id="clearBtn" class="btn-outline">ðŸ—‘ï¸ Clear</button>
+        <button id="routeBtn">🛣️ Cari Rute</button>
+        <button id="clearBtn" class="btn-outline">🗑️ Clear</button>
     </div>
 
     <!-- Tab Panel: Boundaries -->
     <div id="panel-boundaries" class="tab-panel">
         <div id="breadcrumb"></div>
-        <button id="clearBoundaryBtn" class="btn-outline">ðŸ—‘ï¸ Hapus Layer</button>
+        <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
         <div class="separator"></div>
-        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">âœ‚ï¸ Mode Split</button>
+        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
         <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk melihat kecamatan</span>
     </div>
 
@@ -237,7 +237,7 @@
 
     <!-- Route info -->
     <div id="info">
-        <h3>ðŸ“Š Informasi Rute</h3>
+        <h3>📊 Informasi Rute</h3>
         <p><strong>Jarak:</strong> <span id="distance">-</span></p>
         <p><strong>Durasi:</strong> <span id="duration">-</span></p>
         <p><strong>Status:</strong> <span id="status">-</span></p>
@@ -247,7 +247,7 @@
     <div id="boundary-panel">
         <div class="bp-header">
             <span id="bp-title">Detail Wilayah</span>
-            <button onclick="closeBoundaryPanel()">âœ•</button>
+            <button onclick="closeBoundaryPanel()">✕</button>
         </div>
         <div class="bp-body" id="bp-body"></div>
     </div>
@@ -257,18 +257,18 @@
 
     <!-- Split panel -->
     <div id="split-panel">
-        <h4>âœ‚ï¸ Split Wilayah</h4>
+        <h4>✂️ Split Wilayah</h4>
         <p id="split-target-label">Pilih wilayah lalu gambar garis potong di peta</p>
         <div id="split-inputs"></div>
         <div id="split-actions">
-            <button id="splitExecBtn" class="btn-success" disabled>âœ‚ï¸ Eksekusi Split</button>
+            <button id="splitExecBtn" class="btn-success" disabled>✂️ Eksekusi Split</button>
             <button id="splitCancelBtn" class="btn-danger">Batal</button>
         </div>
     </div>
 
     <!-- Legend -->
     <div class="legend" id="legend">
-        <h4>ðŸŽ¨ Legenda</h4>
+        <h4>🎨 Legenda</h4>
         <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
         <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
@@ -531,10 +531,10 @@
             map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], { padding: 60 });
             distanceEl.textContent = fmtDist(route.distance);
             durationEl.textContent = fmtDur(route.duration);
-            statusEl.textContent   = 'âœ… Berhasil';
+            statusEl.textContent   = '✅ Berhasil';
         } catch (err) {
             console.error(err);
-            statusEl.textContent   = `âŒ ${err.message}`;
+            statusEl.textContent   = `❌ ${err.message}`;
             distanceEl.textContent = durationEl.textContent = '-';
         } finally { routeBtn.disabled = false; }
     }
@@ -600,8 +600,8 @@
             const bounds = geojsonBounds(geojson);
             if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
             renderBreadcrumb();
-            toast(`âœ… ${geojson.features?.length||0} kecamatan di ${parentName} dimuat`, 'success');
-        } catch (err) { console.error(err); toast(`âŒ ${err.message}`, 'error'); }
+            toast(`✅ ${geojson.features?.length||0} kecamatan di ${parentName} dimuat`, 'success');
+        } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
     }
     window.drillInto = drillInto;
 
@@ -616,8 +616,8 @@
             if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
             legend.classList.add('show');
             bcEl.classList.remove('show');
-            toast(`âœ… ${data.features?.length||0} Kab/Kota dimuat Â· Double-klik untuk melihat kecamatan`, 'success');
-        } catch (err) { console.error(err); toast(`âŒ ${err.message}`, 'error'); }
+            toast(`✅ ${data.features?.length||0} Kab/Kota dimuat · Double-klik untuk melihat kecamatan`, 'success');
+        } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
     }
 
     function loadBoundaries() { return loadAllBoundaries(); }
@@ -681,8 +681,8 @@
             }
             const levelLabel = { province:'Provinsi', city:'Kota/Kab', district:'Kecamatan', village:'Kel/Desa' };
             const rows = data.results.map(r=>`<tr><td style="color:#888;padding:2px 6px 2px 0">${levelLabel[r.admin_level]||r.admin_level}</td><td style="font-weight:600">${r.name}</td><td style="color:#aaa;font-size:11px;padding-left:4px">${r.code}</td></tr>`).join('');
-            lookupPopup.setHTML(`<b>ðŸ“ ${lat.toFixed(5)}, ${lng.toFixed(5)}</b><table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>`);
-        } catch (err) { lookupPopup.setHTML(`âŒ ${err.message}`); }
+            lookupPopup.setHTML(`<b>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</b><table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>`);
+        } catch (err) { lookupPopup.setHTML(`❌ ${err.message}`); }
     });
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -729,7 +729,7 @@
         if (splitMode) { cancelSplit(); return; }
         splitMode = true;
         splitModeBtn.classList.replace('btn-outline','btn-danger');
-        splitModeBtn.textContent = 'âœ‚ï¸ Cancel Split';
+        splitModeBtn.textContent = '✂️ Cancel Split';
         map.getCanvas().style.cursor = 'crosshair';
         toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
 
@@ -769,7 +769,7 @@
             if (!n.value.trim()||!c.value.trim()) { toast('Isi semua nama dan kode wilayah','error'); return; }
             regions.push({ name:n.value.trim(), code:c.value.trim() });
         }
-        splitExecBtn.disabled = true; splitExecBtn.textContent = 'â³ Memproses...';
+        splitExecBtn.disabled = true; splitExecBtn.textContent = '⏳ Memproses...';
         try {
             const resp = await fetch(`${API_URL}/api/boundaries/split`, {
                 method:'POST', headers:{'Content-Type':'application/json'},
@@ -777,11 +777,11 @@
             });
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
-            toast(`âœ… Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
+            toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
             cancelSplit(); loadAllBoundaries();
         } catch (err) {
-            console.error(err); toast(`âŒ Split gagal: ${err.message}`, 'error');
-            splitExecBtn.disabled = false; splitExecBtn.textContent = 'âœ‚ï¸ Eksekusi Split';
+            console.error(err); toast(`❌ Split gagal: ${err.message}`, 'error');
+            splitExecBtn.disabled = false; splitExecBtn.textContent = '✂️ Eksekusi Split';
         }
     });
 
@@ -790,10 +790,10 @@
         map.off('click', _splitClickHandler); map.off('dblclick', _splitDblClickHandler);
         safeRemoveLayer('split-line'); safeRemoveSource('split-src');
         splitPanel.classList.remove('show');
-        splitExecBtn.disabled = true; splitExecBtn.textContent = 'âœ‚ï¸ Eksekusi Split';
+        splitExecBtn.disabled = true; splitExecBtn.textContent = '✂️ Eksekusi Split';
         splitInputsDiv.innerHTML = '';
         splitModeBtn.classList.replace('btn-danger','btn-outline');
-        splitModeBtn.textContent = 'âœ‚ï¸ Mode Split';
+        splitModeBtn.textContent = '✂️ Mode Split';
         map.getCanvas().style.cursor = '';
         map.doubleClickZoom.enable();
     }
@@ -802,7 +802,7 @@
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  INIT
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    console.log('ðŸ—ºï¸ OSRM Service + Boundaries Demo (MapLibre GL)');
+    console.log('🗺️ OSRM Service + Boundaries Demo (MapLibre GL)');
     </script>
 </body>
 </html>
