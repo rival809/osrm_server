@@ -292,7 +292,7 @@
     const mapWrapper = document.getElementById('map-wrapper');
     document.getElementById('map').style.height = '100%';
 
-    const map = L.map('map', { zoomControl: true }).setView([-6.9175, 107.6191], 10);
+    const map = L.map('map', { zoomControl: true, zoomSnap: 1, wheelPxPerZoomLevel: 60 }).setView([-6.9175, 107.6191], 10);
 
     // ── Tile mode (png / vector) ──────────────────
     let tileMode = 'png';
@@ -346,6 +346,10 @@
             syncGLToLeaflet();
         }
 
+        // Enable fractional zoom for smooth vector rendering
+        map.options.zoomSnap = 0;
+        map.options.wheelPxPerZoomLevel = 120;
+
         map.on('move',      syncGLToLeaflet);
         map.on('zoomstart', startSyncLoop);
         map.on('zoomend',   stopSyncLoop);
@@ -354,6 +358,8 @@
 
     function disableVectorMode() {
         stopSyncLoop();
+        map.options.zoomSnap = 1;
+        map.options.wheelPxPerZoomLevel = 60;
         map.off('move',      syncGLToLeaflet);
         map.off('zoomstart', startSyncLoop);
         map.off('zoomend',   stopSyncLoop);
