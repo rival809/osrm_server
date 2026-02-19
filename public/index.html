@@ -298,7 +298,6 @@
     let tileMode = 'png';
     let pngLayer  = null;
     let glMap     = null;   // MapLibre GL instance
-    let _glSyncing = false;
 
     function buildPngLayer() {
         return L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
@@ -310,9 +309,18 @@
     function syncGLToLeaflet() {
         if (!glMap) return;
         const c = map.getCenter();
-        _glSyncing = true;
         glMap.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1 });
-        _glSyncing = false;
+    }
+
+    let _rafId = null;
+    function startSyncLoop() {
+        if (_rafId) return;
+        function loop() { syncGLToLeaflet(); _rafId = requestAnimationFrame(loop); }
+        _rafId = requestAnimationFrame(loop);
+    }
+    function stopSyncLoop() {
+        if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
+        syncGLToLeaflet();
     }
 
     function enableVectorMode() {
@@ -338,14 +346,17 @@
             syncGLToLeaflet();
         }
 
-        map.on('move',    syncGLToLeaflet);
-        map.on('zoom',    syncGLToLeaflet);
-        map.on('resize',  () => glMap && glMap.resize());
+        map.on('move',      syncGLToLeaflet);
+        map.on('zoomstart', startSyncLoop);
+        map.on('zoomend',   stopSyncLoop);
+        map.on('resize',    () => glMap && glMap.resize());
     }
 
     function disableVectorMode() {
-        map.off('move',   syncGLToLeaflet);
-        map.off('zoom',   syncGLToLeaflet);
+        stopSyncLoop();
+        map.off('move',      syncGLToLeaflet);
+        map.off('zoomstart', startSyncLoop);
+        map.off('zoomend',   stopSyncLoop);
         document.getElementById('map').classList.remove('vector-mode');
         document.getElementById('map-gl').classList.remove('show');
         pngLayer = buildPngLayer();
