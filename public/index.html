@@ -367,9 +367,20 @@
 
     //  LAYER MANAGEMENT
     const COLORS = {
-        city:     { fill: '#f59e0b', border: '#d97706', fillOpacity: 0.15, borderWidth: 2 },
-        district: { fill: '#10b981', border: '#059669', fillOpacity: 0.12, borderWidth: 1.5 },
+        city:     { fill: '#f59e0b', border: '#d97706', fillOpacity: 0.18, borderWidth: 2.5 },
+        district: { fill: '#10b981', border: '#059669', fillOpacity: 0.20, borderWidth: 1.2 },
     };
+
+    // Layer stacking order (bottom → top): district-fill, district-border, city-fill, city-border, hl-fill, hl-border
+    const LAYER_ORDER = ['district-fill','district-border','city-fill','city-border','hl-fill','hl-border'];
+
+    function getInsertBeforeId(layerId) {
+        const idx = LAYER_ORDER.indexOf(layerId);
+        for (let i = idx + 1; i < LAYER_ORDER.length; i++) {
+            if (map.getLayer(LAYER_ORDER[i])) return LAYER_ORDER[i];
+        }
+        return undefined; // add on top
+    }
 
     let boundaryData     = {};
     let selectedFeature  = null;
@@ -393,10 +404,14 @@
         const c = COLORS[level];
         boundaryData[level] = geojson;
         safeAddSource(srcId(level), geojson);
-        if (!map.getLayer(fillId(level)))   map.addLayer({ id: fillId(level),   type: 'fill', source: srcId(level), paint: { 'fill-color': c.fill, 'fill-opacity': c.fillOpacity } });
-        if (!map.getLayer(borderId(level))) map.addLayer({ id: borderId(level), type: 'line', source: srcId(level), paint: { 'line-color': c.border, 'line-width': c.borderWidth } });
-        // keep highlight on top
-        if (map.getLayer('hl-fill')) { map.moveLayer(fillId(level), 'hl-fill'); map.moveLayer(borderId(level), 'hl-fill'); }
+        if (!map.getLayer(fillId(level))) {
+            const beforeFill = getInsertBeforeId(fillId(level));
+            map.addLayer({ id: fillId(level), type: 'fill', source: srcId(level), paint: { 'fill-color': c.fill, 'fill-opacity': c.fillOpacity } }, beforeFill);
+        }
+        if (!map.getLayer(borderId(level))) {
+            const beforeBorder = getInsertBeforeId(borderId(level));
+            map.addLayer({ id: borderId(level), type: 'line', source: srcId(level), paint: { 'line-color': c.border, 'line-width': c.borderWidth } }, beforeBorder);
+        }
         _layersAdded[level] = true;
         setupLayerEvents(level);
     }
@@ -427,6 +442,9 @@
         safeAddSource('hl-src', fc);
         if (!map.getLayer('hl-fill'))   map.addLayer({ id: 'hl-fill',   type: 'fill', source: 'hl-src', paint: { 'fill-color': '#764ba2', 'fill-opacity': 0.30 } });
         if (!map.getLayer('hl-border')) map.addLayer({ id: 'hl-border', type: 'line', source: 'hl-src', paint: { 'line-color': '#764ba2', 'line-width': 3 } });
+        // ensure highlight is always on top
+        if (map.getLayer('hl-fill'))   map.moveLayer('hl-fill');
+        if (map.getLayer('hl-border')) map.moveLayer('hl-border');
     }
 
     function removeHighlightLayer() {
