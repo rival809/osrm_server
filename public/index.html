@@ -1,11 +1,21 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OSRM Tile Service - Jawa</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" />
+    <style>
+        /* MapLibre tooltip popup */
+        .ml-tooltip .maplibregl-popup-content {
+            background: rgba(30,30,30,0.85); color: white; padding: 5px 10px;
+            border-radius: 4px; font-size: 12px; font-weight: 600; pointer-events: none;
+            white-space: nowrap; box-shadow: 0 1px 6px rgba(0,0,0,0.3);
+        }
+        .ml-tooltip .maplibregl-popup-tip { border-top-color: rgba(30,30,30,0.85); }
+        .ml-tooltip.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: rgba(30,30,30,0.85); }
+        .ml-tooltip.maplibregl-popup-anchor-top    .maplibregl-popup-tip { border-bottom-color: rgba(30,30,30,0.85); }
+    </style>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -21,7 +31,7 @@
         #header h1 { font-size: 22px; }
         #header p { font-size: 13px; opacity: 0.9; }
 
-        /* ── Tabs ────────────────────────────────── */
+        /* â”€â”€ Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         #tabs {
             background: #f8f9fa; display: flex; border-bottom: 2px solid #e0e0e0;
         }
@@ -41,7 +51,7 @@
         .tab-panel { display: none; background: white; padding: 12px 20px; border-bottom: 1px solid #e0e0e0; }
         .tab-panel.active { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 
-        /* ── Controls shared ─────────────────────── */
+        /* â”€â”€ Controls shared â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .input-group { display: flex; gap: 5px; align-items: center; }
         .input-group label { font-size: 13px; font-weight: 600; min-width: 45px; }
         .input-group input, .input-group select {
@@ -67,11 +77,11 @@
 
         .separator { width: 1px; height: 28px; background: #ddd; margin: 0 4px; }
 
-        /* ── Map ─────────────────────────────────── */
+        /* â”€â”€ Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         #map-wrapper { flex: 1; position: relative; }
-        #map { width: 100%; height: 100%; position: relative; z-index: 1; }
+        #map { width: 100%; height: 100%; }
 
-        /* ── Info panel (route) ──────────────────── */
+        /* â”€â”€ Info panel (route) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         #info {
             position: absolute; bottom: 20px; left: 20px; background: white;
             padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
@@ -81,7 +91,7 @@
         #info h3 { margin-bottom: 8px; color: #667eea; font-size: 15px; }
         #info p { margin: 4px 0; font-size: 13px; }
 
-        /* ── Boundary sidebar ────────────────────── */
+        /* â”€â”€ Boundary sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         #boundary-panel {
             position: absolute; top: 10px; right: 10px; width: 320px; max-height: calc(100% - 20px);
             background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.18);
@@ -124,7 +134,7 @@
         }
         .dblclick-hint.show { opacity: 1; }
 
-        /* ── Split panel ─────────────────────────── */
+        /* â”€â”€ Split panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         #split-panel {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
             background: white; padding: 14px 20px; border-radius: 8px;
@@ -143,7 +153,7 @@
         }
         #split-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
 
-        /* ── Legend ───────────────────────────────── */
+        /* â”€â”€ Legend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
         .legend {
             position: absolute; bottom: 20px; right: 10px; background: white;
             padding: 10px 14px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -164,20 +174,8 @@
         .toast.error { background: #ef4444; }
         .toast.success { background: #22c55e; }
 
-        /* Fix: suppress browser focus outline on Leaflet SVG paths */
-        .leaflet-container path:focus,
-        .leaflet-overlay-pane svg:focus,
-        .leaflet-overlay-pane path:focus { outline: none !important; }
-
-        /* Native MapLibre GL base (behind Leaflet) */
-        #map-gl {
-            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            z-index: 0; display: none;
-        }
-        #map-gl.show { display: block; }
-        /* When vector mode active, make Leaflet tile pane transparent */
-        #map.vector-mode .leaflet-tile-pane { display: none; }
-        #map.vector-mode { background: transparent; }
+        /* Fix: MapLibre focus outline */
+        .maplibregl-canvas:focus { outline: none !important; }
 
         /* Tile mode toggle */
         #tile-mode-toggle {
@@ -195,19 +193,19 @@
 <body>
     <div id="header">
         <div>
-            <h1>🗺️ OSRM Service - Pulau Jawa</h1>
+            <h1>ðŸ—ºï¸ OSRM Service - Pulau Jawa</h1>
             <p>Routing, Tiles & Administrative Boundaries</p>
         </div>
         <div id="tile-mode-toggle" title="Ganti mode render tile">
-            <span id="mode-png" class="active">🖼️ PNG</span>
-            <span id="mode-pbf">⬡ Vektor</span>
+            <span id="mode-png" class="active">ðŸ–¼ï¸ PNG</span>
+            <span id="mode-pbf">â¬¡ Vektor</span>
         </div>
     </div>
 
     <!-- Tabs -->
     <div id="tabs">
-        <button class="tab-btn active" data-tab="routing">🛣️ Routing</button>
-        <button class="tab-btn" data-tab="boundaries">🏛️ Boundaries</button>
+        <button class="tab-btn active" data-tab="routing">ðŸ›£ï¸ Routing</button>
+        <button class="tab-btn" data-tab="boundaries">ðŸ›ï¸ Boundaries</button>
     </div>
 
     <!-- Tab Panel: Routing -->
@@ -220,27 +218,26 @@
             <label>End:</label>
             <input type="text" id="end" placeholder="lon,lat" value="107.6098,-6.9145">
         </div>
-        <button id="routeBtn">🛣️ Cari Rute</button>
-        <button id="clearBtn" class="btn-outline">🗑️ Clear</button>
+        <button id="routeBtn">ðŸ›£ï¸ Cari Rute</button>
+        <button id="clearBtn" class="btn-outline">ðŸ—‘ï¸ Clear</button>
     </div>
 
     <!-- Tab Panel: Boundaries -->
     <div id="panel-boundaries" class="tab-panel">
         <div id="breadcrumb"></div>
-        <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
+        <button id="clearBoundaryBtn" class="btn-outline">ðŸ—‘ï¸ Hapus Layer</button>
         <div class="separator"></div>
-        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
+        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">âœ‚ï¸ Mode Split</button>
         <span style="font-size:12px;color:#999;margin-left:6px">Double-klik wilayah untuk melihat kecamatan</span>
     </div>
 
-    <div id="map-wrapper" style="position:relative;flex:1;display:flex;flex-direction:column">
-        <div id="map-gl"></div>
-        <div id="map" style="flex:1;position:relative;z-index:1;background:transparent"></div>
+    <div id="map-wrapper">
+        <div id="map"></div>
     </div>
 
     <!-- Route info -->
     <div id="info">
-        <h3>📊 Informasi Rute</h3>
+        <h3>ðŸ“Š Informasi Rute</h3>
         <p><strong>Jarak:</strong> <span id="distance">-</span></p>
         <p><strong>Durasi:</strong> <span id="duration">-</span></p>
         <p><strong>Status:</strong> <span id="status">-</span></p>
@@ -250,7 +247,7 @@
     <div id="boundary-panel">
         <div class="bp-header">
             <span id="bp-title">Detail Wilayah</span>
-            <button onclick="closeBoundaryPanel()">✕</button>
+            <button onclick="closeBoundaryPanel()">âœ•</button>
         </div>
         <div class="bp-body" id="bp-body"></div>
     </div>
@@ -260,18 +257,18 @@
 
     <!-- Split panel -->
     <div id="split-panel">
-        <h4>✂️ Split Wilayah</h4>
+        <h4>âœ‚ï¸ Split Wilayah</h4>
         <p id="split-target-label">Pilih wilayah lalu gambar garis potong di peta</p>
         <div id="split-inputs"></div>
         <div id="split-actions">
-            <button id="splitExecBtn" class="btn-success" disabled>✂️ Eksekusi Split</button>
+            <button id="splitExecBtn" class="btn-success" disabled>âœ‚ï¸ Eksekusi Split</button>
             <button id="splitCancelBtn" class="btn-danger">Batal</button>
         </div>
     </div>
 
     <!-- Legend -->
     <div class="legend" id="legend">
-        <h4>🎨 Legenda</h4>
+        <h4>ðŸŽ¨ Legenda</h4>
         <div class="legend-item"><span class="legend-color" style="background:#667eea"></span> Provinsi</div>
         <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
@@ -280,114 +277,212 @@
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
     <script>
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  GLOBALS
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     const API_URL = window.location.origin;
 
-    // ── #map wrapper must fill remaining height (flexbox fix) ──
-    const mapWrapper = document.getElementById('map-wrapper');
-    document.getElementById('map').style.height = '100%';
+    // â”€â”€ PNG raster style factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const makePngStyle = () => ({
+        version: 8,
+        sources: { raster: { type: 'raster', tiles: [`${API_URL}/tiles/{z}/{x}/{y}.png`], tileSize: 256, attribution: '&copy; OpenStreetMap contributors' } },
+        layers:  [{ id: 'raster-bg', type: 'raster', source: 'raster' }]
+    });
 
-    const map = L.map('map', { zoomControl: true, zoomSnap: 1, wheelPxPerZoomLevel: 60 }).setView([-6.9175, 107.6191], 10);
+    // â”€â”€ Map instance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: makePngStyle(),
+        center: [107.6191, -6.9175],
+        zoom: 10,
+        attributionControl: false,
+    });
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-    // ── Tile mode (png / vector) ──────────────────
+    // â”€â”€ Tile mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let tileMode = 'png';
-    let pngLayer  = null;
-    let glMap     = null;   // MapLibre GL instance
 
-    function buildPngLayer() {
-        return L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 18, minZoom: 2
-        });
-    }
-
-    function syncGLToLeaflet() {
-        if (!glMap) return;
-        const c = map.getCenter();
-        glMap.jumpTo({ center: [c.lng, c.lat], zoom: map.getZoom() - 1 });
-    }
-
-    let _rafId = null;
-    function startSyncLoop() {
-        if (_rafId) return;
-        function loop() { syncGLToLeaflet(); _rafId = requestAnimationFrame(loop); }
-        _rafId = requestAnimationFrame(loop);
-    }
-    function stopSyncLoop() {
-        if (_rafId) { cancelAnimationFrame(_rafId); _rafId = null; }
-        syncGLToLeaflet();
-    }
-
-    function enableVectorMode() {
-        // Remove PNG layer
-        if (pngLayer) { map.removeLayer(pngLayer); pngLayer = null; }
-        document.getElementById('map').classList.add('vector-mode');
-
-        const glEl = document.getElementById('map-gl');
-        glEl.classList.add('show');
-
-        if (!glMap) {
-            const c = map.getCenter();
-            glMap = new maplibregl.Map({
-                container: 'map-gl',
-                style: `${API_URL}/tiles/style.json`,
-                center: [c.lng, c.lat],
-                zoom: map.getZoom() - 1,
-                interactive: false,   // Leaflet handles all interaction
-                attributionControl: false,
-                fadeDuration: 100,
-            });
-        } else {
-            syncGLToLeaflet();
-        }
-
-        // Enable fractional zoom for smooth vector rendering
-        map.options.zoomSnap = 0;
-        map.options.wheelPxPerZoomLevel = 120;
-
-        map.on('move',      syncGLToLeaflet);
-        map.on('zoomstart', startSyncLoop);
-        map.on('zoomend',   stopSyncLoop);
-        map.on('resize',    () => glMap && glMap.resize());
-    }
-
-    function disableVectorMode() {
-        stopSyncLoop();
-        map.options.zoomSnap = 1;
-        map.options.wheelPxPerZoomLevel = 60;
-        map.off('move',      syncGLToLeaflet);
-        map.off('zoomstart', startSyncLoop);
-        map.off('zoomend',   stopSyncLoop);
-        document.getElementById('map').classList.remove('vector-mode');
-        document.getElementById('map-gl').classList.remove('show');
-        pngLayer = buildPngLayer();
-        pngLayer.addTo(map);
-        pngLayer.bringToBack();
-    }
-
-    function setTileMode(mode) {
+    async function setTileMode(mode) {
         tileMode = mode;
-        if (mode === 'pbf') enableVectorMode();
-        else                disableVectorMode();
         document.getElementById('mode-png').classList.toggle('active', mode === 'png');
         document.getElementById('mode-pbf').classList.toggle('active', mode === 'pbf');
+        let style;
+        if (mode === 'pbf') {
+            const resp = await fetch(`${API_URL}/tiles/style.json`);
+            style = await resp.json();
+        } else {
+            style = makePngStyle();
+        }
+        map.setStyle(style);
+        map.once('style.load', reAddAllOverlays);
     }
-
-    // Init dengan PNG
-    pngLayer = buildPngLayer();
-    pngLayer.addTo(map);
 
     document.getElementById('tile-mode-toggle').addEventListener('click', () => {
         setTileMode(tileMode === 'png' ? 'pbf' : 'png');
     });
 
-    // ── Routing state ───────────────────────────
-    let startMarker = null, endMarker = null, routeLine = null;
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  TOAST
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    function toast(msg, type = '') {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast show ' + type;
+        setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  HELPERS
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    function geojsonBounds(geojson) {
+        let W = Infinity, S = Infinity, E = -Infinity, N = -Infinity;
+        const pt = ([lng, lat]) => { if(lng<W)W=lng; if(lat<S)S=lat; if(lng>E)E=lng; if(lat>N)N=lat; };
+        const geom = g => {
+            if (!g) return;
+            if (g.type==='Point') pt(g.coordinates);
+            else if (g.type==='LineString') g.coordinates.forEach(pt);
+            else if (g.type==='Polygon') g.coordinates.forEach(r=>r.forEach(pt));
+            else if (g.type==='MultiPolygon') g.coordinates.forEach(p=>p.forEach(r=>r.forEach(pt)));
+            else if (g.type==='MultiLineString') g.coordinates.forEach(r=>r.forEach(pt));
+            else if (g.type==='GeometryCollection') g.geometries.forEach(geom);
+        };
+        const features = geojson.features || (geojson.type==='Feature' ? [geojson] : []);
+        features.forEach(f => geom(f.geometry));
+        return [[W,S],[E,N]];
+    }
+
+    function normProps(feature, level) {
+        const p = feature.properties || {};
+        if (level === 'city') {
+            return { name: p.KABKOT || p.name || '(tanpa nama)', p3d_id: p.ID_KAB || p.id_kab || null, level: 'city' };
+        } else if (level === 'district') {
+            return {
+                name: p.nm_kecamatan || p.name || p.kecamatan || p.nama || '(tanpa nama)',
+                district_id: p.kd_kecamatan || p.district_id || p.kode || null,
+                p3d_id: p.ID_KAB || p.p3d_id || null, level: 'district',
+            };
+        }
+        return { name: p.name || '(tanpa nama)', level };
+    }
+
+    function findFullFeature(props, level) {
+        const data = boundaryData[level];
+        if (!data) return null;
+        return data.features.find(f => {
+            const fp = f.properties;
+            if (level === 'city')     return (fp.ID_KAB || fp.id_kab) === (props.ID_KAB || props.id_kab);
+            if (level === 'district') return (fp.kd_kecamatan || fp.district_id || fp.kode) === (props.kd_kecamatan || props.district_id || props.kode);
+            return false;
+        }) || null;
+    }
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  LAYER MANAGEMENT
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    const COLORS = {
+        city:     { fill: '#f59e0b', border: '#d97706', fillOpacity: 0.15, borderWidth: 2 },
+        district: { fill: '#10b981', border: '#059669', fillOpacity: 0.12, borderWidth: 1.5 },
+    };
+
+    let boundaryData     = {};
+    let selectedFeature  = null;
+    let currentLevel     = 'city';
+    let drillStack       = [];
+    let _layersAdded     = {}; // track which levels have layers
+
+    function srcId(lvl)    { return `${lvl}-src`; }
+    function fillId(lvl)   { return `${lvl}-fill`; }
+    function borderId(lvl) { return `${lvl}-border`; }
+
+    function safeAddSource(id, data) {
+        if (map.getSource(id)) map.getSource(id).setData(data);
+        else map.addSource(id, { type: 'geojson', data });
+    }
+    function safeRemoveLayer(id) { if (map.getLayer(id))  map.removeLayer(id); }
+    function safeRemoveSource(id){ if (map.getSource(id)) map.removeSource(id); }
+
+    function addBoundaryLevel(level, geojson) {
+        const c = COLORS[level];
+        boundaryData[level] = geojson;
+        safeAddSource(srcId(level), geojson);
+        if (!map.getLayer(fillId(level)))   map.addLayer({ id: fillId(level),   type: 'fill', source: srcId(level), paint: { 'fill-color': c.fill, 'fill-opacity': c.fillOpacity } });
+        if (!map.getLayer(borderId(level))) map.addLayer({ id: borderId(level), type: 'line', source: srcId(level), paint: { 'line-color': c.border, 'line-width': c.borderWidth } });
+        // keep highlight on top
+        if (map.getLayer('hl-fill')) { map.moveLayer(fillId(level), 'hl-fill'); map.moveLayer(borderId(level), 'hl-fill'); }
+        _layersAdded[level] = true;
+        setupLayerEvents(level);
+    }
+
+    function removeBoundaryLevel(level) {
+        safeRemoveLayer(fillId(level)); safeRemoveLayer(borderId(level)); safeRemoveSource(srcId(level));
+        delete boundaryData[level]; delete _layersAdded[level];
+    }
+
+    function addHighlightLayer(feature) {
+        const fc = { type: 'FeatureCollection', features: [feature] };
+        safeAddSource('hl-src', fc);
+        if (!map.getLayer('hl-fill'))   map.addLayer({ id: 'hl-fill',   type: 'fill', source: 'hl-src', paint: { 'fill-color': '#764ba2', 'fill-opacity': 0.30 } });
+        if (!map.getLayer('hl-border')) map.addLayer({ id: 'hl-border', type: 'line', source: 'hl-src', paint: { 'line-color': '#764ba2', 'line-width': 3 } });
+    }
+
+    function removeHighlightLayer() {
+        safeRemoveLayer('hl-fill'); safeRemoveLayer('hl-border'); safeRemoveSource('hl-src');
+        selectedFeature = null;
+    }
+
+    function reAddAllOverlays() {
+        // re-register all active boundary levels after style change
+        const snapshot = { ...boundaryData };
+        _layersAdded = {};
+        for (const [lvl, data] of Object.entries(snapshot)) addBoundaryLevel(lvl, data);
+        if (selectedFeature) addHighlightLayer(selectedFeature);
+        if (routeGeoJSON)    addRouteLayer(routeGeoJSON);
+        if (splitPoints.length > 1) redrawSplitLine();
+    }
+
+    // â”€â”€ Tooltip popup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'ml-tooltip', offset: 8 });
+
+    function setupLayerEvents(level) {
+        const fid = fillId(level);
+
+        map.on('mouseenter', fid, e => {
+            map.getCanvas().style.cursor = 'pointer';
+            const f = e.features[0];
+            const norm = normProps(f, level);
+            const kd = level === 'city' ? norm.p3d_id : norm.district_id;
+            tooltip.setLngLat(e.lngLat).setHTML(kd ? `${kd} - ${norm.name}` : norm.name).addTo(map);
+        });
+        map.on('mousemove', fid, e => tooltip.setLngLat(e.lngLat));
+        map.on('mouseleave', fid, () => { map.getCanvas().style.cursor = ''; tooltip.remove(); });
+
+        map.on('click', fid, e => {
+            const full = findFullFeature(e.features[0].properties, level) || e.features[0];
+            currentLevel = level;
+            removeHighlightLayer();
+            addHighlightLayer(full);
+            selectedFeature = full;
+            showBoundaryPanel(full, level);
+        });
+
+        if (level === 'city') {
+            map.on('dblclick', fid, e => {
+                e.preventDefault();
+                const norm = normProps(e.features[0], 'city');
+                if (!norm.p3d_id) { toast('p3d_id tidak ditemukan', 'error'); return; }
+                closeBoundaryPanel();
+                drillInto('city', norm.p3d_id, norm.name);
+            });
+        }
+    }
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  ROUTING
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    let startMarker = null, endMarker = null, routeGeoJSON = null;
     const startInput = document.getElementById('start');
     const endInput   = document.getElementById('end');
     const routeBtn   = document.getElementById('routeBtn');
@@ -397,58 +492,23 @@
     const durationEl = document.getElementById('duration');
     const statusEl   = document.getElementById('status');
 
-    // ── Boundary state ──────────────────────────
-    let boundaryLayers  = { city: null, district: null };
-    let boundaryData    = {};          // raw GeoJSON per level
-    let selectedFeature = null;
-    let highlightLayer  = null;
-    let currentLevel    = 'city';
-    // drillStack: [{level, code, name}] — tracks what's been drilled into
-    let drillStack      = [];
+    function parseCoord(s) { const [lon,lat]=s.split(',').map(v=>parseFloat(v.trim())); return {lon,lat}; }
+    function fmtDist(m)  { return m<1000?`${Math.round(m)} m`:`${(m/1000).toFixed(2)} km`; }
+    function fmtDur(s)   { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),d=Math.floor(s%60); return h>0?`${h}j ${m}m ${d}d`:m>0?`${m}m ${d}d`:`${d}d`; }
 
-    // ── Split state ─────────────────────────────
-    let splitMode       = false;
-    let splitTarget     = null;        // feature to split
-    let splitLine       = null;        // L.polyline being drawn
-    let splitPoints     = [];          // latlng array for cut line
-    let splitLineLayer  = null;        // final drawn line
-
-    // ── Color palette ───────────────────────────
-    const COLORS = {
-        province: { fill: '#667eea', border: '#4c5fd7', weight: 2.5 },
-        city:     { fill: '#f59e0b', border: '#d97706', weight: 2 },
-        district: { fill: '#10b981', border: '#059669', weight: 1.5 },
-        village:  { fill: '#ec4899', border: '#db2777', weight: 1 },
-    };
-
-    // ════════════════════════════════════════════════════════
-    //  TABS  (handled later in BOUNDARY section with auto-load)
-    // ════════════════════════════════════════════════════════
-
-    // ════════════════════════════════════════════════════════
-    //  TOAST
-    // ════════════════════════════════════════════════════════
-    function toast(msg, type = '') {
-        const el = document.getElementById('toast');
-        el.textContent = msg;
-        el.className = 'toast show ' + type;
-        setTimeout(() => el.classList.remove('show'), 3000);
+    function makeMarkerEl(color) {
+        const el = document.createElement('div');
+        el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        return el;
     }
 
-    // ════════════════════════════════════════════════════════
-    //  ROUTING (unchanged logic, refactored)
-    // ════════════════════════════════════════════════════════
-    function parseCoord(s) {
-        const [lon, lat] = s.split(',').map(v => parseFloat(v.trim()));
-        return { lon, lat };
+    function addRouteLayer(geojson) {
+        routeGeoJSON = geojson;
+        safeAddSource('route-src', geojson);
+        if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route-src', paint: { 'line-color': '#667eea', 'line-width': 5, 'line-opacity': 0.8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     }
-    function fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m/1000).toFixed(2)} km`; }
-    function fmtDur(s) {
-        const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), d = Math.floor(s%60);
-        if (h > 0) return `${h}j ${m}m ${d}d`;
-        if (m > 0) return `${m}m ${d}d`;
-        return `${d}d`;
-    }
+
+    function removeRouteLayer() { safeRemoveLayer('route-line'); safeRemoveSource('route-src'); routeGeoJSON = null; }
 
     async function getRoute() {
         try {
@@ -456,342 +516,182 @@
             statusEl.textContent = 'Mencari rute...';
             info.classList.add('show');
             const s = parseCoord(startInput.value), e = parseCoord(endInput.value);
-            if (startMarker) map.removeLayer(startMarker);
-            if (endMarker)   map.removeLayer(endMarker);
-            startMarker = L.circleMarker([s.lat, s.lon], { radius:8, fillColor:'#22c55e', color:'white', weight:2, fillOpacity:1 }).addTo(map);
-            endMarker   = L.circleMarker([e.lat, e.lon], { radius:8, fillColor:'#ef4444', color:'white', weight:2, fillOpacity:1 }).addTo(map);
+            if (startMarker) { startMarker.remove(); startMarker = null; }
+            if (endMarker)   { endMarker.remove();   endMarker   = null; }
+            startMarker = new maplibregl.Marker({ element: makeMarkerEl('#22c55e') }).setLngLat([s.lon, s.lat]).addTo(map);
+            endMarker   = new maplibregl.Marker({ element: makeMarkerEl('#ef4444') }).setLngLat([e.lon, e.lat]).addTo(map);
             const resp = await fetch(`${API_URL}/route?start=${s.lon},${s.lat}&end=${e.lon},${e.lat}`);
             const data = await resp.json();
             if (!data.success || !data.data.routes?.length) throw new Error('Rute tidak ditemukan');
             const route = data.data.routes[0];
-            if (routeLine) map.removeLayer(routeLine);
-            const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
-            routeLine = L.polyline(coords, { color:'#667eea', weight:5, opacity:0.7 }).addTo(map);
-            map.fitBounds(L.latLngBounds(coords), { padding:[50,50] });
+            removeRouteLayer();
+            addRouteLayer(route.geometry);
+            const coords = route.geometry.coordinates;
+            const lngs = coords.map(c=>c[0]), lats = coords.map(c=>c[1]);
+            map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], { padding: 60 });
             distanceEl.textContent = fmtDist(route.distance);
             durationEl.textContent = fmtDur(route.duration);
-            statusEl.textContent = '✅ Berhasil';
+            statusEl.textContent   = 'âœ… Berhasil';
         } catch (err) {
             console.error(err);
-            statusEl.textContent = `❌ ${err.message}`;
-            distanceEl.textContent = '-'; durationEl.textContent = '-';
+            statusEl.textContent   = `âŒ ${err.message}`;
+            distanceEl.textContent = durationEl.textContent = '-';
         } finally { routeBtn.disabled = false; }
     }
 
     function clearRoute() {
-        [startMarker, endMarker, routeLine].forEach(l => { if (l) map.removeLayer(l); });
-        startMarker = endMarker = routeLine = null;
+        if (startMarker) { startMarker.remove(); startMarker = null; }
+        if (endMarker)   { endMarker.remove();   endMarker   = null; }
+        removeRouteLayer();
         info.classList.remove('show');
         distanceEl.textContent = durationEl.textContent = statusEl.textContent = '-';
     }
 
     let clickMode = 'start';
     map.on('click', e => {
-        if (splitMode) return; // handled by split click handler
-        const coord = `${e.latlng.lng.toFixed(6)},${e.latlng.lat.toFixed(6)}`;
-        if (clickMode === 'start') { startInput.value = coord; clickMode = 'end'; }
-        else { endInput.value = coord; clickMode = 'start'; }
+        if (splitMode) return;
+        // Only set coord if no boundary layer was clicked (boundary click stops propagation via layer event)
+        if (document.getElementById('panel-routing').classList.contains('active')) {
+            const coord = `${e.lngLat.lng.toFixed(6)},${e.lngLat.lat.toFixed(6)}`;
+            if (clickMode === 'start') { startInput.value = coord; clickMode = 'end'; }
+            else { endInput.value = coord; clickMode = 'start'; }
+        }
     });
 
     routeBtn.addEventListener('click', getRoute);
     clearBtn.addEventListener('click', clearRoute);
-    [startInput, endInput].forEach(i => i.addEventListener('keypress', e => { if (e.key === 'Enter') getRoute(); }));
+    [startInput, endInput].forEach(i => i.addEventListener('keypress', e => { if (e.key==='Enter') getRoute(); }));
 
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  BOUNDARY LAYER
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     const clearBndBtn = document.getElementById('clearBoundaryBtn');
     const legend      = document.getElementById('legend');
     const bcEl        = document.getElementById('breadcrumb');
 
-    const LEVEL_LABEL = { province: 'Provinsi', city: 'Kab/Kota', district: 'Kecamatan' };
-    const NEXT_LEVEL  = { city: 'district', district: null };
-    const DRILL_HINT  = { city: 'kecamatan' };
-
-    // ── Breadcrumb ──────────────────────────────
     function renderBreadcrumb() {
         if (!drillStack.length) { bcEl.classList.remove('show'); return; }
         bcEl.classList.add('show');
         let html = `<span class="bc-item" onclick="jumpTo(0)">Kab/Kota</span>`;
         drillStack.forEach((item, i) => {
-            html += `<span class="bc-sep">›</span>`;
-            if (i === drillStack.length - 1) {
-                html += `<span class="bc-current">${item.name}</span>`;
-            } else {
-                html += `<span class="bc-item" onclick="jumpTo(${i + 1})">${item.name}</span>`;
-            }
+            html += `<span class="bc-sep">â€º</span>`;
+            if (i === drillStack.length-1) html += `<span class="bc-current">${item.name}</span>`;
+            else html += `<span class="bc-item" onclick="jumpTo(${i+1})">${item.name}</span>`;
         });
         bcEl.innerHTML = html;
     }
 
-    // jumpTo(0) = back to city root
     function jumpTo(depth) {
-        if (depth === 0) {
-            removeLayerLevel('district');
-            drillStack = [];
-        }
+        if (depth === 0) { removeBoundaryLevel('district'); drillStack = []; }
         closeBoundaryPanel();
         renderBreadcrumb();
     }
     window.jumpTo = jumpTo;
 
-    function removeLayerLevel(lvl) {
-        if (boundaryLayers[lvl]) { map.removeLayer(boundaryLayers[lvl]); boundaryLayers[lvl] = null; }
-        delete boundaryData[lvl];
-    }
-
-    /**
-     * Normalize feature properties to a common format.
-     * jabar.json uses { KABKOT, ID_KAB, ... }
-     * kab/*.json (dari API singsat) uses { name, kode_kecamatan, ... }
-     */
-    function normProps(feature, level) {
-        const p = feature.properties || {};
-        if (level === 'city') {
-            return {
-                name:   p.KABKOT  || p.KABKOT || p.name || '(tanpa nama)',
-                p3d_id: p.ID_KAB  || p.id_kab || null,
-                level:  'city',
-            };
-        } else if (level === 'district') {
-            return {
-                name:   p.nm_kecamatan || p.name || p.kecamatan || p.nama || '(tanpa nama)',
-                // kd_kecamatan = district_id, dipakai untuk drill ke desa
-                district_id: p.kd_kecamatan || p.district_id || p.kode || null,
-                p3d_id:      p.ID_KAB || p.p3d_id || null,
-                level:  'district',
-            };
-        } else {
-            // village
-            return {
-                name:   p.village || p.name || p.nama || '(tanpa nama)',
-                unique_code: p.unique_code || null,
-                p3d_id: p.p3d_id || null,
-                level:  'village',
-            };
-        }
-    }
-
-    /** Build L.geoJSON layer for a level. dblclick drills into next level. */
-    function buildLayer(level, data) {
-        const colors = COLORS[level] || COLORS.city;
-        const opacityMap = { city: 0.15, district: 0.12, village: 0.09 };
-        return L.geoJSON(data, {
-            style: () => ({
-                color: colors.border,
-                fillColor: colors.fill,
-                fillOpacity: opacityMap[level] ?? 0.12,
-                weight: colors.weight,
-            }),
-            onEachFeature: (feature, layer) => {
-                const norm = normProps(feature, level);
-                const kd = level === 'city' ? norm.p3d_id : level === 'district' ? norm.district_id : null;
-                const tooltipText = kd ? `${kd} - ${norm.name}` : norm.name;
-                layer.bindTooltip(tooltipText, {
-                    sticky: true, className: 'boundary-tooltip', direction: 'top'
-                });
-                // Single click → show detail panel
-                layer.on('click', e => {
-                    L.DomEvent.stopPropagation(e);
-                    currentLevel = level;
-                    selectBoundaryFeature(feature, layer, level);
-                });
-                // Double click → langsung tampilkan kecamatan
-                if (level === 'city') {
-                    layer.on('dblclick', e => {
-                        L.DomEvent.stop(e);
-                        const n = normProps(feature, 'city');
-                        if (!n.p3d_id) { toast('p3d_id tidak ditemukan untuk wilayah ini', 'error'); return; }
-                        closeBoundaryPanel();
-                        drillInto('city', n.p3d_id, n.name);
-                    });
-                }
-            }
-        });
-    }
-
-    /** Drill city → kecamatan */
     async function drillInto(fromLevel, p3dId, parentName) {
         if (fromLevel !== 'city') return;
-
-        removeLayerLevel('district');
-        removeLayerLevel('village');
+        removeBoundaryLevel('district');
         drillStack = [{ level: 'city', code: p3dId, name: parentName }];
-
         try {
             const resp = await fetch(`${API_URL}/api/geojson/kecamatan/${encodeURIComponent(p3dId)}`);
             if (!resp.ok) throw new Error(`Data kecamatan untuk p3d_id ${p3dId} tidak ditemukan`);
             const geojson = await resp.json();
-
-            boundaryData.district = geojson;
-            const layer = buildLayer('district', geojson);
-            boundaryLayers.district = layer;
-            layer.addTo(map);
-
-            if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [40, 40] });
-
+            addBoundaryLevel('district', geojson);
+            const bounds = geojsonBounds(geojson);
+            if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
             renderBreadcrumb();
-            const count = geojson.features?.length || 0;
-            toast(`✅ ${count} kecamatan di ${parentName} dimuat`, 'success');
-
-        } catch (err) {
-            console.error(err);
-            toast(`❌ ${err.message}`, 'error');
-        }
+            toast(`âœ… ${geojson.features?.length||0} kecamatan di ${parentName} dimuat`, 'success');
+        } catch (err) { console.error(err); toast(`âŒ ${err.message}`, 'error'); }
     }
+    window.drillInto = drillInto;
 
-    // drillIntoDesa: dihapus (fitur desa dinonaktifkan)
-
-    /** Initial load: kabupaten layer dari jabar.json */
     async function loadAllBoundaries() {
         clearBoundaries(false);
-        drillStack = [];
         try {
             const resp = await fetch(`${API_URL}/api/geojson/kabupaten`);
             if (!resp.ok) throw new Error('Gagal memuat data kabupaten');
             const data = await resp.json();
-
-            boundaryData.city = data;
-            const layer = buildLayer('city', data);
-            boundaryLayers.city = layer;
-            layer.addTo(map);
-            map.doubleClickZoom.disable();
-
-            if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [40, 40] });
+            addBoundaryLevel('city', data);
+            const bounds = geojsonBounds(data);
+            if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
             legend.classList.add('show');
             bcEl.classList.remove('show');
-            const count = data.features?.length || 0;
-            toast(`✅ ${count} Kab/Kota dimuat · Double-klik untuk melihat kecamatan`, 'success');
-        } catch (err) {
-            console.error(err);
-            toast(`❌ ${err.message}`, 'error');
-        }
+            toast(`âœ… ${data.features?.length||0} Kab/Kota dimuat Â· Double-klik untuk melihat kecamatan`, 'success');
+        } catch (err) { console.error(err); toast(`âŒ ${err.message}`, 'error'); }
     }
 
-    // Alias for split reload compatibility
     function loadBoundaries() { return loadAllBoundaries(); }
 
     function clearBoundaries(hidePanel = true) {
-        ['city','district'].forEach(lvl => {
-            if (boundaryLayers[lvl]) { map.removeLayer(boundaryLayers[lvl]); boundaryLayers[lvl] = null; }
-        });
-        if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
-        boundaryData = {};
+        ['city','district'].forEach(removeBoundaryLevel);
+        removeHighlightLayer();
         drillStack = [];
-        selectedFeature = null;
-        map.doubleClickZoom.enable(); // restore zoom when boundaries cleared
-        if (hidePanel) {
-            closeBoundaryPanel();
-            legend.classList.remove('show');
-        }
-    }
-
-    function selectBoundaryFeature(feature, layer, level) {
-        // Highlight
-        if (highlightLayer) map.removeLayer(highlightLayer);
-        const normForTooltip = normProps(feature, level || currentLevel);
-        highlightLayer = L.geoJSON(feature, {
-            style: { color: '#764ba2', fillColor: '#764ba2', fillOpacity: 0.30, weight: 3 },
-            interactive: false
-        }).addTo(map);
-
-        selectedFeature = feature;
-        showBoundaryPanel(feature, level || currentLevel);
+        if (hidePanel) { closeBoundaryPanel(); legend.classList.remove('show'); }
+        renderBreadcrumb();
     }
 
     function showBoundaryPanel(feature, level) {
         const p    = feature.properties || {};
         const norm = normProps(feature, level || currentLevel);
-        const panel = document.getElementById('boundary-panel');
-        const body  = document.getElementById('bp-body');
         document.getElementById('bp-title').textContent = norm.name;
-
-        const safeP3d  = String(norm.p3d_id || '').replace(/'/g, "\'");
-        const safeName = norm.name.replace(/'/g, "\'");
+        const safeP3d  = String(norm.p3d_id || '').replace(/'/g, "\\'");
+        const safeName = norm.name.replace(/'/g, "\\'");
         let drillBtn = '';
         if (level === 'city' && norm.p3d_id) {
             drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
                 onclick="drillInto('city','${safeP3d}','${safeName}');closeBoundaryPanel()">
                 &#9654; Tampilkan Kecamatan</button>`;
         }
-
-        // Tampilkan semua properties asli
-        const propsHtml = Object.entries(p)
-            .map(([k, v]) => `<p><span class="label">${k}:</span> <span class="value">${v ?? '-'}</span></p>`)
-            .join('');
-
-        body.innerHTML = `${drillBtn}${propsHtml}`;
-        panel.classList.add('show');
+        const propsHtml = Object.entries(p).map(([k,v])=>`<p><span class="label">${k}:</span> <span class="value">${v??'-'}</span></p>`).join('');
+        document.getElementById('bp-body').innerHTML = `${drillBtn}${propsHtml}`;
+        document.getElementById('boundary-panel').classList.add('show');
     }
+
     window.closeBoundaryPanel = () => {
         document.getElementById('boundary-panel').classList.remove('show');
-        if (highlightLayer) { map.removeLayer(highlightLayer); highlightLayer = null; }
-        selectedFeature = null;
+        removeHighlightLayer();
     };
-    window.drillInto = drillInto;
 
-    async function fetchBoundaryDetail(id) {
-        try {
-            const resp = await fetch(`${API_URL}/api/boundaries/detail/${id}?zoom=${map.getZoom()}`);
-            const data = await resp.json();
-            return data.success !== false ? data : null;
-        } catch { return null; }
-    }
+    clearBndBtn.addEventListener('click', () => clearBoundaries(true));
 
-    clearBndBtn.addEventListener('click', () => {
-        clearBoundaries(true);
-        renderBreadcrumb();
-    });
-
-    // Auto-load kab/kota saat tab Boundaries pertama kali dibuka
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
             document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
-            if (btn.dataset.tab === 'boundaries' && !boundaryLayers.city) {
-                loadAllBoundaries();
-            }
+            if (btn.dataset.tab === 'boundaries' && !boundaryData.city) loadAllBoundaries();
         });
     });
-    // ════════════════════════════════════════════════════════
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  COORDINATE LOOKUP (right-click)
-    // ════════════════════════════════════════════════════════
-    const lookupPopup = L.popup({ maxWidth: 280 });
-
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    let lookupPopup = null;
     map.on('contextmenu', async e => {
-        const { lat, lng } = e.latlng;
-        lookupPopup.setLatLng(e.latlng).setContent('<i>Mencari wilayah...</i>').openOn(map);
-
+        if (lookupPopup) { lookupPopup.remove(); lookupPopup = null; }
+        const { lng, lat } = e.lngLat;
+        lookupPopup = new maplibregl.Popup({ maxWidth: '280px' })
+            .setLngLat(e.lngLat).setHTML('<i>Mencari wilayah...</i>').addTo(map);
         try {
             const resp = await fetch(`${API_URL}/api/boundaries/lookup?lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`);
             const data = await resp.json();
-
             if (!data.success || !data.results.length) {
-                lookupPopup.setContent('<b>Tidak ditemukan</b><br>Koordinat di luar boundary yang tersedia.');
-                return;
+                lookupPopup.setHTML('<b>Tidak ditemukan</b><br>Koordinat di luar boundary yang tersedia.'); return;
             }
-
-            const levelLabel = { province: 'Provinsi', city: 'Kota/Kab', district: 'Kecamatan', village: 'Kel/Desa' };
-            let rows = data.results.map(r =>
-                `<tr><td style="color:#888;padding:2px 6px 2px 0">${levelLabel[r.admin_level] || r.admin_level}</td>
-                 <td style="font-weight:600">${r.name}</td>
-                 <td style="color:#aaa;font-size:11px;padding-left:4px">${r.code}</td></tr>`
-            ).join('');
-
-            lookupPopup.setContent(`
-                <b>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</b>
-                <table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>
-            `);
-        } catch (err) {
-            lookupPopup.setContent(`❌ ${err.message}`);
-        }
+            const levelLabel = { province:'Provinsi', city:'Kota/Kab', district:'Kecamatan', village:'Kel/Desa' };
+            const rows = data.results.map(r=>`<tr><td style="color:#888;padding:2px 6px 2px 0">${levelLabel[r.admin_level]||r.admin_level}</td><td style="font-weight:600">${r.name}</td><td style="color:#aaa;font-size:11px;padding-left:4px">${r.code}</td></tr>`).join('');
+            lookupPopup.setHTML(`<b>ðŸ“ ${lat.toFixed(5)}, ${lng.toFixed(5)}</b><table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>`);
+        } catch (err) { lookupPopup.setHTML(`âŒ ${err.message}`); }
     });
 
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  POLYGON SPLIT
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    let splitMode       = false;
+    let splitTarget     = null;
+    let splitPoints     = [];
+
     const splitModeBtn   = document.getElementById('splitModeBtn');
     const splitPanel     = document.getElementById('split-panel');
     const splitExecBtn   = document.getElementById('splitExecBtn');
@@ -799,152 +699,110 @@
     const splitInputsDiv = document.getElementById('split-inputs');
     const splitLabel     = document.getElementById('split-target-label');
 
+    function redrawSplitLine() {
+        if (splitPoints.length < 2) return;
+        const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: splitPoints.map(p=>[p.lng,p.lat]) } };
+        safeAddSource('split-src', geojson);
+        if (!map.getLayer('split-line')) map.addLayer({ id: 'split-line', type: 'line', source: 'split-src', paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2,2] } });
+        map.getSource('split-src').setData(geojson);
+    }
+
+    const _splitClickHandler = e => {
+        if (!splitMode) return;
+        splitPoints.push(e.lngLat);
+        redrawSplitLine();
+    };
+    const _splitDblClickHandler = e => {
+        if (!splitMode) return;
+        e.preventDefault();
+        map.off('click', _splitClickHandler);
+        map.off('dblclick', _splitDblClickHandler);
+        map.doubleClickZoom.enable();
+        if (splitPoints.length < 2) { toast('Garis potong butuh minimal 2 titik', 'error'); return; }
+        buildSplitInputs(2);
+        splitExecBtn.disabled = false;
+        toast('Isi nama & kode wilayah baru, lalu klik Eksekusi', 'success');
+    };
+
     splitModeBtn.addEventListener('click', () => {
-        const anyLayer = boundaryLayers.city || boundaryLayers.district || boundaryLayers.village;
-        if (!anyLayer) { toast('Muat layer boundary terlebih dahulu (buka tab Boundaries)', 'error'); return; }
+        if (!boundaryData.city && !boundaryData.district) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
         if (splitMode) { cancelSplit(); return; }
         splitMode = true;
-        splitModeBtn.classList.remove('btn-outline');
-        splitModeBtn.classList.add('btn-danger');
-        splitModeBtn.textContent = '✂️ Cancel Split';
-        map.getContainer().style.cursor = 'crosshair';
+        splitModeBtn.classList.replace('btn-outline','btn-danger');
+        splitModeBtn.textContent = 'âœ‚ï¸ Cancel Split';
+        map.getCanvas().style.cursor = 'crosshair';
         toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
 
-        // Step 1: user clicks a polygon from any layer to select target
-        ['city','district'].forEach(lvl => {
-            if (!boundaryLayers[lvl]) return;
-            boundaryLayers[lvl].eachLayer(layer => {
-                layer.once('click', e => {
-                    if (!splitMode) return;
-                    L.DomEvent.stopPropagation(e);
-                    splitTarget = { feature: layer.feature, layer };
-                    selectBoundaryFeature(layer.feature, layer);
-                    splitLabel.textContent = `Memotong: ${layer.feature.properties.name} (${layer.feature.properties.code})`;
-                    splitPanel.classList.add('show');
-                    toast('Klik pada peta untuk menggambar garis potong. Double-click untuk selesai.', 'success');
-                    startDrawing();
-                });
-            });
-        });
+        const targetLayers = ['city-fill','district-fill'].filter(id => map.getLayer(id));
+        const onTargetClick = e => {
+            if (!splitMode) return;
+            e.preventDefault();
+            targetLayers.forEach(id => map.off('click', id, onTargetClick));
+            const feature = findFullFeature(e.features[0].properties, currentLevel) || e.features[0];
+            splitTarget = { feature };
+            addHighlightLayer(feature);
+            selectedFeature = feature;
+            const p = feature.properties;
+            splitLabel.textContent = `Memotong: ${p.KABKOT||p.nm_kecamatan||p.name||''} (${p.ID_KAB||p.kd_kecamatan||p.kode||''} )`;
+            splitPanel.classList.add('show');
+            toast('Klik pada peta untuk menggambar garis potong. Double-klik untuk selesai.', 'success');
+            map.doubleClickZoom.disable();
+            map.on('click', _splitClickHandler);
+            map.on('dblclick', _splitDblClickHandler);
+        };
+        targetLayers.forEach(id => map.on('click', id, onTargetClick));
     });
-
-    function startDrawing() {
-        splitPoints = [];
-        if (splitLineLayer) { map.removeLayer(splitLineLayer); splitLineLayer = null; }
-
-        const onMapClick = e => {
-            if (!splitMode) return;
-            splitPoints.push(e.latlng);
-            if (splitLineLayer) map.removeLayer(splitLineLayer);
-            splitLineLayer = L.polyline(splitPoints, { color: '#ef4444', weight: 3, dashArray: '8,6' }).addTo(map);
-        };
-
-        const onDblClick = e => {
-            if (!splitMode) return;
-            L.DomEvent.stopPropagation(e);
-            L.DomEvent.preventDefault(e);
-            map.off('click', onMapClick);
-            map.off('dblclick', onDblClick);
-            map.doubleClickZoom.enable();
-            if (splitPoints.length < 2) {
-                toast('Garis potong butuh minimal 2 titik', 'error');
-                return;
-            }
-            // Guess piece count = 2
-            buildSplitInputs(2);
-            splitExecBtn.disabled = false;
-            toast('Isi nama & kode wilayah baru, lalu klik Eksekusi', 'success');
-        };
-
-        map.doubleClickZoom.disable();
-        map.on('click', onMapClick);
-        map.on('dblclick', onDblClick);
-    }
 
     function buildSplitInputs(count) {
         let html = '';
-        for (let i = 1; i <= count; i++) {
-            html += `<div class="split-region">
-                <span style="font-weight:600;min-width:18px">${i}.</span>
-                <input type="text" id="splitName${i}" placeholder="Nama wilayah baru">
-                <input type="text" id="splitCode${i}" placeholder="Kode wilayah" style="width:110px">
-            </div>`;
-        }
-        html += `<p style="font-size:11px;color:#888;margin-top:4px">Jumlah potongan mungkin berbeda tergantung geometri. Server akan memvalidasi.</p>`;
+        for (let i=1;i<=count;i++) html += `<div class="split-region"><span style="font-weight:600;min-width:18px">${i}.</span><input type="text" id="splitName${i}" placeholder="Nama wilayah baru"><input type="text" id="splitCode${i}" placeholder="Kode wilayah" style="width:110px"></div>`;
+        html += `<p style="font-size:11px;color:#888;margin-top:4px">Jumlah potongan mungkin berbeda tergantung geometri.</p>`;
         splitInputsDiv.innerHTML = html;
     }
 
     splitExecBtn.addEventListener('click', async () => {
         if (!splitTarget || splitPoints.length < 2) return;
-
-        // Collect names & codes
         const regions = [];
-        for (let i = 1; ; i++) {
-            const nameEl = document.getElementById('splitName' + i);
-            const codeEl = document.getElementById('splitCode' + i);
-            if (!nameEl) break;
-            if (!nameEl.value.trim() || !codeEl.value.trim()) {
-                toast('Isi semua nama dan kode wilayah', 'error'); return;
-            }
-            regions.push({ name: nameEl.value.trim(), code: codeEl.value.trim() });
+        for (let i=1;;i++) {
+            const n = document.getElementById('splitName'+i), c = document.getElementById('splitCode'+i);
+            if (!n) break;
+            if (!n.value.trim()||!c.value.trim()) { toast('Isi semua nama dan kode wilayah','error'); return; }
+            regions.push({ name:n.value.trim(), code:c.value.trim() });
         }
-
-        const cutLine = {
-            type: 'LineString',
-            coordinates: splitPoints.map(p => [p.lng, p.lat])
-        };
-
-        splitExecBtn.disabled = true;
-        splitExecBtn.textContent = '⏳ Memproses...';
-
+        splitExecBtn.disabled = true; splitExecBtn.textContent = 'â³ Memproses...';
         try {
             const resp = await fetch(`${API_URL}/api/boundaries/split`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    boundary_id: splitTarget.feature.properties.id,
-                    cut_line: cutLine,
-                    new_regions: regions
-                })
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ boundary_id: splitTarget.feature.properties.id, cut_line:{ type:'LineString', coordinates: splitPoints.map(p=>[p.lng,p.lat]) }, new_regions: regions })
             });
             const data = await resp.json();
             if (!data.success) throw new Error(data.error);
-
-            toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
-            cancelSplit();
-            // Reload dari awal
-            loadAllBoundaries();
-
+            toast(`âœ… Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
+            cancelSplit(); loadAllBoundaries();
         } catch (err) {
-            console.error(err);
-            toast(`❌ Split gagal: ${err.message}`, 'error');
-            splitExecBtn.disabled = false;
-            splitExecBtn.textContent = '✂️ Eksekusi Split';
+            console.error(err); toast(`âŒ Split gagal: ${err.message}`, 'error');
+            splitExecBtn.disabled = false; splitExecBtn.textContent = 'âœ‚ï¸ Eksekusi Split';
         }
     });
 
     function cancelSplit() {
-        splitMode = false;
-        splitTarget = null;
-        splitPoints = [];
-        if (splitLineLayer) { map.removeLayer(splitLineLayer); splitLineLayer = null; }
+        splitMode = false; splitTarget = null; splitPoints = [];
+        map.off('click', _splitClickHandler); map.off('dblclick', _splitDblClickHandler);
+        safeRemoveLayer('split-line'); safeRemoveSource('split-src');
         splitPanel.classList.remove('show');
-        splitExecBtn.disabled = true;
-        splitExecBtn.textContent = '✂️ Eksekusi Split';
+        splitExecBtn.disabled = true; splitExecBtn.textContent = 'âœ‚ï¸ Eksekusi Split';
         splitInputsDiv.innerHTML = '';
-        splitModeBtn.classList.add('btn-outline');
-        splitModeBtn.classList.remove('btn-danger');
-        splitModeBtn.textContent = '✂️ Mode Split';
-        map.getContainer().style.cursor = '';
+        splitModeBtn.classList.replace('btn-danger','btn-outline');
+        splitModeBtn.textContent = 'âœ‚ï¸ Mode Split';
+        map.getCanvas().style.cursor = '';
         map.doubleClickZoom.enable();
     }
-
     splitCancelBtn.addEventListener('click', cancelSplit);
 
-    // ════════════════════════════════════════════════════════
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     //  INIT
-    // ════════════════════════════════════════════════════════
-    console.log('🗺️ OSRM Service + Boundaries Demo');
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    console.log('ðŸ—ºï¸ OSRM Service + Boundaries Demo (MapLibre GL)');
     </script>
 </body>
 </html>
