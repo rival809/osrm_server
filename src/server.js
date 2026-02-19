@@ -68,6 +68,9 @@ const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
 // Tileserver URL (required for self-hosted setup)
 const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:5001/styles/basic-preview';
 
+// Tileserver data URL for vector PBF tiles (mbtiles)
+const TILE_SERVER_DATA_URL = process.env.TILE_SERVER_DATA_URL || 'http://localhost:5001/data/java';
+
 // Nominatim URL (for reverse geocoding)
 const NOMINATIM_URL = process.env.NOMINATIM_URL || 'http://localhost:5002';
 
@@ -521,10 +524,49 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
 
   } catch (error) {
     logger.error(`Tile proxy error for ${req.params.z}/${req.params.x}/${req.params.y}:`, error.message);
-    
-    // Return simple error response
     res.status(error.response?.status || 500).json({
       error: 'Failed to fetch tile from tileserver',
+      message: error.message,
+      tile: `${req.params.z}/${req.params.x}/${req.params.y}`
+    });
+  }
+});
+
+/**
+ * Vector tile (PBF) endpoint - proxy to tileserver-gl mbtiles data
+ * GET /tiles/pbf/:z/:x/:y.pbf
+ */
+app.get('/tiles/pbf/:z/:x/:y.pbf', async (req, res) => {
+  try {
+    const { z, x, y } = req.params;
+    const zoom = parseInt(z);
+
+    if (zoom < 0 || zoom > 18) {
+      return res.status(400).json({ error: 'Zoom level must be between 0-18' });
+    }
+
+    const tileUrl = `${TILE_SERVER_DATA_URL}/${z}/${x}/${y}.pbf`;
+    logger.debug(`Proxying vector tile request: ${z}/${x}/${y}`);
+
+    const response = await axios.get(tileUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+      headers: { 'User-Agent': 'OSRM-Tile-Service/2.0' }
+    });
+
+    res.set('Content-Type', 'application/x-protobuf');
+    res.set('X-Tile-Source', 'tileserver-vector-proxy');
+    res.set('Cache-Control', 'public, max-age=86400');
+    // Forward Content-Encoding if gzipped by tileserver
+    if (response.headers['content-encoding']) {
+      res.set('Content-Encoding', response.headers['content-encoding']);
+    }
+    res.send(Buffer.from(response.data));
+
+  } catch (error) {
+    logger.error(`Vector tile proxy error for ${req.params.z}/${req.params.x}/${req.params.y}:`, error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to fetch vector tile from tileserver',
       message: error.message,
       tile: `${req.params.z}/${req.params.x}/${req.params.y}`
     });

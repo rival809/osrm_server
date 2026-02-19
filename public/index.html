@@ -166,6 +166,18 @@
         .leaflet-container path:focus,
         .leaflet-overlay-pane svg:focus,
         .leaflet-overlay-pane path:focus { outline: none !important; }
+
+        /* Tile mode toggle */
+        #tile-mode-toggle {
+            display: flex; align-items: center; gap: 4px;
+            background: rgba(255,255,255,0.15); border-radius: 20px;
+            padding: 4px 6px; cursor: pointer; user-select: none;
+        }
+        #tile-mode-toggle span {
+            font-size: 12px; font-weight: 600; color: white; padding: 3px 10px;
+            border-radius: 14px; transition: background .2s;
+        }
+        #tile-mode-toggle span.active { background: rgba(255,255,255,0.35); }
     </style>
 </head>
 <body>
@@ -173,6 +185,10 @@
         <div>
             <h1>🗺️ OSRM Service - Pulau Jawa</h1>
             <p>Routing, Tiles & Administrative Boundaries</p>
+        </div>
+        <div id="tile-mode-toggle" title="Ganti mode render tile">
+            <span id="mode-png" class="active">🖼️ PNG</span>
+            <span id="mode-pbf">⬡ Vektor</span>
         </div>
     </div>
 
@@ -250,6 +266,7 @@
     <div class="toast" id="toast"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
     <script>
     // ════════════════════════════════════════════════════════
     //  GLOBALS
@@ -257,10 +274,52 @@
     const API_URL = window.location.origin;
     const map = L.map('map').setView([-6.9175, 107.6191], 10);
 
-    L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 18, minZoom: 2
-    }).addTo(map);
+    // ── Tile mode (png / pbf) ────────────────────
+    let tileMode = 'png';
+    let baseLayer = null;
+
+    function buildPngLayer() {
+        return L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 18, minZoom: 2
+        });
+    }
+
+    function buildVectorLayer() {
+        return L.vectorGrid.protobuf(`${API_URL}/tiles/pbf/{z}/{x}/{y}.pbf`, {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 18, minZoom: 2,
+            vectorTileLayerStyles: {
+                // style semua layer dengan warna default
+                '*': (properties, zoom) => ({
+                    weight: 0.5,
+                    color: '#aaa',
+                    fillColor: '#f0ede8',
+                    fill: true,
+                    fillOpacity: 1,
+                    opacity: 1
+                })
+            },
+            interactive: false
+        });
+    }
+
+    function setTileMode(mode) {
+        if (baseLayer) map.removeLayer(baseLayer);
+        tileMode = mode;
+        baseLayer = mode === 'pbf' ? buildVectorLayer() : buildPngLayer();
+        baseLayer.addTo(map);
+        baseLayer.bringToBack();
+        document.getElementById('mode-png').classList.toggle('active', mode === 'png');
+        document.getElementById('mode-pbf').classList.toggle('active', mode === 'pbf');
+    }
+
+    // Init dengan PNG
+    setTileMode('png');
+
+    document.getElementById('tile-mode-toggle').addEventListener('click', () => {
+        setTileMode(tileMode === 'png' ? 'pbf' : 'png');
+    });
 
     // ── Routing state ───────────────────────────
     let startMarker = null, endMarker = null, routeLine = null;
