@@ -88,13 +88,52 @@ function extractKecamatan(jsonData, kdWil) {
   return map;
 }
 
+// ── manual overrides ─────────────────────────────────────────────────────────
+// Key: "<kd_wil>|<nm_kec_baru_uppercase_trimmed>"
+// Value options:
+//   { dbName: 'X' }              → match by name in same kd_wil
+//   { dbDistrictId: 'X' }        → match by exact district_id (searches all DB rows)
+//   { dbDistrictId: 'X', crossKdWil: 'Y' } → match by district_id in different kd_wil
+//   { skip: true, reason: 'X' }  → skip, log reason
+const MANUAL_OVERRIDE = {
+  '11600|KERTASEMAYA':  { dbName: 'KERTASMAYA' },           // typo in old DB
+  '11000|JAYAKERTA':    { dbDistrictId: '10569' },           // DB has KUTAWALUYA (10569), JAYAKERTA is renamed
+  '12300|SINDANGKERTA': { dbName: 'CIWIDEY' },               // renamed/remapped in old DB
+  '12900|BANJARANYAR':  { dbDistrictId: '0' },               // DB has BANJARSARI with district_id=0
+  '11400|MUNDU':        { dbDistrictId: '10429', crossKdWil: '11410' }, // MUNDU exists in kd_wil 11410
+  '20100|TAJURHALANG':  { skip: true, reason: 'irisan kd_wil 10200+20100' },
+  '20100|BOJONGGEDE':   { skip: true, reason: 'irisan kd_wil 10200+20100' },
+  '13100|CIMAHI TENGAH':{ skip: true, reason: 'tidak ada di DB lama' },
+};
+
 /**
  * Find best match for a new kecamatan name among DB rows.
- * Returns { dbRow, matchType } or null.
+ * Returns { dbRow, matchType } or { skip: true, reason } or null.
  */
-function findMatch(nmKecNew, dbRows) {
+function findMatch(nmKecNew, dbRows, kdWil, allDb) {
   const n = norm(nmKecNew);
   const ns = noSpace(nmKecNew);
+  const overrideKey = `${kdWil}|${n}`;
+  const override = MANUAL_OVERRIDE[overrideKey];
+
+  // 0. Manual override
+  if (override) {
+    if (override.skip) return { skip: true, reason: override.reason || 'manual skip' };
+
+    if (override.dbDistrictId) {
+      // Search in specific kd_wil if crossKdWil specified, otherwise all DB rows
+      const searchSet = override.crossKdWil
+        ? allDb.filter(r => r.p3d_id === override.crossKdWil)
+        : allDb;
+      const hit = searchSet.find(r => String(r.district_id) === String(override.dbDistrictId));
+      if (hit) return { dbRow: hit, matchType: `manual-by-id${override.crossKdWil ? '-cross' : ''}` };
+    }
+
+    if (override.dbName) {
+      const hit = dbRows.find(r => norm(r.district) === norm(override.dbName));
+      if (hit) return { dbRow: hit, matchType: 'manual-by-name' };
+    }
+  }
 
   // 1. Exact (normalized)
   let hit = dbRows.find(r => norm(r.district) === n);
@@ -199,17 +238,19 @@ async function main() {
 
       for (const [, newKec] of newMap) {
         summary.total++;
-        const result = findMatch(newKec.nmKec, dbRows);
+        const result = findMatch(newKec.nmKec, dbRows, kdWil, allDb);
 
         if (!result) {
           console.log(`  ❌ NO MATCH  "${newKec.nmKec}"`);
           summary.skipped++;
-          summary.unmatched.push({
-            kdWil,
-            nmKecNew: newKec.nmKec,
-            dbDistrict: '(no match)',
-            reason: 'unmatched',
-          });
+          summary.unmatched.push({ kdWil, nmKecNew: newKec.nmKec, dbDistrict: '(no match)', reason: 'unmatched' });
+          continue;
+        }
+
+        if (result.skip) {
+          console.log(`  ⏭️  SKIP  "${newKec.nmKec}"  → ${result.reason}`);
+          summary.skipped++;
+          summary.unmatched.push({ kdWil, nmKecNew: newKec.nmKec, dbDistrict: '(skipped)', reason: result.reason });
           continue;
         }
 
