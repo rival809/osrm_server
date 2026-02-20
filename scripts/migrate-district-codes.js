@@ -101,9 +101,9 @@ const MANUAL_OVERRIDE = {
   '12300|SINDANGKERTA': { dbName: 'CIWIDEY' },               // renamed/remapped in old DB
   '12900|BANJARANYAR':  { dbDistrictId: '0' },               // DB has BANJARSARI with district_id=0
   '11400|MUNDU':        { dbDistrictId: '10429', crossKdWil: '11410' }, // MUNDU exists in kd_wil 11410
+  '13100|CIMAHI TENGAH': { dbName: 'PADALARANG' },           // old DB has wrong name, replace with new
   '20100|TAJURHALANG':  { skip: true, reason: 'irisan kd_wil 10200+20100' },
   '20100|BOJONGGEDE':   { skip: true, reason: 'irisan kd_wil 10200+20100' },
-  '13100|CIMAHI TENGAH':{ skip: true, reason: 'tidak ada di DB lama' },
 };
 
 /**
