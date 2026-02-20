@@ -38,9 +38,10 @@ CREATE TABLE IF NOT EXISTS district_boundaries (
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
--- unique on district_id so we can upsert
-CREATE UNIQUE INDEX IF NOT EXISTS uq_district_boundaries_district_id
-    ON district_boundaries (district_id);
+-- unique on (p3d_id, district_id) — district_id alone is NOT globally unique,
+-- uniqueness is only guaranteed within one kabupaten (p3d_id)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_district_boundaries_p3d_district
+    ON district_boundaries (p3d_id, district_id);
 
 -- spatial index
 CREATE INDEX IF NOT EXISTS idx_district_boundaries_geom

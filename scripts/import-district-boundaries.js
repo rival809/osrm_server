@@ -124,7 +124,7 @@ async function upsertDistrict(client, row) {
     VALUES ($1, $2, $3, $4, $5,
             ST_Force2D(ST_SetSRID(ST_GeomFromGeoJSON($6), 4326)),
             $6, NOW())
-    ON CONFLICT (district_id) DO UPDATE SET
+    ON CONFLICT (p3d_id, district_id) DO UPDATE SET
       district     = EXCLUDED.district,
       p3d_id       = EXCLUDED.p3d_id,
       p3d          = EXCLUDED.p3d,
