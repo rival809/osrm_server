@@ -63,6 +63,14 @@ function normNameNoSpace(s) {
 }
 
 /**
+ * Manual disambiguation overrides for cases where both BPS kab and kab-name
+ * filters fail to resolve ambiguity. Key: "NORMNAME|NORMKAB", value: p3d_id to pick.
+ */
+const AMBIGUOUS_OVERRIDE = {
+  'CIDAHU|SUKABUMI': '10500',
+};
+
+/**
  * Manual alias map: GeoJSON KECAMATAN name → DB district name.
  * Used for known spelling divergences between the two datasets.
  * Key: UPPER TRIM of GeoJSON name. Value: UPPER TRIM of DB name.
@@ -280,6 +288,19 @@ async function main() {
         matchedViaKabName = true;
       } else if (narrowed.length > 1) {
         matches = narrowed;
+      }
+    }
+
+    if (matches.length > 1) {
+      // Final resort: manual override map for stubborn ambiguous cases.
+      const overrideKey = normNameNoSpace(rawName) + '|' + normKab(rawKab);
+      const overrideP3d = AMBIGUOUS_OVERRIDE[overrideKey];
+      if (overrideP3d) {
+        const narrowed = matches.filter(r => r.p3d_id === overrideP3d);
+        if (narrowed.length === 1) {
+          matches = narrowed;
+          matchedViaKabName = true; // reuse counter for "manually overridden"
+        }
       }
     }
 
