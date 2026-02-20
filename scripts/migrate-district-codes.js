@@ -257,15 +257,32 @@ async function main() {
   console.log('═'.repeat(60));
 
   if (summary.unmatched.length) {
-    const reportPath = path.join(__dirname, '..', 'data', 'boundaries', 'migrate-district-unmatched.csv');
+    console.log('\n⚠️  UNMATCHED LIST:');
+    console.log('  kd_wil  | nm_kec_baru                    | nm_kec_db          | alasan');
+    console.log('  ' + '-'.repeat(80));
+    summary.unmatched.forEach(r =>
+      console.log(`  ${r.kdWil.padEnd(7)} | ${r.nmKecNew.padEnd(30)} | ${r.dbDistrict.padEnd(18)} | ${r.reason}`)
+    );
+
+    // Try writing CSV — fall back to /tmp if app dir is read-only
+    const candidates = [
+      path.join(__dirname, '..', 'data', 'boundaries', 'migrate-district-unmatched.csv'),
+      '/tmp/migrate-district-unmatched.csv',
+    ];
     const header = 'kd_wil,nm_kec_baru,nm_kec_db,alasan';
     const rows   = summary.unmatched.map(r =>
       [r.kdWil, r.nmKecNew, r.dbDistrict, r.reason]
         .map(v => `"${String(v).replace(/"/g, '""')}"`)
         .join(',')
     );
-    fs.writeFileSync(reportPath, [header, ...rows].join('\n'), 'utf8');
-    console.log(`\n⚠️  ${summary.unmatched.length} unmatched → ${reportPath}`);
+    const csv = [header, ...rows].join('\n');
+    for (const p of candidates) {
+      try {
+        fs.writeFileSync(p, csv, 'utf8');
+        console.log(`\n📄 Report saved → ${p}`);
+        break;
+      } catch (_) { /* try next */ }
+    }
   }
 
   console.log('\nDone.\n');
