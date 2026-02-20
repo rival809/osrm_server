@@ -478,20 +478,39 @@
             map.getCanvas().style.cursor = 'pointer';
         });
         map.on('mousemove', fid, e => {
-            const f = e.features[0];
-            const norm = normProps(f, level);
-            const kd = level === 'city' ? norm.p3d_id : norm.district_id;
-            tooltip.setLngLat(e.lngLat).setHTML(kd ? `${kd} - ${norm.name}` : norm.name).addTo(map);
+            const seen = new Set();
+            const lines = [];
+            for (const f of e.features) {
+                const norm = normProps(f, level);
+                const kd  = level === 'city' ? norm.p3d_id : norm.district_id;
+                const key = `${norm.p3d_id}|${kd}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                lines.push(level === 'district' && norm.p3d_id
+                    ? `<b>${kd ?? '?'}</b> \u2013 ${norm.name} <small style="opacity:.62">[${norm.p3d_id}]</small>`
+                    : (kd ? `${kd} \u2013 ${norm.name}` : norm.name));
+            }
+            if (lines.length) tooltip.setLngLat(e.lngLat).setHTML(lines.join('<br>')).addTo(map);
         });
         map.on('mouseleave', fid, () => { map.getCanvas().style.cursor = ''; tooltip.remove(); });
 
         map.on('click', fid, e => {
-            const full = findFullFeature(e.features[0].properties, level) || e.features[0];
+            // collect all unique overlapping features at this point
+            const seen = new Set();
+            const uniq = [];
+            for (const f of e.features) {
+                const norm = normProps(f, level);
+                const key  = `${norm.p3d_id}|${norm.district_id || norm.p3d_id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                uniq.push(f);
+            }
+            const primary = findFullFeature(uniq[0].properties, level) || uniq[0];
             currentLevel = level;
             removeHighlightLayer();
-            addHighlightLayer(full);
-            selectedFeature = full;
-            showBoundaryPanel(full, level);
+            addHighlightLayer(primary);
+            selectedFeature = primary;
+            showBoundaryPanel(primary, level, uniq.length > 1 ? uniq : null);
         });
 
         if (level === 'city') {
@@ -733,7 +752,7 @@
         renderBreadcrumb();
     }
 
-    function showBoundaryPanel(feature, level) {
+    function showBoundaryPanel(feature, level, allFeatures) {
         const p    = feature.properties || {};
         const norm = normProps(feature, level || currentLevel);
         document.getElementById('bp-title').textContent = norm.name;
@@ -752,8 +771,18 @@
                     ▶ Tampilkan Kecamatan</button>`;
             }
         }
+        // If multiple overlapping kab for same kecamatan, show combined kd info
+        let multiKdHtml = '';
+        if (allFeatures && allFeatures.length > 1 && level === 'district') {
+            const badges = allFeatures.map(f => {
+                const n = normProps(f, 'district');
+                return `<span style="background:#e8eaff;border-radius:4px;padding:2px 7px;margin:2px;display:inline-block;font-size:12px"><b>${n.district_id ?? '?'}</b> <span style="opacity:.65">[${n.p3d_id}]</span></span>`;
+            }).join('');
+            multiKdHtml = `<div style="margin-bottom:8px;padding:6px 8px;background:#f0f2ff;border-radius:6px">`
+                + `<div style="font-size:11px;color:#555;margin-bottom:4px">Kode kecamatan (per kab):</div>${badges}</div>`;
+        }
         const propsHtml = Object.entries(p).map(([k,v])=>`<p><span class="label">${k}:</span> <span class="value">${v??'-'}</span></p>`).join('');
-        document.getElementById('bp-body').innerHTML = `${drillBtn}${propsHtml}`;
+        document.getElementById('bp-body').innerHTML = `${drillBtn}${multiKdHtml}${propsHtml}`;
         document.getElementById('boundary-panel').classList.add('show');
     }
 
