@@ -68,9 +68,15 @@ function normNameNoSpace(s) {
  * Also used to force correct p3d_id when BPS kab mapping is incorrect.
  */
 const AMBIGUOUS_OVERRIDE = {
-  'CIDAHU|SUKABUMI':    '10500',
-  'SUKASARI|SUMEDANG':  '12500',
-  'SUKASARI|PURWAKARTA': '12000',
+  'CIDAHU|SUKABUMI':       '10500',
+  'SUKASARI|SUMEDANG':     '12500',
+  'SUKASARI|PURWAKARTA':   '12000',
+  // BANDUNG BARAT (GeoJSON) → p3d_id=12300 (KABUPATEN BANDUNG BARAT in DB)
+  'BATUJAJAR|BANDUNG BARAT':    '12300',
+  'CIHAMPELAS|BANDUNG BARAT':   '12300',
+  'CILILIN|BANDUNG BARAT':      '12300',
+  'LEMBANG|BANDUNG BARAT':      '12300',
+  'SINDANGKERTA|BANDUNG BARAT': '12300',
 };
 
 /**
@@ -237,22 +243,16 @@ async function main() {
     }
 
     if (matches.length === 0) {
-      // Fallback 2: name-only match (ignore kab), ONLY when the GeoJSON kab and the
-      // single DB row's kab are genuinely incompatible — i.e. the kab names share no
-      // common significant word (e.g. GeoJSON="BANDUNG BARAT" vs DB="KABUPATEN BANDUNG").
-      // This handles P3D vs BPS assigning kecamatan to different kabupatens.
-      // Guard: if kab names share any 5+-char word, do NOT use this fallback — they
-      // refer to the same kab and the miss is likely a genuine data gap, not a kab shift.
-      const keyNNS = normNameNoSpace(rawName);
+      // Fallback 2: name-only match (ignore kab), ONLY when the GeoJSON kab and
+      // every candidate DB row's kab are genuinely different kabupaten — i.e. the
+      // normalised kab names do not match. This handles P3D vs BPS assigning
+      // kecamatan to different kabupatens (e.g. GeoJSON="BANDUNG BARAT" vs
+      // DB="KABUPATEN BANDUNG" — different kabs despite sharing the word "BANDUNG").
+      const keyNNS  = normNameNoSpace(rawName);
       const nameOnly = lookupNameOnly.get(keyNNS) || [];
       if (nameOnly.length >= 1) {
-        const geoKabWords = new Set(
-          normKab(rawKab).split(' ').filter(w => w.length >= 5)
-        );
-        const genuinelyCrossKab = nameOnly.every(r => {
-          const dbKabWords = normKab(r.p3d).split(' ').filter(w => w.length >= 5);
-          return dbKabWords.every(w => !geoKabWords.has(w));
-        });
+        const geoKabNorm = normKab(rawKab);
+        const genuinelyCrossKab = nameOnly.every(r => normKab(r.p3d) !== geoKabNorm);
         if (genuinelyCrossKab) {
           if (nameOnly.length === 1) {
             matches = nameOnly;
