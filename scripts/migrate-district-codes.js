@@ -171,7 +171,16 @@ async function main() {
 
     for (const file of files) {
       const kdWil = path.basename(file, '.json');
-      const raw   = JSON.parse(fs.readFileSync(path.join(KEC_DIR, file), 'utf8'));
+      const rawBuf = fs.readFileSync(path.join(KEC_DIR, file));
+      // Strip BOM (UTF-8: EF BB BF, UTF-16 LE: FF FE, UTF-16 BE: FE FF)
+      let rawStr = rawBuf.toString('utf8');
+      if (rawStr.charCodeAt(0) === 0xFEFF) rawStr = rawStr.slice(1);
+      // If PowerShell wrote UTF-16, re-decode
+      if (rawBuf[0] === 0xFF && rawBuf[1] === 0xFE) {
+        rawStr = rawBuf.toString('utf16le');
+        if (rawStr.charCodeAt(0) === 0xFEFF) rawStr = rawStr.slice(1);
+      }
+      const raw = JSON.parse(rawStr);
       const data  = raw.data || [];
       if (!data.length) { console.log(`⚠️  ${kdWil}: empty, skip`); continue; }
 
