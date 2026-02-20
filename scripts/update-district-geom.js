@@ -63,6 +63,24 @@ function normNameNoSpace(s) {
 }
 
 /**
+ * Manual alias map: GeoJSON KECAMATAN name → DB district name.
+ * Used for known spelling divergences between the two datasets.
+ * Key: UPPER TRIM of GeoJSON name. Value: UPPER TRIM of DB name.
+ */
+const NAME_ALIAS = {
+  'BLUBUR LIMBANGAN': 'BALUBUR LIMBANGAN',
+  'CINGAMBUL':        'CIGAMBUL',
+  'KANDANGHAUR':      'KADANGHAUR',
+  'KELAPA NUNGGAL':   'KLAPANUNGGAL',
+  'PAGADEN BARAT':    'PEGADEN BARAT',
+  'PAGERAGEUNG':      'PAGEURAGEUNG',
+  'PELABUHAN RATU':   'PALABUHANRATU',
+  'TALAGASARI':       'TELAGASARI',
+  'TANAH SEREAL':     'TANAH SAREAL',
+  'WARUDOYONG':       'WARUNGDOYONG',
+};
+
+/**
  * Normalise kabupaten/kota name for comparison.
  * DB stores "KABUPATEN BOGOR" or "KOTA BANDUNG".
  * GeoJSON stores "BOGOR" or "BANDUNG" (KABKOT field).
@@ -156,9 +174,11 @@ async function main() {
 
   // 3. Process each GeoJSON feature
   let updated         = 0;
-  let updatedFallback = 0;  // via no-space name fallback
-  let updatedNameOnly = 0;  // via name-only fallback (kab skipped — P3D vs BPS mismatch)
-  let updatedKabBps   = 0;  // ambiguous resolved via BPS ID_KAB→p3d_id
+  let updatedFallback = 0;
+  let updatedNameOnly = 0;
+  let updatedKabBps   = 0;
+  let updatedAlias    = 0;
+  let updatedKabName  = 0;
   let skipped    = 0;
   let notFound   = 0;
   let ambiguous  = 0;
@@ -174,8 +194,10 @@ async function main() {
     const key = normName(rawName) + '|' + normKab(rawKab);
     let matches = lookup.get(key) || [];
     let matchedViaFallback = false;
+    let matchedViaAlias    = false;  // via NAME_ALIAS map
     let matchedViaNameOnly = false;
-    let matchedViaKabBps   = false;  // ambiguous resolved via BPS ID_KAB
+    let matchedViaKabBps   = false;  // ambiguous resolved via BPS ID_KAB→p3d_id
+    let matchedViaKabName  = false;  // ambiguous resolved via kab name filter
 
     if (matches.length === 0) {
       // Fallback 1: try with all spaces removed from name (same kab)
@@ -205,6 +227,29 @@ async function main() {
     }
 
     if (matches.length === 0) {
+      // Fallback 3: alias map for known spelling divergences between GeoJSON and DB.
+      const aliasName = NAME_ALIAS[normName(rawName)];
+      if (aliasName) {
+        const keyAlias   = aliasName + '|' + normKab(rawKab);
+        const keyAliasNS = normNameNoSpace(aliasName) + '|' + normKab(rawKab);
+        const aliasByKab = lookup.get(keyAlias) || lookupNoSpace.get(keyAliasNS) || [];
+        if (aliasByKab.length === 1) {
+          matches = aliasByKab;
+          matchedViaAlias = true;
+        } else if (aliasByKab.length === 0) {
+          // Kab also differs — try name-only with alias
+          const aliasByName = lookupNameOnly.get(normNameNoSpace(aliasName)) || [];
+          if (aliasByName.length === 1) {
+            matches = aliasByName;
+            matchedViaAlias = true;
+          } else if (aliasByName.length > 1) {
+            matches = aliasByName; // hand off to ambiguous/BPS resolver below
+          }
+        }
+      }
+    }
+
+    if (matches.length === 0) {
       notFound++;
       notFoundList.push({ rawName, rawKab, key });
       continue;
@@ -220,10 +265,21 @@ async function main() {
           matches = narrowed;
           matchedViaKabBps = true;
         } else if (narrowed.length > 1) {
-          // Still ambiguous within same kab — fall through to ambiguous block
           matches = narrowed;
         }
-        // narrowed.length === 0: BPS kab not in DB at all, leave matches as-is → ambiguous
+      }
+    }
+
+    if (matches.length > 1) {
+      // Last resort: filter by kab name match (normKab(row.p3d) === normKab(rawKab)).
+      // Handles cases where BPS→p3d_id map has no entry (kec/*.json missing) but the
+      // ambiguous candidates include the correct kab by name. e.g. CIDAHU in SUKABUMI.
+      const narrowed = matches.filter(r => normKab(r.p3d) === normKab(rawKab));
+      if (narrowed.length === 1) {
+        matches = narrowed;
+        matchedViaKabName = true;
+      } else if (narrowed.length > 1) {
+        matches = narrowed;
       }
     }
 
@@ -260,6 +316,8 @@ async function main() {
 
     if (DRY_RUN) {
       const tag = matchedViaKabBps   ? ` [kab-bps: ID_KAB=${feature.properties.ID_KAB}→p3d_id=${row.p3d_id}]`
+                : matchedViaKabName  ? ` [kab-name: "${rawKab}"→p3d="${row.p3d}"]`
+                : matchedViaAlias    ? ` [alias: "${rawName}"→"${row.district}"]`
                 : matchedViaNameOnly ? ` [name-only: GeoJSON kab="${rawKab}" DB p3d="${row.p3d}"]`
                 : matchedViaFallback  ? ' [fallback-nospace]'
                 : '';
@@ -268,6 +326,8 @@ async function main() {
       if (matchedViaFallback) updatedFallback++;
       if (matchedViaNameOnly) updatedNameOnly++;
       if (matchedViaKabBps)   updatedKabBps++;
+      if (matchedViaAlias)    updatedAlias++;
+      if (matchedViaKabName)  updatedKabName++;
       continue;
     }
 
@@ -285,6 +345,8 @@ async function main() {
       if (matchedViaFallback) updatedFallback++;
       if (matchedViaNameOnly) updatedNameOnly++;
       if (matchedViaKabBps)   updatedKabBps++;
+      if (matchedViaAlias)    updatedAlias++;
+      if (matchedViaKabName)  updatedKabName++;
       if (updated % 50 === 0) {
         process.stdout.write(`  updated ${updated}/${features.length}\r`);
       }
@@ -302,10 +364,13 @@ async function main() {
   console.log('='.repeat(70));
   console.log(`  Features in GeoJSON : ${features.length}`);
   console.log(`  Updated             : ${updated}`);
-  console.log(`    - exact match            : ${updated - updatedFallback - updatedNameOnly - updatedKabBps}`);
+  const exact = updated - updatedFallback - updatedNameOnly - updatedKabBps - updatedAlias - updatedKabName;
+  console.log(`    - exact match            : ${exact}`);
   console.log(`    - no-space fallback       : ${updatedFallback}`);
+  console.log(`    - alias (name typo)       : ${updatedAlias}`);
   console.log(`    - name-only (P3D≠BPS kab) : ${updatedNameOnly}`);
-  console.log(`    - ambiguous→BPS kab res.  : ${updatedKabBps}`);
+  console.log(`    - ambiguous→BPS kab       : ${updatedKabBps}`);
+  console.log(`    - ambiguous→kab name      : ${updatedKabName}`);
   console.log(`  Not found in DB     : ${notFound}`);
   console.log(`  Ambiguous (>1 match): ${ambiguous}`);
   console.log(`  Skipped (other)     : ${skipped}`);
