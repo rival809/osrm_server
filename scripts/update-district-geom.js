@@ -112,18 +112,22 @@ async function main() {
   console.log(`DB has ${dbRows.length} rows.\n`);
 
   // Build primary lookup: normName+'|'+normKab → [rows]
-  //   e.g. "BOJONG GEDE|BOGOR" or "BOJONGGEDE|BOGOR"
   const lookup = new Map();
   // Build secondary lookup: noSpaceName+'|'+normKab → [rows]
-  //   e.g. "BOJONGGEDE|BOGOR" — catches GeoJSON-spaced vs DB-concatenated names
   const lookupNoSpace = new Map();
+  // Build name-only lookup (no spaces, no kab) for diagnostics
+  // Key: normNameNoSpace → [rows]  — tells us what p3d the DB has for a given name
+  const lookupNameOnly = new Map();
   for (const row of dbRows) {
     const key   = normName(row.district)        + '|' + normKab(row.p3d);
     const keyNS = normNameNoSpace(row.district)  + '|' + normKab(row.p3d);
-    if (!lookup.has(key))         lookup.set(key, []);
-    if (!lookupNoSpace.has(keyNS)) lookupNoSpace.set(keyNS, []);
+    const keyN  = normNameNoSpace(row.district);
+    if (!lookup.has(key))           lookup.set(key, []);
+    if (!lookupNoSpace.has(keyNS))  lookupNoSpace.set(keyNS, []);
+    if (!lookupNameOnly.has(keyN))  lookupNameOnly.set(keyN, []);
     lookup.get(key).push(row);
     lookupNoSpace.get(keyNS).push(row);
+    lookupNameOnly.get(keyN).push(row);
   }
 
   // 3. Process each GeoJSON feature
@@ -133,7 +137,7 @@ async function main() {
   let notFound   = 0;
   let ambiguous  = 0;
 
-  const notFoundList  = [];
+  const notFoundList  = [];  // { rawName, rawKab, key }
   const ambiguousList = [];
 
   for (const feature of features) {
@@ -158,7 +162,7 @@ async function main() {
 
     if (matches.length === 0) {
       notFound++;
-      notFoundList.push(`  NOT FOUND : "${rawName}" in "${rawKab}"  (key: ${key})`);
+      notFoundList.push({ rawName, rawKab, key });
       continue;
     }
 
@@ -235,8 +239,17 @@ async function main() {
   console.log(`  Skipped (other)     : ${skipped}`);
 
   if (notFoundList.length) {
-    console.log('\nNot found:');
-    notFoundList.forEach(l => console.log(l));
+    console.log('\nNot found (with DB diagnostic — what p3d does DB actually store for this name?):');
+    for (const { rawName, rawKab, key } of notFoundList) {
+      const dbMatches = lookupNameOnly.get(normNameNoSpace(rawName)) || [];
+      let diag;
+      if (dbMatches.length === 0) {
+        diag = 'NAME NOT IN DB AT ALL';
+      } else {
+        diag = 'DB has p3d: ' + [...new Set(dbMatches.map(r => `"${r.p3d}"` ))].join(', ');
+      }
+      console.log(`  NOT FOUND : "${rawName}" in "${rawKab}"  →  ${diag}`);
+    }
   }
   if (ambiguousList.length) {
     console.log('\nAmbiguous:');
