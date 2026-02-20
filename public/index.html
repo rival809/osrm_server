@@ -364,7 +364,10 @@
         return data.features.find(f => {
             const fp = f.properties;
             if (level === 'city')     return (fp.ID_KAB || fp.id_kab) === (props.ID_KAB || props.id_kab);
-            if (level === 'district') return (fp.kd_kecamatan || fp.district_id || fp.kode) === (props.kd_kecamatan || props.district_id || props.kode);
+            if (level === 'district') return (
+                (fp.kd_kecamatan || fp.district_id || fp.kode) === (props.kd_kecamatan || props.district_id || props.kode)
+                && (fp.ID_KAB || fp.p3d_id) === (props.ID_KAB || props.p3d_id)
+            );
             return false;
         }) || null;
     }

@@ -158,7 +158,7 @@ router.get('/api/geojson/kecamatan', async (req, res) => {
                 'nm_kecamatan',   district,
                 'ID_KAB',         p3d_id
               ),
-              'geometry', ST_AsGeoJSON(geom_postgis)::json
+              'geometry', ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom_postgis, 0.0001))::json
             )
           ),
           '[]'::json
@@ -201,7 +201,7 @@ router.get('/api/geojson/kecamatan', async (req, res) => {
               'nm_kecamatan',   district,
               'ID_KAB',         p3d_id
             ),
-            'geometry', ST_AsGeoJSON(geom_postgis)::json
+            'geometry', ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom_postgis, 0.0001))::json
           )
         ),
         '[]'::json
