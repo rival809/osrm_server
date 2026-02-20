@@ -131,8 +131,9 @@ async function main() {
   }
 
   // 3. Process each GeoJSON feature
-  let updated    = 0;
-  let updatedFallback = 0;
+  let updated         = 0;
+  let updatedFallback = 0;  // via no-space name fallback
+  let updatedNameOnly = 0;  // via name-only fallback (kab skipped — P3D vs BPS mismatch)
   let skipped    = 0;
   let notFound   = 0;
   let ambiguous  = 0;
@@ -148,15 +149,32 @@ async function main() {
     const key = normName(rawName) + '|' + normKab(rawKab);
     let matches = lookup.get(key) || [];
     let matchedViaFallback = false;
+    let matchedViaNameOnly = false;
 
     if (matches.length === 0) {
-      // Fallback: try with all spaces removed from name
+      // Fallback 1: try with all spaces removed from name (same kab)
       // e.g. "BOJONG GEDE" → "BOJONGGEDE", "TAJUR HALANG" → "TAJURHALANG"
       const keyNS = normNameNoSpace(rawName) + '|' + normKab(rawKab);
       const fallback = lookupNoSpace.get(keyNS) || [];
       if (fallback.length > 0) {
         matches = fallback;
         matchedViaFallback = true;
+      }
+    }
+
+    if (matches.length === 0) {
+      // Fallback 2: name-only match (ignore kab), for cases where P3D and BPS
+      // assign the same kecamatan to different kabupatens.
+      // e.g. "BATUJAJAR" in GeoJSON=BANDUNG BARAT but DB=KABUPATEN BANDUNG.
+      // lookupNameOnly keyed by normNameNoSpace(district), so use same for lookup.
+      const keyNNS = normNameNoSpace(rawName);
+      const nameOnly = lookupNameOnly.get(keyNNS) || [];
+      if (nameOnly.length === 1) {
+        matches = nameOnly;
+        matchedViaNameOnly = true;
+      } else if (nameOnly.length > 1) {
+        // Multiple DB rows share this name — hand off to ambiguous block below
+        matches = nameOnly;
       }
     }
 
@@ -198,10 +216,13 @@ async function main() {
     const geomWkt   = `ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)`;
 
     if (DRY_RUN) {
-      const tag = matchedViaFallback ? ' [fallback]' : '';
+      const tag = matchedViaNameOnly ? ` [name-only: GeoJSON kab="${rawKab}" DB p3d="${row.p3d}"]`
+                : matchedViaFallback  ? ' [fallback-nospace]'
+                : '';
       console.log(`  DRY: would update id=${row.id}  ${row.district} (${row.p3d_id})${tag}`);
       updated++;
       if (matchedViaFallback) updatedFallback++;
+      if (matchedViaNameOnly) updatedNameOnly++;
       continue;
     }
 
@@ -217,6 +238,7 @@ async function main() {
       );
       updated++;
       if (matchedViaFallback) updatedFallback++;
+      if (matchedViaNameOnly) updatedNameOnly++;
       if (updated % 50 === 0) {
         process.stdout.write(`  updated ${updated}/${features.length}\r`);
       }
@@ -233,13 +255,16 @@ async function main() {
   console.log('SUMMARY');
   console.log('='.repeat(70));
   console.log(`  Features in GeoJSON : ${features.length}`);
-  console.log(`  Updated             : ${updated}  (of which via fallback name-match: ${updatedFallback})`);
+  console.log(`  Updated             : ${updated}`);
+  console.log(`    - exact match      : ${updated - updatedFallback - updatedNameOnly}`);
+  console.log(`    - no-space fallback: ${updatedFallback}`);
+  console.log(`    - name-only (P3D≠BPS kab): ${updatedNameOnly}`);
   console.log(`  Not found in DB     : ${notFound}`);
   console.log(`  Ambiguous (>1 match): ${ambiguous}`);
   console.log(`  Skipped (other)     : ${skipped}`);
 
   if (notFoundList.length) {
-    console.log('\nNot found (with DB diagnostic — what p3d does DB actually store for this name?):');
+    console.log('\nNot found (\u201cNAME NOT IN DB\u201d = truly absent; otherwise shows DB kab mismatch):');
     for (const { rawName, rawKab, key } of notFoundList) {
       const dbMatches = lookupNameOnly.get(normNameNoSpace(rawName)) || [];
       let diag;
