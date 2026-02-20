@@ -95,6 +95,30 @@ async function main() {
   const features = geojson.features || [];
   console.log(`Loaded ${features.length} features from GeoJSON.\n`);
 
+  // 1b. Build BPS kab code (int) → p3d_id (string) mapping from kec/*.json files.
+  //     Each file data/boundaries/kec/<p3d_id>.json has items with field
+  //     kd_pos_kd_kab_kota = BPS kab code string e.g. "3203".
+  //     This lets us resolve ambiguous name-only matches using ID_KAB from GeoJSON.
+  const KEC_DIR = path.join(__dirname, '..', 'data', 'boundaries', 'kec');
+  const bpsKabToP3d = new Map(); // BPS kab int → p3d_id string
+  if (fs.existsSync(KEC_DIR)) {
+    for (const fname of fs.readdirSync(KEC_DIR)) {
+      if (!fname.endsWith('.json')) continue;
+      const p3dId = fname.replace('.json', '');
+      try {
+        const content = JSON.parse(fs.readFileSync(path.join(KEC_DIR, fname), 'utf8'));
+        const items = Array.isArray(content) ? content : (content.data || content.results || []);
+        if (items.length > 0) {
+          const bpsCode = items[0].kd_pos_kd_kab_kota;
+          if (bpsCode) bpsKabToP3d.set(parseInt(bpsCode, 10), p3dId);
+        }
+      } catch (_) { /* skip malformed files */ }
+    }
+    console.log(`BPS kab→p3d_id map: ${bpsKabToP3d.size} entries from kec/*.json\n`);
+  } else {
+    console.warn(`WARN: kec/ directory not found at ${KEC_DIR} — ambiguous matches cannot be auto-resolved\n`);
+  }
+
   // 2. Build a lookup map from DB: (normName, normKab) → row
   //    We do this once to avoid N×queryDB.
   console.log('Loading district_boundaries from DB...');
@@ -134,6 +158,7 @@ async function main() {
   let updated         = 0;
   let updatedFallback = 0;  // via no-space name fallback
   let updatedNameOnly = 0;  // via name-only fallback (kab skipped — P3D vs BPS mismatch)
+  let updatedKabBps   = 0;  // ambiguous resolved via BPS ID_KAB→p3d_id
   let skipped    = 0;
   let notFound   = 0;
   let ambiguous  = 0;
@@ -150,6 +175,7 @@ async function main() {
     let matches = lookup.get(key) || [];
     let matchedViaFallback = false;
     let matchedViaNameOnly = false;
+    let matchedViaKabBps   = false;  // ambiguous resolved via BPS ID_KAB
 
     if (matches.length === 0) {
       // Fallback 1: try with all spaces removed from name (same kab)
@@ -185,6 +211,23 @@ async function main() {
     }
 
     if (matches.length > 1) {
+      // Try to resolve ambiguity using BPS ID_KAB from GeoJSON → p3d_id mapping.
+      const bpsKab = Math.round(feature.properties.ID_KAB || 0);
+      const p3dIdFromBps = bpsKabToP3d.get(bpsKab);
+      if (p3dIdFromBps) {
+        const narrowed = matches.filter(r => r.p3d_id === p3dIdFromBps);
+        if (narrowed.length === 1) {
+          matches = narrowed;
+          matchedViaKabBps = true;
+        } else if (narrowed.length > 1) {
+          // Still ambiguous within same kab — fall through to ambiguous block
+          matches = narrowed;
+        }
+        // narrowed.length === 0: BPS kab not in DB at all, leave matches as-is → ambiguous
+      }
+    }
+
+    if (matches.length > 1) {
       ambiguous++;
       ambiguousList.push(
         `  AMBIGUOUS : "${rawName}" in "${rawKab}" → ${matches.length} rows: ` +
@@ -216,13 +259,15 @@ async function main() {
     const geomWkt   = `ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)`;
 
     if (DRY_RUN) {
-      const tag = matchedViaNameOnly ? ` [name-only: GeoJSON kab="${rawKab}" DB p3d="${row.p3d}"]`
+      const tag = matchedViaKabBps   ? ` [kab-bps: ID_KAB=${feature.properties.ID_KAB}→p3d_id=${row.p3d_id}]`
+                : matchedViaNameOnly ? ` [name-only: GeoJSON kab="${rawKab}" DB p3d="${row.p3d}"]`
                 : matchedViaFallback  ? ' [fallback-nospace]'
                 : '';
       console.log(`  DRY: would update id=${row.id}  ${row.district} (${row.p3d_id})${tag}`);
       updated++;
       if (matchedViaFallback) updatedFallback++;
       if (matchedViaNameOnly) updatedNameOnly++;
+      if (matchedViaKabBps)   updatedKabBps++;
       continue;
     }
 
@@ -239,6 +284,7 @@ async function main() {
       updated++;
       if (matchedViaFallback) updatedFallback++;
       if (matchedViaNameOnly) updatedNameOnly++;
+      if (matchedViaKabBps)   updatedKabBps++;
       if (updated % 50 === 0) {
         process.stdout.write(`  updated ${updated}/${features.length}\r`);
       }
@@ -256,9 +302,10 @@ async function main() {
   console.log('='.repeat(70));
   console.log(`  Features in GeoJSON : ${features.length}`);
   console.log(`  Updated             : ${updated}`);
-  console.log(`    - exact match      : ${updated - updatedFallback - updatedNameOnly}`);
-  console.log(`    - no-space fallback: ${updatedFallback}`);
-  console.log(`    - name-only (P3D≠BPS kab): ${updatedNameOnly}`);
+  console.log(`    - exact match            : ${updated - updatedFallback - updatedNameOnly - updatedKabBps}`);
+  console.log(`    - no-space fallback       : ${updatedFallback}`);
+  console.log(`    - name-only (P3D≠BPS kab) : ${updatedNameOnly}`);
+  console.log(`    - ambiguous→BPS kab res.  : ${updatedKabBps}`);
   console.log(`  Not found in DB     : ${notFound}`);
   console.log(`  Ambiguous (>1 match): ${ambiguous}`);
   console.log(`  Skipped (other)     : ${skipped}`);
