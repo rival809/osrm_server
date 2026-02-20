@@ -54,6 +54,15 @@ function normName(s) {
 }
 
 /**
+ * Normalise kecamatan name with all spaces removed.
+ * Used as fallback when exact-space match fails.
+ * e.g. "BOJONG GEDE" → "BOJONGGEDE", "SUKMA JAYA" → "SUKMAJAYA"
+ */
+function normNameNoSpace(s) {
+  return String(s || '').toUpperCase().replace(/\s+/g, '').trim();
+}
+
+/**
  * Normalise kabupaten/kota name for comparison.
  * DB stores "KABUPATEN BOGOR" or "KOTA BANDUNG".
  * GeoJSON stores "BOGOR" or "BANDUNG" (KABKOT field).
@@ -102,16 +111,24 @@ async function main() {
   }
   console.log(`DB has ${dbRows.length} rows.\n`);
 
-  // Build lookup: normName+'|'+normKab → [rows]
+  // Build primary lookup: normName+'|'+normKab → [rows]
+  //   e.g. "BOJONG GEDE|BOGOR" or "BOJONGGEDE|BOGOR"
   const lookup = new Map();
+  // Build secondary lookup: noSpaceName+'|'+normKab → [rows]
+  //   e.g. "BOJONGGEDE|BOGOR" — catches GeoJSON-spaced vs DB-concatenated names
+  const lookupNoSpace = new Map();
   for (const row of dbRows) {
-    const key = normName(row.district) + '|' + normKab(row.p3d);
-    if (!lookup.has(key)) lookup.set(key, []);
+    const key   = normName(row.district)        + '|' + normKab(row.p3d);
+    const keyNS = normNameNoSpace(row.district)  + '|' + normKab(row.p3d);
+    if (!lookup.has(key))         lookup.set(key, []);
+    if (!lookupNoSpace.has(keyNS)) lookupNoSpace.set(keyNS, []);
     lookup.get(key).push(row);
+    lookupNoSpace.get(keyNS).push(row);
   }
 
   // 3. Process each GeoJSON feature
   let updated    = 0;
+  let updatedFallback = 0;
   let skipped    = 0;
   let notFound   = 0;
   let ambiguous  = 0;
@@ -125,7 +142,19 @@ async function main() {
     const rawKab  = props.KABKOT    || '';
 
     const key = normName(rawName) + '|' + normKab(rawKab);
-    const matches = lookup.get(key) || [];
+    let matches = lookup.get(key) || [];
+    let matchedViaFallback = false;
+
+    if (matches.length === 0) {
+      // Fallback: try with all spaces removed from name
+      // e.g. "BOJONG GEDE" → "BOJONGGEDE", "TAJUR HALANG" → "TAJURHALANG"
+      const keyNS = normNameNoSpace(rawName) + '|' + normKab(rawKab);
+      const fallback = lookupNoSpace.get(keyNS) || [];
+      if (fallback.length > 0) {
+        matches = fallback;
+        matchedViaFallback = true;
+      }
+    }
 
     if (matches.length === 0) {
       notFound++;
@@ -165,8 +194,10 @@ async function main() {
     const geomWkt   = `ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)`;
 
     if (DRY_RUN) {
-      console.log(`  DRY: would update id=${row.id}  ${row.district} (${row.p3d_id})`);
+      const tag = matchedViaFallback ? ' [fallback]' : '';
+      console.log(`  DRY: would update id=${row.id}  ${row.district} (${row.p3d_id})${tag}`);
       updated++;
+      if (matchedViaFallback) updatedFallback++;
       continue;
     }
 
@@ -181,6 +212,7 @@ async function main() {
         [geomJson, geomJson, row.id]
       );
       updated++;
+      if (matchedViaFallback) updatedFallback++;
       if (updated % 50 === 0) {
         process.stdout.write(`  updated ${updated}/${features.length}\r`);
       }
@@ -197,7 +229,7 @@ async function main() {
   console.log('SUMMARY');
   console.log('='.repeat(70));
   console.log(`  Features in GeoJSON : ${features.length}`);
-  console.log(`  Updated             : ${updated}`);
+  console.log(`  Updated             : ${updated}  (of which via fallback name-match: ${updatedFallback})`);
   console.log(`  Not found in DB     : ${notFound}`);
   console.log(`  Ambiguous (>1 match): ${ambiguous}`);
   console.log(`  Skipped (other)     : ${skipped}`);
