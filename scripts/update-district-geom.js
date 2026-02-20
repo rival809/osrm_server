@@ -65,9 +65,12 @@ function normNameNoSpace(s) {
 /**
  * Manual disambiguation overrides for cases where both BPS kab and kab-name
  * filters fail to resolve ambiguity. Key: "NORMNAME|NORMKAB", value: p3d_id to pick.
+ * Also used to force correct p3d_id when BPS kab mapping is incorrect.
  */
 const AMBIGUOUS_OVERRIDE = {
-  'CIDAHU|SUKABUMI': '10500',
+  'CIDAHU|SUKABUMI':    '10500',
+  'SUKASARI|SUMEDANG':  '12500',
+  'SUKASARI|PURWAKARTA': '12000',
 };
 
 /**
@@ -202,10 +205,25 @@ async function main() {
     const key = normName(rawName) + '|' + normKab(rawKab);
     let matches = lookup.get(key) || [];
     let matchedViaFallback = false;
-    let matchedViaAlias    = false;  // via NAME_ALIAS map
+    let matchedViaAlias    = false;
     let matchedViaNameOnly = false;
-    let matchedViaKabBps   = false;  // ambiguous resolved via BPS ID_KAB→p3d_id
-    let matchedViaKabName  = false;  // ambiguous resolved via kab name filter
+    let matchedViaKabBps   = false;
+    let matchedViaKabName  = false;
+
+    // ── Early override: force p3d_id before any fallback logic runs.
+    // Catches cases where BPS kab resolution or name-only would pick the wrong row.
+    {
+      const overrideKey = normNameNoSpace(rawName) + '|' + normKab(rawKab);
+      const overrideP3d = AMBIGUOUS_OVERRIDE[overrideKey];
+      if (overrideP3d) {
+        const forced = dbRows.filter(r => r.p3d_id === overrideP3d &&
+          normNameNoSpace(r.district) === normNameNoSpace(rawName));
+        if (forced.length === 1) {
+          matches = forced;
+          matchedViaKabName = true; // reuse counter for "manually overridden"
+        }
+      }
+    }
 
     if (matches.length === 0) {
       // Fallback 1: try with all spaces removed from name (same kab)
@@ -219,18 +237,30 @@ async function main() {
     }
 
     if (matches.length === 0) {
-      // Fallback 2: name-only match (ignore kab), for cases where P3D and BPS
-      // assign the same kecamatan to different kabupatens.
-      // e.g. "BATUJAJAR" in GeoJSON=BANDUNG BARAT but DB=KABUPATEN BANDUNG.
-      // lookupNameOnly keyed by normNameNoSpace(district), so use same for lookup.
+      // Fallback 2: name-only match (ignore kab), ONLY when the GeoJSON kab and the
+      // single DB row's kab are genuinely incompatible — i.e. the kab names share no
+      // common significant word (e.g. GeoJSON="BANDUNG BARAT" vs DB="KABUPATEN BANDUNG").
+      // This handles P3D vs BPS assigning kecamatan to different kabupatens.
+      // Guard: if kab names share any 5+-char word, do NOT use this fallback — they
+      // refer to the same kab and the miss is likely a genuine data gap, not a kab shift.
       const keyNNS = normNameNoSpace(rawName);
       const nameOnly = lookupNameOnly.get(keyNNS) || [];
-      if (nameOnly.length === 1) {
-        matches = nameOnly;
-        matchedViaNameOnly = true;
-      } else if (nameOnly.length > 1) {
-        // Multiple DB rows share this name — hand off to ambiguous block below
-        matches = nameOnly;
+      if (nameOnly.length >= 1) {
+        const geoKabWords = new Set(
+          normKab(rawKab).split(' ').filter(w => w.length >= 5)
+        );
+        const genuinelyCrossKab = nameOnly.every(r => {
+          const dbKabWords = normKab(r.p3d).split(' ').filter(w => w.length >= 5);
+          return dbKabWords.every(w => !geoKabWords.has(w));
+        });
+        if (genuinelyCrossKab) {
+          if (nameOnly.length === 1) {
+            matches = nameOnly;
+            matchedViaNameOnly = true;
+          } else {
+            matches = nameOnly; // multiple candidates — pass to ambiguous/BPS resolver
+          }
+        }
       }
     }
 
