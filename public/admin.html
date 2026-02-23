@@ -591,13 +591,13 @@ function initMap() {
       id: 'highlight-fill',
       type: 'fill',
       source: 'highlight',
-      paint: { 'fill-color': '#6366f1', 'fill-opacity': 0.2 },
+      paint: { 'fill-color': '#764ba2', 'fill-opacity': 0.3 },
     });
     map.addLayer({
       id: 'highlight-line',
       type: 'line',
       source: 'highlight',
-      paint: { 'line-color': '#6366f1', 'line-width': 2.5 },
+      paint: { 'line-color': '#764ba2', 'line-width': 3 },
     });
 
     // Preview source/layer (browse mode)
@@ -605,17 +605,53 @@ function initMap() {
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
     });
+    // Preview fill — per-level opacity matching index.html
     map.addLayer({
       id: 'preview-fill',
       type: 'fill',
       source: 'preview',
-      paint: { 'fill-color': '#334155', 'fill-opacity': 0.08 },
+      paint: {
+        'fill-color': [
+          'match', ['get', 'admin_level'],
+          'province', '#7c3aed',
+          'city',     '#7c3aed',
+          'district', '#10b981',
+          'village',  '#f59e0b',
+          '#6366f1',
+        ],
+        'fill-opacity': [
+          'match', ['get', 'admin_level'],
+          'province', 0.0,
+          'city',     0.0,
+          'district', 0.20,
+          'village',  0.15,
+          0.08,
+        ],
+      },
     });
+    // Preview border — per-level color + width matching index.html
     map.addLayer({
       id: 'preview-line',
       type: 'line',
       source: 'preview',
-      paint: { 'line-color': '#475569', 'line-width': 1.5 },
+      paint: {
+        'line-color': [
+          'match', ['get', 'admin_level'],
+          'province', '#7c3aed',
+          'city',     '#7c3aed',
+          'district', '#059669',
+          'village',  '#d97706',
+          '#475569',
+        ],
+        'line-width': [
+          'match', ['get', 'admin_level'],
+          'province', 2.5,
+          'city',     2.5,
+          'district', 1.2,
+          'village',  0.8,
+          1.5,
+        ],
+      },
     });
     map.addLayer({
       id: 'preview-label',
@@ -627,7 +663,7 @@ function initMap() {
         'text-max-width': 8,
         'text-allow-overlap': false,
       },
-      paint: { 'text-color': '#94a3b8', 'text-halo-color': '#0f172a', 'text-halo-width': 1 },
+      paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f172a', 'text-halo-width': 1 },
       minzoom: 8,
     });
 
@@ -780,20 +816,11 @@ function clearHighlight() {
 function showPreview(boundaries) {
   const map = state.map;
   if (!map || !map.getSource?.('preview')) return;
-  // Show only non-null geom (geometry not loaded in list mode)
-  // We show simplified highlight from /api/boundaries endpoint instead
-  map.getSource('preview').setData({
-    type: 'FeatureCollection',
-    features: boundaries.map(b => ({
-      type: 'Feature',
-      id: b.id,
-      geometry: null, // will be loaded on click; for full preview use /api/boundaries/:level
-      properties: { id: b.id, name: b.name, code: b.code },
-    })).filter(f => f.geometry),
-  });
-  // Load GeoJSON preview from public API (simplified)
+
+  // Load GeoJSON preview from public API (simplified, use current map zoom)
   const level = document.getElementById('levelSelect').value;
-  fetch(`${API}/api/boundaries/${level}?zoom=10`)
+  const zoom  = Math.round(state.map ? state.map.getZoom() : 10);
+  fetch(`${API}/api/boundaries/${level}?zoom=${zoom}`)
     .then(r => r.json())
     .then(fc => { if (map.getSource('preview')) map.getSource('preview').setData(fc); })
     .catch(() => {});
