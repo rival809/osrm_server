@@ -178,6 +178,7 @@
     .btn:disabled { opacity: .4; cursor: not-allowed; }
     .btn-save    { background: #22c55e; color: white; }
     .btn-geom    { background: #6366f1; color: white; }
+    .btn-geojson  { background: #0891b2; color: white; }
     .btn-split   { background: #f59e0b; color: #0f172a; }
     .btn-delete  { background: #ef4444; color: white; }
     .btn-cancel  { background: #334155; color: #94a3b8; }
@@ -438,6 +439,10 @@
           <button class="btn btn-geom"   id="editGeomBtn">Edit Geometri</button>
           <button class="btn btn-delete" id="deleteBtn">Hapus</button>
         </div>
+        <!-- GeoJSON paste — only for kabupaten & kecamatan -->
+        <div class="fkab fkec" style="padding:0 12px 10px">
+          <button class="btn btn-geojson" id="pasteGeomBtn" style="width:100%">&#x1F4CB; Input GeoJSON</button>
+        </div>
       </div>
 
     </div><!-- /sidebar -->
@@ -447,6 +452,17 @@
 
       <!-- Map mode indicator -->
       <div id="modeIndicator"></div>
+
+      <!-- Geometry preview confirm bar (shown during GeoJSON preview) -->
+      <div id="confirmGeomBar">
+        <div class="cg-legend">
+          <span class="cg-dot" style="background:#ef4444"></span>Sekarang
+          <span class="cg-dot" style="background:#22c55e;margin-left:4px"></span>Baru
+        </div>
+        <span style="font-size:12px;color:#cbd5e1">Pratinjau perubahan &mdash; periksa sebelum menyimpan</span>
+        <button class="btn btn-save"   id="confirmGeomBtn" style="padding:5px 14px">✔ Simpan</button>
+        <button class="btn btn-cancel" id="cancelGeomBtn"  style="padding:5px 10px">✕ Batal</button>
+      </div>
 
       <!-- Toolbar -->
       <div id="toolbar">
@@ -500,6 +516,7 @@ const state = {
   mergeIds: new Set(),
   drawnGeom: null,    // geometry drawn for new boundary
   splitLine: null,    // linestring for split
+  pendingGeom: null,  // proposed geometry awaiting confirmation (GeoJSON input preview)
   draw: null,         // MapboxDraw instance
   map: null,
 };
@@ -690,6 +707,40 @@ function initMap() {
     });
     map.on('mouseenter', 'preview-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'preview-fill', () => { map.getCanvas().style.cursor = ''; });
+
+    // ── Geometry before/after preview sources ─────────────────
+    map.addSource('geom-before', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    map.addLayer({
+      id: 'geom-before-fill',
+      type: 'fill',
+      source: 'geom-before',
+      paint: { 'fill-color': '#ef4444', 'fill-opacity': 0.2 },
+    });
+    map.addLayer({
+      id: 'geom-before-line',
+      type: 'line',
+      source: 'geom-before',
+      paint: { 'line-color': '#ef4444', 'line-width': 2.5, 'line-dasharray': [4, 2] },
+    });
+    map.addSource('geom-after', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    map.addLayer({
+      id: 'geom-after-fill',
+      type: 'fill',
+      source: 'geom-after',
+      paint: { 'fill-color': '#22c55e', 'fill-opacity': 0.25 },
+    });
+    map.addLayer({
+      id: 'geom-after-line',
+      type: 'line',
+      source: 'geom-after',
+      paint: { 'line-color': '#22c55e', 'line-width': 2.5 },
+    });
   });
 }
 
@@ -948,6 +999,134 @@ async function saveMetadata() {
   } catch (e) {
     toast(e.message, 'err');
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GEOJSON PASTE INPUT
+// ═══════════════════════════════════════════════════════════════
+
+function startGeoJsonInput() {
+  if (!state.selected) return;
+
+  showDialog(
+    'Input Geometri GeoJSON',
+    `<p style="font-size:12px;color:#94a3b8;margin:0 0 8px">Paste GeoJSON di bawah. Diterima: <code>Geometry</code>, <code>Feature</code>, atau <code>FeatureCollection</code> (diambil fitur pertama). Tipe harus <b>Polygon</b> atau <b>MultiPolygon</b>.</p>
+     <textarea id="geojsonInput"
+       style="width:100%;height:220px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;
+              border-radius:7px;padding:10px;font-size:12px;font-family:monospace;
+              resize:vertical;box-sizing:border-box"
+       placeholder='{ "type": "Polygon", "coordinates": [...] }'></textarea>
+     <div id="geojsonError" style="color:#ef4444;font-size:12px;margin-top:6px;display:none"></div>`,
+    () => {
+      const raw = document.getElementById('geojsonInput').value.trim();
+      const errEl = document.getElementById('geojsonError');
+      errEl.style.display = 'none';
+
+      let geom;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.type === 'FeatureCollection') {
+          if (!parsed.features?.length) throw new Error('FeatureCollection kosong');
+          geom = parsed.features[0].geometry;
+        } else if (parsed.type === 'Feature') {
+          geom = parsed.geometry;
+        } else {
+          geom = parsed;
+        }
+        if (!geom || !['Polygon', 'MultiPolygon'].includes(geom.type)) {
+          throw new Error(`Tipe geometri tidak valid: ${geom?.type}. Harus Polygon atau MultiPolygon.`);
+        }
+        if (!geom.coordinates?.length) throw new Error('coordinates kosong');
+      } catch (e) {
+        errEl.textContent = e.message;
+        errEl.style.display = '';
+        return; // keep dialog open
+      }
+
+      // Validation OK — show before/after preview on map
+      showGeomPreview(geom);
+    },
+  );
+
+  // Auto-fill current geometry
+  setTimeout(() => {
+    const ta = document.getElementById('geojsonInput');
+    if (ta && state.selected?.geometry) {
+      ta.value = JSON.stringify(state.selected.geometry, null, 2);
+    }
+  }, 50);
+}
+
+function showGeomPreview(newGeom) {
+  closeDialog();
+  state.pendingGeom = newGeom;
+  const map = state.map;
+
+  // Before layer — existing geometry (red dashed)
+  map.getSource('geom-before').setData({
+    type: 'FeatureCollection',
+    features: state.selected?.geometry
+      ? [{ type: 'Feature', id: 1, geometry: state.selected.geometry, properties: {} }]
+      : [],
+  });
+  // After layer — proposed geometry (green)
+  map.getSource('geom-after').setData({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', id: 2, geometry: newGeom, properties: {} }],
+  });
+
+  document.getElementById('confirmGeomBar').classList.add('visible');
+
+  // Fit bounds to show both geometries
+  try {
+    const allCoords = [
+      ...flatCoords(state.selected?.geometry),
+      ...flatCoords(newGeom),
+    ];
+    if (allCoords.length) {
+      const bounds = allCoords.reduce(
+        (b, c) => b.extend(c),
+        new maplibregl.LngLatBounds(allCoords[0], allCoords[0]),
+      );
+      map.fitBounds(bounds, { padding: 80, maxZoom: 14 });
+    }
+  } catch {}
+}
+
+async function confirmPendingGeom() {
+  if (!state.pendingGeom || !state.selected) return;
+  const type = document.getElementById('levelSelect').value;
+  const id   = state.selected.id;
+  try {
+    await apiFetch(`/api/admin/bapenda/${type}/${id}/geometry`, {
+      method: 'PUT',
+      body: JSON.stringify({ geometry: state.pendingGeom }),
+    });
+    state.selected.geometry = state.pendingGeom;
+    state.pendingGeom = null;
+    _clearGeomPreviewLayers();
+    document.getElementById('confirmGeomBar').classList.remove('visible');
+    highlightBoundary(state.selected);
+    showPreview();
+    toast('Geometri disimpan', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+function cancelGeomPreview() {
+  state.pendingGeom = null;
+  _clearGeomPreviewLayers();
+  document.getElementById('confirmGeomBar').classList.remove('visible');
+  if (state.selected) highlightBoundary(state.selected);
+}
+
+function _clearGeomPreviewLayers() {
+  const map = state.map;
+  if (!map) return;
+  const empty = { type: 'FeatureCollection', features: [] };
+  if (map.getSource('geom-before')) map.getSource('geom-before').setData(empty);
+  if (map.getSource('geom-after'))  map.getSource('geom-after').setData(empty);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1286,8 +1465,14 @@ function bindEvents() {
   // Edit panel buttons
   document.getElementById('saveMetaBtn').onclick   = saveMetadata;
   document.getElementById('editGeomBtn').onclick   = startEditGeometry;
+  document.getElementById('pasteGeomBtn').onclick  = startGeoJsonInput;
   document.getElementById('deleteBtn').onclick     = deleteBoundary;
+
+  // Geom preview confirm bar
+  document.getElementById('confirmGeomBtn').onclick = confirmPendingGeom;
+  document.getElementById('cancelGeomBtn').onclick  = cancelGeomPreview;
   document.getElementById('editCloseBtn').onclick  = () => {
+    if (state.pendingGeom) cancelGeomPreview();
     document.getElementById('editPanel').classList.remove('visible');
     state.selected = null;
     clearHighlight();
