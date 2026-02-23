@@ -453,17 +453,6 @@
       <!-- Map mode indicator -->
       <div id="modeIndicator"></div>
 
-      <!-- Geometry preview confirm bar (shown during GeoJSON preview) -->
-      <div id="confirmGeomBar">
-        <div class="cg-legend">
-          <span class="cg-dot" style="background:#ef4444"></span>Sekarang
-          <span class="cg-dot" style="background:#22c55e;margin-left:4px"></span>Baru
-        </div>
-        <span style="font-size:12px;color:#cbd5e1">Pratinjau perubahan &mdash; periksa sebelum menyimpan</span>
-        <button class="btn btn-save"   id="confirmGeomBtn" style="padding:5px 14px">✔ Simpan</button>
-        <button class="btn btn-cancel" id="cancelGeomBtn"  style="padding:5px 10px">✕ Batal</button>
-      </div>
-
       <!-- Toolbar -->
       <div id="toolbar">
         <button class="tb-btn" id="tbNew"   title="Buat Boundary Baru">＋</button>
@@ -1058,7 +1047,6 @@ function startGeoJsonInput() {
 }
 
 function showGeomPreview(newGeom) {
-  closeDialog();
   state.pendingGeom = newGeom;
   const map = state.map;
 
@@ -1075,8 +1063,6 @@ function showGeomPreview(newGeom) {
     features: [{ type: 'Feature', id: 2, geometry: newGeom, properties: {} }],
   });
 
-  document.getElementById('confirmGeomBar').classList.add('visible');
-
   // Fit bounds to show both geometries
   try {
     const allCoords = [
@@ -1091,6 +1077,29 @@ function showGeomPreview(newGeom) {
       map.fitBounds(bounds, { padding: 80, maxZoom: 14 });
     }
   } catch {}
+
+  // Show confirm dialog on top of the map
+  showDialog(
+    'Konfirmasi Perubahan Geometri',
+    `<div style="display:flex;gap:16px;margin-bottom:12px;font-size:13px">
+       <span style="display:flex;align-items:center;gap:6px">
+         <span style="display:inline-block;width:28px;height:4px;background:#ef4444;border-radius:2px;border:1.5px dashed #ef4444"></span>
+         <span style="color:#94a3b8">Geometri sekarang</span>
+       </span>
+       <span style="display:flex;align-items:center;gap:6px">
+         <span style="display:inline-block;width:28px;height:4px;background:#22c55e;border-radius:2px"></span>
+         <span style="color:#94a3b8">Geometri baru</span>
+       </span>
+     </div>
+     <p style="font-size:12px;color:#64748b;margin:0">Kedua geometri ditampilkan di peta. Periksa perubahan, lalu klik <b style="color:#e2e8f0">Simpan</b> untuk menyimpan atau <b style="color:#e2e8f0">Batal</b> untuk membatalkan.</p>`,
+    confirmPendingGeom,
+  );
+
+  // Override cancel button to also clear preview layers
+  document.getElementById('dialogCancelBtn').onclick = () => {
+    cancelGeomPreview();
+    closeDialog();
+  };
 }
 
 async function confirmPendingGeom() {
@@ -1105,7 +1114,7 @@ async function confirmPendingGeom() {
     state.selected.geometry = state.pendingGeom;
     state.pendingGeom = null;
     _clearGeomPreviewLayers();
-    document.getElementById('confirmGeomBar').classList.remove('visible');
+    closeDialog();
     highlightBoundary(state.selected);
     showPreview();
     toast('Geometri disimpan', 'ok');
@@ -1117,7 +1126,6 @@ async function confirmPendingGeom() {
 function cancelGeomPreview() {
   state.pendingGeom = null;
   _clearGeomPreviewLayers();
-  document.getElementById('confirmGeomBar').classList.remove('visible');
   if (state.selected) highlightBoundary(state.selected);
 }
 
@@ -1467,10 +1475,6 @@ function bindEvents() {
   document.getElementById('editGeomBtn').onclick   = startEditGeometry;
   document.getElementById('pasteGeomBtn').onclick  = startGeoJsonInput;
   document.getElementById('deleteBtn').onclick     = deleteBoundary;
-
-  // Geom preview confirm bar
-  document.getElementById('confirmGeomBtn').onclick = confirmPendingGeom;
-  document.getElementById('cancelGeomBtn').onclick  = cancelGeomPreview;
   document.getElementById('editCloseBtn').onclick  = () => {
     if (state.pendingGeom) cancelGeomPreview();
     document.getElementById('editPanel').classList.remove('visible');
