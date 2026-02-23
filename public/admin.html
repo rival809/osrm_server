@@ -129,22 +129,6 @@
     #editPanel.type-desa .fdesa,
     #newPanel.type-desa .fdesa { display: flex; }
 
-    /* Merge bar */
-    #mergeBar {
-      display: none; padding: 8px 12px; background: #14273e;
-      border-bottom: 1px solid #334155; gap: 8px; align-items: center;
-    }
-    #mergeBar.visible { display: flex; }
-    #mergeBar span { font-size: 13px; color: #94a3b8; flex: 1; }
-    #mergeExecuteBtn {
-      padding: 5px 12px; border-radius: 6px; border: none;
-      background: #0891b2; color: white; font-size: 12px; cursor: pointer;
-    }
-    #mergeCancelBtn {
-      padding: 5px 10px; border-radius: 6px; border: none;
-      background: #334155; color: #94a3b8; font-size: 12px; cursor: pointer;
-    }
-
     /* Edit panel */
     #editPanel {
       flex-shrink: 0; border-top: 1px solid #334155;
@@ -179,11 +163,9 @@
     .btn-save    { background: #22c55e; color: white; }
     .btn-geom    { background: #6366f1; color: white; }
     .btn-geojson  { background: #0891b2; color: white; }
-    .btn-split   { background: #f59e0b; color: #0f172a; }
     .btn-delete  { background: #ef4444; color: white; }
     .btn-cancel  { background: #334155; color: #94a3b8; }
     .btn-new     { background: #0ea5e9; color: white; }
-    .btn-merge   { background: #0891b2; color: white; }
 
     /* Mode indicator */
     #modeIndicator {
@@ -250,16 +232,6 @@
     #toast.show { opacity: 1; }
     #toast.ok   { border-color: #22c55e; color: #86efac; }
     #toast.err  { border-color: #ef4444; color: #fca5a5; }
-
-    /* Split panel inside sidebar */
-    #splitPanel {
-      display: none; flex-shrink: 0; border-top: 1px solid #334155; padding: 12px;
-      background: #0f172a;
-    }
-    #splitPanel.visible { display: block; }
-    #splitPanel h4 { font-size: 13px; font-weight: 600; color: #f59e0b; margin-bottom: 10px; }
-    .split-region { margin-bottom: 10px; padding: 10px; border: 1px solid #334155; border-radius: 8px; }
-    .split-region h5 { font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }
 
     /* New boundary panel */
     #newPanel {
@@ -339,17 +311,11 @@
         <input id="searchInput" type="search" placeholder="Cari nama atau kode…" />
       </div>
 
-      <!-- Merge bar (shown when checkboxes selected) -->
-      <!-- mergeBar removed (not used for Bapenda tables) -->
-
       <!-- Boundary list -->
       <div id="listWrap">
         <div class="bi-empty" id="listEmpty">Pilih level dan klik Muat</div>
         <div id="boundaryList"></div>
       </div>
-
-      <!-- Split panel (not used for Bapenda tables) -->
-      <div id="splitPanel" style="display:none"></div>
 
       <!-- New boundary panel -->
       <div id="newPanel">
@@ -475,7 +441,6 @@
 
 </div><!-- /cms -->
 
-<!-- ── Merge dialog ──────────────────────────────────────────── -->
 <div id="dialogOverlay">
   <div id="dialogBox">
     <h3 id="dialogTitle">Dialog</h3>
@@ -501,10 +466,8 @@ let authToken = localStorage.getItem('cms_token') || '';
 const state = {
   boundaries: [],     // current list
   selected: null,     // selected boundary full object (with geometry)
-  mode: 'browse',     // browse | new | split | merge | editGeom
-  mergeIds: new Set(),
+  mode: 'browse',     // browse | new | editGeom
   drawnGeom: null,    // geometry drawn for new boundary
-  splitLine: null,    // linestring for split
   pendingGeom: null,  // proposed geometry awaiting confirmation (GeoJSON input preview)
   draw: null,         // MapboxDraw instance
   map: null,
@@ -1272,19 +1235,6 @@ async function saveNewBoundary() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  SPLIT / MERGE (not applicable for Bapenda tables)
-// ═══════════════════════════════════════════════════════════════
-
-function startSplit()    { toast('Split tidak tersedia untuk tabel Bapenda', 'err'); }
-function cancelSplit()   {}
-async function saveSplit() {}
-function toggleMerge()   {}
-function updateMergeBar() {}
-function startMergeMode() { toast('Merge tidak tersedia untuk tabel Bapenda', 'err'); }
-function cancelMerge()   {}
-function doMerge()       {}
-
-// ═══════════════════════════════════════════════════════════════
 //  DELETE
 // ═══════════════════════════════════════════════════════════════
 
@@ -1304,39 +1254,6 @@ async function deleteBoundary() {
     document.getElementById('statusSelected').textContent = 'Tidak ada pilihan';
     document.getElementById('statusGeom').textContent = '';
     toast(`Dihapus: ${bname}`, 'ok');
-  } catch (e) {
-    toast(e.message, 'err');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  HISTORY
-// ═══════════════════════════════════════════════════════════════
-
-async function showHistory() {
-  try {
-    const data = await apiFetch('/api/admin/history');
-    const rows = data.data || [];
-    const html = rows.length
-      ? `<div style="max-height:300px;overflow-y:auto">
-          <table style="width:100%;font-size:12px;border-collapse:collapse">
-            <tr style="color:#64748b;border-bottom:1px solid #334155">
-              <th style="text-align:left;padding:4px">Aksi</th>
-              <th style="text-align:left;padding:4px">Sumber</th>
-              <th style="text-align:left;padding:4px">Hasil</th>
-              <th style="text-align:left;padding:4px">Waktu</th>
-            </tr>
-            ${rows.map(r => `
-              <tr style="border-bottom:1px solid #1e293b">
-                <td style="padding:4px;color:#f59e0b">Split</td>
-                <td style="padding:4px;color:#e2e8f0">${r.source_name}</td>
-                <td style="padding:4px;color:#94a3b8">${r.result_names || '—'}</td>
-                <td style="padding:4px;color:#64748b">${new Date(r.performed_at).toLocaleDateString('id')}</td>
-              </tr>`).join('')}
-          </table>
-        </div>`
-      : '<p style="color:#64748b;font-size:13px">Belum ada riwayat.</p>';
-    showDialog('Riwayat Split / Merge', html, null);
   } catch (e) {
     toast(e.message, 'err');
   }

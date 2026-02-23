@@ -129,24 +129,6 @@
         }
         .dblclick-hint.show { opacity: 1; }
 
-        #split-panel {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            background: white; padding: 14px 20px; border-radius: 8px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2); z-index: 1001; display: none;
-            text-align: center; min-width: 420px;
-        }
-        #split-panel.show { display: block; }
-        #split-panel h4 { margin-bottom: 8px; color: #764ba2; }
-        #split-panel p { font-size: 13px; color: #555; margin-bottom: 10px; }
-        #split-inputs { margin: 10px 0; text-align: left; }
-        #split-inputs .split-region {
-            display: flex; gap: 6px; margin-bottom: 6px; align-items: center;
-        }
-        #split-inputs input {
-            padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; flex: 1;
-        }
-        #split-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
-
         .legend {
             position: absolute; bottom: 20px; right: 10px; background: white;
             padding: 10px 14px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
@@ -226,7 +208,6 @@
         <button id="allKecamatanBtn" class="btn-outline" style="display:none" title="Muat kecamatan dari semua kabupaten sekaligus">🗺️ Semua Kecamatan</button>
         <button id="clearKecamatanBtn" class="btn-outline" style="display:none" title="Hapus semua layer kecamatan">✕ Hapus Kecamatan</button>
         <div class="separator"></div>
-        <button id="splitModeBtn" class="btn-outline" title="Aktifkan mode split: gambar garis potong di peta">✂️ Mode Split</button>
         <span style="font-size:12px;color:#999;margin-left:6px">Klik wilayah untuk toggle kecamatan</span>
     </div>
 
@@ -253,17 +234,6 @@
 
     <!-- double-click hint -->
     <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
-
-    <!-- Split panel -->
-    <div id="split-panel">
-        <h4>✂️ Split Wilayah</h4>
-        <p id="split-target-label">Pilih wilayah lalu gambar garis potong di peta</p>
-        <div id="split-inputs"></div>
-        <div id="split-actions">
-            <button id="splitExecBtn" class="btn-success" disabled>✂️ Eksekusi Split</button>
-            <button id="splitCancelBtn" class="btn-danger">Batal</button>
-        </div>
-    </div>
 
     <!-- Legend -->
     <div class="legend" id="legend">
@@ -465,7 +435,6 @@
         for (const [lvl, data] of Object.entries(snapshot)) addBoundaryLevel(lvl, data);
         if (selectedFeature) addHighlightLayer(selectedFeature);
         if (routeGeoJSON)    addRouteLayer(routeGeoJSON);
-        if (splitPoints.length > 1) redrawSplitLine();
     }
 
     const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'ml-tooltip', offset: 8 });
@@ -591,7 +560,6 @@
 
     let clickMode = 'start';
     map.on('click', e => {
-        if (splitMode) return;
         // Only set coord if no boundary layer was clicked (boundary click stops propagation via layer event)
         if (document.getElementById('panel-routing').classList.contains('active')) {
             const coord = `${e.lngLat.lng.toFixed(6)},${e.lngLat.lat.toFixed(6)}`;
@@ -840,118 +808,6 @@
             lookupPopup.setHTML(`<b>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</b><table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>`);
         } catch (err) { lookupPopup.setHTML(`❌ ${err.message}`); }
     });
-
-    //  POLYGON SPLIT
-    let splitMode       = false;
-    let splitTarget     = null;
-    let splitPoints     = [];
-
-    const splitModeBtn   = document.getElementById('splitModeBtn');
-    const splitPanel     = document.getElementById('split-panel');
-    const splitExecBtn   = document.getElementById('splitExecBtn');
-    const splitCancelBtn = document.getElementById('splitCancelBtn');
-    const splitInputsDiv = document.getElementById('split-inputs');
-    const splitLabel     = document.getElementById('split-target-label');
-
-    function redrawSplitLine() {
-        if (splitPoints.length < 2) return;
-        const geojson = { type: 'Feature', geometry: { type: 'LineString', coordinates: splitPoints.map(p=>[p.lng,p.lat]) } };
-        safeAddSource('split-src', geojson);
-        if (!map.getLayer('split-line')) map.addLayer({ id: 'split-line', type: 'line', source: 'split-src', paint: { 'line-color': '#ef4444', 'line-width': 3, 'line-dasharray': [2,2] } });
-        map.getSource('split-src').setData(geojson);
-    }
-
-    const _splitClickHandler = e => {
-        if (!splitMode) return;
-        splitPoints.push(e.lngLat);
-        redrawSplitLine();
-    };
-    const _splitDblClickHandler = e => {
-        if (!splitMode) return;
-        e.preventDefault();
-        map.off('click', _splitClickHandler);
-        map.off('dblclick', _splitDblClickHandler);
-        map.doubleClickZoom.enable();
-        if (splitPoints.length < 2) { toast('Garis potong butuh minimal 2 titik', 'error'); return; }
-        buildSplitInputs(2);
-        splitExecBtn.disabled = false;
-        toast('Isi nama & kode wilayah baru, lalu klik Eksekusi', 'success');
-    };
-
-    splitModeBtn.addEventListener('click', () => {
-        if (!boundaryData.city && !boundaryData.district) { toast('Muat layer boundary terlebih dahulu', 'error'); return; }
-        if (splitMode) { cancelSplit(); return; }
-        splitMode = true;
-        splitModeBtn.classList.replace('btn-outline','btn-danger');
-        splitModeBtn.textContent = '✂️ Cancel Split';
-        map.getCanvas().style.cursor = 'crosshair';
-        toast('Klik wilayah yang ingin dipecah, lalu gambar garis potong');
-
-        const targetLayers = ['city-fill','district-fill'].filter(id => map.getLayer(id));
-        const onTargetClick = e => {
-            if (!splitMode) return;
-            e.preventDefault();
-            targetLayers.forEach(id => map.off('click', id, onTargetClick));
-            const feature = findFullFeature(e.features[0].properties, currentLevel) || e.features[0];
-            splitTarget = { feature };
-            addHighlightLayer(feature);
-            selectedFeature = feature;
-            const p = feature.properties;
-            splitLabel.textContent = `Memotong: ${p.KABKOT||p.nm_kecamatan||p.name||''} (${p.ID_KAB||p.kd_kecamatan||p.kode||''} )`;
-            splitPanel.classList.add('show');
-            toast('Klik pada peta untuk menggambar garis potong. Double-klik untuk selesai.', 'success');
-            map.doubleClickZoom.disable();
-            map.on('click', _splitClickHandler);
-            map.on('dblclick', _splitDblClickHandler);
-        };
-        targetLayers.forEach(id => map.on('click', id, onTargetClick));
-    });
-
-    function buildSplitInputs(count) {
-        let html = '';
-        for (let i=1;i<=count;i++) html += `<div class="split-region"><span style="font-weight:600;min-width:18px">${i}.</span><input type="text" id="splitName${i}" placeholder="Nama wilayah baru"><input type="text" id="splitCode${i}" placeholder="Kode wilayah" style="width:110px"></div>`;
-        html += `<p style="font-size:11px;color:#888;margin-top:4px">Jumlah potongan mungkin berbeda tergantung geometri.</p>`;
-        splitInputsDiv.innerHTML = html;
-    }
-
-    splitExecBtn.addEventListener('click', async () => {
-        if (!splitTarget || splitPoints.length < 2) return;
-        const regions = [];
-        for (let i=1;;i++) {
-            const n = document.getElementById('splitName'+i), c = document.getElementById('splitCode'+i);
-            if (!n) break;
-            if (!n.value.trim()||!c.value.trim()) { toast('Isi semua nama dan kode wilayah','error'); return; }
-            regions.push({ name:n.value.trim(), code:c.value.trim() });
-        }
-        splitExecBtn.disabled = true; splitExecBtn.textContent = '⏳ Memproses...';
-        try {
-            const resp = await fetch(`${API_URL}/api/boundaries/split`, {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({ boundary_id: splitTarget.feature.properties.id, cut_line:{ type:'LineString', coordinates: splitPoints.map(p=>[p.lng,p.lat]) }, new_regions: regions })
-            });
-            const data = await resp.json();
-            if (!data.success) throw new Error(data.error);
-            toast(`✅ Berhasil dipecah menjadi ${data.new_regions.length} wilayah!`, 'success');
-            cancelSplit(); loadAllBoundaries();
-        } catch (err) {
-            console.error(err); toast(`❌ Split gagal: ${err.message}`, 'error');
-            splitExecBtn.disabled = false; splitExecBtn.textContent = '✂️ Eksekusi Split';
-        }
-    });
-
-    function cancelSplit() {
-        splitMode = false; splitTarget = null; splitPoints = [];
-        map.off('click', _splitClickHandler); map.off('dblclick', _splitDblClickHandler);
-        safeRemoveLayer('split-line'); safeRemoveSource('split-src');
-        splitPanel.classList.remove('show');
-        splitExecBtn.disabled = true; splitExecBtn.textContent = '✂️ Eksekusi Split';
-        splitInputsDiv.innerHTML = '';
-        splitModeBtn.classList.replace('btn-danger','btn-outline');
-        splitModeBtn.textContent = '✂️ Mode Split';
-        map.getCanvas().style.cursor = '';
-        map.doubleClickZoom.enable();
-    }
-    splitCancelBtn.addEventListener('click', cancelSplit);
 
     //  INIT
     console.log('🗺️ OSRM Service + Boundaries Demo (MapLibre GL)');
