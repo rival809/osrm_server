@@ -9,6 +9,8 @@ const MemoryMonitor = require('./memoryMonitor');
 const { checkHealth: checkPostGIS } = require('./db');
 const boundaryRoutes = require('./boundaryRoutes');
 const legacyGeoRoutes = require('./legacyGeoRoutes');
+const { router: adminAuthRouter } = require('./adminAuth');
+const adminRoutes = require('./adminRoutes');
 const fs = require('fs');
 const path = require('path');
 
@@ -32,7 +34,7 @@ app.use(compression());
 app.use(cors({
   origin: '*',
   credentials: false,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -55,8 +57,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static files
 app.use(express.static('public'));
 
-// Administrative Boundary API
+// Administrative Boundary API (public read, split, merge)
 app.use('/api/boundaries', boundaryRoutes);
+
+// Admin CMS API (login + CRUD — requires ADMIN_TOKEN)
+app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin/boundaries', adminRoutes);
 
 // ── Legacy GeoJSON routes (mirrors old Go/Gin project) ─────────────
 // GET /api/geojson/kabupaten, /api/geojson/kecamatan/:p3d_id, /api/geojson/desa

@@ -60,6 +60,8 @@ services:
       - TILE_SERVER_URL=http://tileserver:8080/styles/basic-preview
       - MAX_MEMORY_MB=2000
       - LOG_LEVEL=info
+      # Admin CMS token — ganti dengan nilai rahasia yang kuat!
+      - ADMIN_TOKEN=changeme-please-set-a-strong-secret
     depends_on:
       - tileserver
       - osrm-backend

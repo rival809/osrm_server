@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boundary CMS – Admin</title>
+
+  <!-- MapLibre GL -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+
+  <!-- MapboxGL Draw (compatible with MapLibre GL) -->
+  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
+
+  <style>
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; background: #0f172a; color: #e2e8f0; overflow: hidden; }
+
+    /* ── Login overlay ────────────────────────────────────────── */
+    #loginOverlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      display: flex; align-items: center; justify-content: center;
+    }
+    #loginBox {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 40px 36px; width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    #loginBox h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; color: #f1f5f9; }
+    #loginBox p  { font-size: 13px; color: #94a3b8; margin-bottom: 28px; }
+    #loginBox label { display: block; font-size: 12px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    #loginPassword {
+      width: 100%; padding: 10px 14px; border-radius: 8px;
+      border: 1px solid #334155; background: #0f172a; color: #f1f5f9;
+      font-size: 14px; margin-bottom: 16px;
+      transition: border-color .2s;
+    }
+    #loginPassword:focus { outline: none; border-color: #6366f1; }
+    #loginBtn {
+      width: 100%; padding: 11px; border-radius: 8px; border: none;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white; font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: opacity .15s;
+    }
+    #loginBtn:hover { opacity: .9; }
+    #loginBtn:disabled { opacity: .5; cursor: not-allowed; }
+    #loginError { color: #f87171; font-size: 13px; margin-top: 12px; text-align: center; min-height: 18px; }
+
+    /* ── CMS shell ────────────────────────────────────────────── */
+    #cms { display: none; flex-direction: column; height: 100vh; }
+
+    /* ── Header ───────────────────────────────────────────────── */
+    #header {
+      background: #1e293b; border-bottom: 1px solid #334155;
+      padding: 0 20px; height: 50px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #header .logo { display: flex; align-items: center; gap: 10px; }
+    #header .logo span { font-weight: 700; font-size: 16px; color: #f1f5f9; }
+    #header .logo .badge {
+      font-size: 10px; background: #ef4444; color: white; border-radius: 4px;
+      padding: 2px 6px; font-weight: 700; letter-spacing: .05em;
+    }
+    #header .right { display: flex; gap: 12px; align-items: center; }
+    #userInfo { font-size: 12px; color: #64748b; }
+    #logoutBtn {
+      font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+      border: 1px solid #475569; background: transparent; color: #94a3b8;
+      transition: all .15s;
+    }
+    #logoutBtn:hover { border-color: #ef4444; color: #ef4444; }
+
+    /* ── Main layout ──────────────────────────────────────────── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Sidebar ──────────────────────────────────────────────── */
+    #sidebar {
+      width: 320px; flex-shrink: 0; background: #1e293b;
+      border-right: 1px solid #334155; display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Level + search bar */
+    #topBar { padding: 12px; border-bottom: 1px solid #334155; display: flex; gap: 8px; }
+    #levelSelect {
+      flex: 1; padding: 7px 10px; border-radius: 7px; border: 1px solid #334155;
+      background: #0f172a; color: #e2e8f0; font-size: 13px; cursor: pointer;
+    }
+    #loadBoundariesBtn {
+      padding: 7px 12px; border-radius: 7px; border: none;
+      background: #6366f1; color: white; font-size: 13px; cursor: pointer;
+      white-space: nowrap; transition: background .15s;
+    }
+    #loadBoundariesBtn:hover { background: #5558e3; }
+
+    #searchWrap { padding: 8px 12px; border-bottom: 1px solid #21304a; }
+    #searchInput {
+      width: 100%; padding: 7px 12px; border-radius: 7px; border: 1px solid #334155;
+      background: #0f172a; color: #e2e8f0; font-size: 13px;
+    }
+    #searchInput:focus { outline: none; border-color: #6366f1; }
+    #searchInput::placeholder { color: #475569; }
+
+    /* Boundary list */
+    #listWrap { flex: 1; overflow-y: auto; min-height: 0; }
+    #listWrap::-webkit-scrollbar { width: 5px; }
+    #listWrap::-webkit-scrollbar-track { background: #0f172a; }
+    #listWrap::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    .boundary-item {
+      display: flex; align-items: center; padding: 9px 12px; cursor: pointer;
+      border-bottom: 1px solid #1a2638; gap: 8px;
+      transition: background .1s;
+    }
+    .boundary-item:hover   { background: #263348; }
+    .boundary-item.active  { background: #312e81; border-left: 3px solid #6366f1; }
+    .boundary-item .chk   { flex-shrink: 0; cursor: pointer; accent-color: #6366f1; width: 15px; height: 15px; }
+    .boundary-item .name  { font-size: 13px; font-weight: 500; color: #e2e8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .boundary-item .code  { font-size: 11px; color: #64748b; white-space: nowrap; }
+    .bi-empty { padding: 20px 12px; color: #475569; font-size: 13px; text-align: center; }
+
+    /* Merge bar */
+    #mergeBar {
+      display: none; padding: 8px 12px; background: #14273e;
+      border-bottom: 1px solid #334155; gap: 8px; align-items: center;
+    }
+    #mergeBar.visible { display: flex; }
+    #mergeBar span { font-size: 13px; color: #94a3b8; flex: 1; }
+    #mergeExecuteBtn {
+      padding: 5px 12px; border-radius: 6px; border: none;
+      background: #0891b2; color: white; font-size: 12px; cursor: pointer;
+    }
+    #mergeCancelBtn {
+      padding: 5px 10px; border-radius: 6px; border: none;
+      background: #334155; color: #94a3b8; font-size: 12px; cursor: pointer;
+    }
+
+    /* Edit panel */
+    #editPanel {
+      flex-shrink: 0; border-top: 1px solid #334155;
+      display: none; flex-direction: column; max-height: 60%;
+      overflow: hidden;
+    }
+    #editPanel.visible { display: flex; }
+    #editPanelHeader {
+      padding: 10px 12px; background: #0f172a; display: flex;
+      align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    #editPanelHeader span { font-size: 13px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; }
+    #editPanelHeader .actions { display: flex; gap: 6px; }
+    #editPanelInner { padding: 10px 12px; overflow-y: auto; flex: 1; }
+    #editPanelInner::-webkit-scrollbar { width: 4px; }
+    #editPanelInner::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+    .form-row { margin-bottom: 10px; }
+    .form-row label { display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
+    .form-row input, .form-row select, .form-row textarea {
+      width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid #334155;
+      background: #0f172a; color: #e2e8f0; font-size: 13px;
+    }
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline: none; border-color: #6366f1; }
+    .form-row textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+    .form-row .hint { font-size: 11px; color: #475569; margin-top: 3px; }
+
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid #334155; flex-shrink: 0; }
+    .btn { padding: 6px 12px; border-radius: 6px; border: none; font-size: 12px; cursor: pointer; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-save    { background: #22c55e; color: white; }
+    .btn-geom    { background: #6366f1; color: white; }
+    .btn-split   { background: #f59e0b; color: #0f172a; }
+    .btn-delete  { background: #ef4444; color: white; }
+    .btn-cancel  { background: #334155; color: #94a3b8; }
+    .btn-new     { background: #0ea5e9; color: white; }
+    .btn-merge   { background: #0891b2; color: white; }
+
+    /* Mode indicator */
+    #modeIndicator {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(15,23,42,.85); backdrop-filter: blur(8px);
+      border: 1px solid #334155; border-radius: 8px;
+      padding: 8px 16px; font-size: 13px; color: #e2e8f0;
+      z-index: 10; pointer-events: none; display: none;
+    }
+    #modeIndicator.visible { display: block; }
+
+    /* Map wrapper */
+    #mapWrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* Toolbar */
+    #toolbar {
+      position: absolute; top: 12px; right: 12px; z-index: 10;
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    .tb-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: 1px solid #334155;
+      background: rgba(15,23,42,.85); backdrop-filter: blur(8px);
+      color: #94a3b8; font-size: 16px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center; transition: all .15s;
+      line-height: 1;
+    }
+    .tb-btn:hover  { background: #1e293b; color: #e2e8f0; }
+    .tb-btn.active { background: #6366f1; border-color: #6366f1; color: white; }
+    .tb-btn[title] { position: relative; }
+
+    /* Status bar */
+    #statusBar {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(15,23,42,.8); backdrop-filter: blur(8px);
+      padding: 5px 14px; font-size: 12px; color: #64748b;
+      display: flex; gap: 16px; z-index: 5; border-top: 1px solid #334155;
+    }
+    #statusBar span.hl { color: #94a3b8; }
+
+    /* Dialog overlay */
+    #dialogOverlay {
+      position: fixed; inset: 0; z-index: 5000;
+      background: rgba(0,0,0,.6); display: none;
+      align-items: center; justify-content: center;
+    }
+    #dialogOverlay.visible { display: flex; }
+    #dialogBox {
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+      padding: 28px; width: 420px; max-width: 95vw;
+      box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    }
+    #dialogBox h3 { font-size: 16px; font-weight: 700; margin-bottom: 18px; color: #f1f5f9; }
+    #dialogBox .btn-row { padding: 0; margin-top: 16px; }
+    #dialogBox .btn-row { justify-content: flex-end; }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+      padding: 10px 20px; font-size: 13px; color: #e2e8f0; z-index: 9000;
+      opacity: 0; pointer-events: none; transition: opacity .2s; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; }
+    #toast.ok   { border-color: #22c55e; color: #86efac; }
+    #toast.err  { border-color: #ef4444; color: #fca5a5; }
+
+    /* Split panel inside sidebar */
+    #splitPanel {
+      display: none; flex-shrink: 0; border-top: 1px solid #334155; padding: 12px;
+      background: #0f172a;
+    }
+    #splitPanel.visible { display: block; }
+    #splitPanel h4 { font-size: 13px; font-weight: 600; color: #f59e0b; margin-bottom: 10px; }
+    .split-region { margin-bottom: 10px; padding: 10px; border: 1px solid #334155; border-radius: 8px; }
+    .split-region h5 { font-size: 11px; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }
+
+    /* New boundary panel */
+    #newPanel {
+      display: none; flex-shrink: 0; border-top: 1px solid #334155; padding: 12px;
+      background: #0f172a;
+    }
+    #newPanel.visible { display: block; }
+    #newPanel h4 { font-size: 13px; font-weight: 600; color: #0ea5e9; margin-bottom: 10px; }
+
+    /* Level badge */
+    .level-badge {
+      font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700;
+      letter-spacing: .03em; flex-shrink: 0;
+    }
+    .level-province  { background: #7c3aed22; color: #a78bfa; border: 1px solid #7c3aed55; }
+    .level-city      { background: #0369a122; color: #38bdf8; border: 1px solid #0369a155; }
+    .level-district  { background: #05966922; color: #34d399; border: 1px solid #05966955; }
+    .level-village   { background: #b4530922; color: #fb923c; border: 1px solid #b4530955; }
+
+    /* Inactive dim */
+    .inactive { opacity: .4; }
+  </style>
+</head>
+<body>
+
+<!-- ── Login overlay ──────────────────────────────────────────── -->
+<div id="loginOverlay">
+  <div id="loginBox">
+    <h2>Boundary CMS</h2>
+    <p>Masukkan admin token untuk melanjutkan</p>
+    <label for="loginPassword">Admin Token</label>
+    <input id="loginPassword" type="password" placeholder="••••••••••••" autocomplete="current-password" />
+    <button id="loginBtn">Masuk</button>
+    <div id="loginError"></div>
+  </div>
+</div>
+
+<!-- ── CMS ────────────────────────────────────────────────────── -->
+<div id="cms">
+
+  <div id="header">
+    <div class="logo">
+      <span>Boundary CMS</span>
+      <span class="badge">ADMIN</span>
+    </div>
+    <div class="right">
+      <span id="userInfo">Terautentikasi</span>
+      <button id="logoutBtn">Keluar</button>
+    </div>
+  </div>
+
+  <div id="main">
+
+    <!-- ── Sidebar ──────────────────────────────────────────── -->
+    <div id="sidebar">
+
+      <!-- Level selector + load -->
+      <div id="topBar">
+        <select id="levelSelect">
+          <option value="province">Provinsi</option>
+          <option value="city" selected>Kota / Kabupaten</option>
+          <option value="district">Kecamatan</option>
+          <option value="village">Kelurahan / Desa</option>
+        </select>
+        <button id="loadBoundariesBtn">Muat</button>
+      </div>
+
+      <!-- Search -->
+      <div id="searchWrap">
+        <input id="searchInput" type="search" placeholder="Cari nama atau kode…" />
+      </div>
+
+      <!-- Merge bar (shown when checkboxes selected) -->
+      <div id="mergeBar">
+        <span id="mergeCount">0 dipilih</span>
+        <button id="mergeCancelBtn">Batal</button>
+        <button id="mergeExecuteBtn">Gabung →</button>
+      </div>
+
+      <!-- Boundary list -->
+      <div id="listWrap">
+        <div class="bi-empty" id="listEmpty">Pilih level dan klik Muat</div>
+        <div id="boundaryList"></div>
+      </div>
+
+      <!-- Split panel -->
+      <div id="splitPanel">
+        <h4>✂ Mode Split</h4>
+        <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Gambar garis potong di peta, lalu isi nama wilayah baru di bawah ini.</p>
+        <div class="split-region">
+          <h5>Wilayah A</h5>
+          <div class="form-row"><label>Nama</label><input id="splitNameA" placeholder="Nama wilayah A" /></div>
+          <div class="form-row"><label>Kode</label><input id="splitCodeA" placeholder="Kode wilayah A" /></div>
+        </div>
+        <div class="split-region">
+          <h5>Wilayah B</h5>
+          <div class="form-row"><label>Nama</label><input id="splitNameB" placeholder="Nama wilayah B" /></div>
+          <div class="form-row"><label>Kode</label><input id="splitCodeB" placeholder="Kode wilayah B" /></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn btn-split" id="splitSaveBtn">Simpan Split</button>
+          <button class="btn btn-cancel" id="splitCancelBtn">Batal</button>
+        </div>
+      </div>
+
+      <!-- New boundary panel -->
+      <div id="newPanel">
+        <h4>+ Buat Boundary Baru</h4>
+        <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Gambar polygon di peta, lalu isi metadata di bawah.</p>
+        <div class="form-row"><label>Level</label>
+          <select id="newLevel">
+            <option value="province">Provinsi</option>
+            <option value="city" selected>Kota / Kabupaten</option>
+            <option value="district">Kecamatan</option>
+            <option value="village">Kelurahan / Desa</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Nama</label><input id="newName" placeholder="Nama wilayah" /></div>
+        <div class="form-row"><label>Kode</label><input id="newCode" placeholder="Mis: 32.73.01" /></div>
+        <div class="form-row"><label>Nama Alternatif</label><input id="newAltName" placeholder="(opsional)" /></div>
+        <div class="form-row"><label>Parent ID</label><input id="newParentId" type="number" placeholder="ID boundary induk (opsional)" /></div>
+        <div class="form-row"><label>Populasi</label><input id="newPopulation" type="number" placeholder="(opsional)" /></div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="btn btn-new" id="newSaveBtn" disabled>Simpan</button>
+          <button class="btn btn-cancel" id="newCancelBtn">Batal</button>
+        </div>
+        <p style="font-size:11px;color:#475569;margin-top:8px" id="newDrawHint">Belum ada polygon yang digambar.</p>
+      </div>
+
+      <!-- Edit panel (selected boundary) -->
+      <div id="editPanel">
+        <div id="editPanelHeader">
+          <span>Edit Metadata</span>
+          <div class="actions">
+            <button class="btn btn-cancel" style="padding:3px 8px;font-size:11px" id="editCloseBtn">✕</button>
+          </div>
+        </div>
+        <div id="editPanelInner">
+          <div class="form-row"><label>Nama</label><input id="editName" /></div>
+          <div class="form-row"><label>Nama Alternatif</label><input id="editAltName" /></div>
+          <div class="form-row"><label>Kode</label><input id="editCode" /></div>
+          <div class="form-row">
+            <label>Level</label>
+            <select id="editLevel" disabled>
+              <option value="province">Provinsi</option>
+              <option value="city">Kota / Kabupaten</option>
+              <option value="district">Kecamatan</option>
+              <option value="village">Kelurahan / Desa</option>
+            </select>
+            <div class="hint">Level tidak dapat diubah</div>
+          </div>
+          <div class="form-row"><label>Parent ID</label><input id="editParentId" type="number" /></div>
+          <div class="form-row"><label>Populasi</label><input id="editPopulation" type="number" /></div>
+          <div class="form-row"><label>Metadata (JSON)</label><textarea id="editMetadata" rows="3"></textarea></div>
+          <div class="form-row">
+            <label>Status</label>
+            <select id="editIsActive">
+              <option value="true">Aktif</option>
+              <option value="false">Nonaktif</option>
+            </select>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-save"   id="saveMetaBtn">Simpan</button>
+          <button class="btn btn-geom"   id="editGeomBtn">Edit Geometri</button>
+          <button class="btn btn-split"  id="startSplitBtn">Split</button>
+          <button class="btn btn-delete" id="deleteBtn">Hapus</button>
+        </div>
+      </div>
+
+    </div><!-- /sidebar -->
+
+    <!-- ── Map area ────────────────────────────────────────── -->
+    <div id="mapWrap">
+
+      <!-- Map mode indicator -->
+      <div id="modeIndicator"></div>
+
+      <!-- Toolbar -->
+      <div id="toolbar">
+        <button class="tb-btn" id="tbNew"   title="Buat Boundary Baru">＋</button>
+        <button class="tb-btn" id="tbMerge" title="Mode Merge (pilih dari daftar)">⊕</button>
+        <button class="tb-btn" id="tbZoomSel" title="Zoom ke pilihan">⊙</button>
+        <button class="tb-btn" id="tbHistory" title="Riwayat split/merge">🕓</button>
+      </div>
+
+      <!-- Map element -->
+      <div id="map"></div>
+
+      <!-- Status bar -->
+      <div id="statusBar">
+        <span id="statusSelected">Tidak ada pilihan</span>
+        <span id="statusCoords">lat: — &nbsp;lon: —</span>
+        <span id="statusGeom"></span>
+      </div>
+
+    </div><!-- /mapWrap -->
+
+  </div><!-- /main -->
+
+</div><!-- /cms -->
+
+<!-- ── Merge dialog ──────────────────────────────────────────── -->
+<div id="dialogOverlay">
+  <div id="dialogBox">
+    <h3 id="dialogTitle">Dialog</h3>
+    <div id="dialogContent"></div>
+    <div class="btn-row">
+      <button class="btn btn-cancel" id="dialogCancelBtn">Batal</button>
+      <button class="btn btn-save"   id="dialogOkBtn">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CONFIG & STATE
+// ═══════════════════════════════════════════════════════════════
+
+const API = window.location.origin;
+let authToken = localStorage.getItem('cms_token') || '';
+
+const state = {
+  boundaries: [],     // current list
+  selected: null,     // selected boundary full object (with geometry)
+  mode: 'browse',     // browse | new | split | merge | editGeom
+  mergeIds: new Set(),
+  drawnGeom: null,    // geometry drawn for new boundary
+  splitLine: null,    // linestring for split
+  draw: null,         // MapboxDraw instance
+  map: null,
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════════
+
+async function doLogin() {
+  const pw = document.getElementById('loginPassword').value.trim();
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+  if (!pw) { errEl.textContent = 'Masukkan password'; return; }
+
+  btn.disabled = true; errEl.textContent = '';
+  try {
+    const r = await fetch(`${API}/api/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    const json = await r.json();
+    if (!r.ok || !json.success) throw new Error(json.error || 'Login gagal');
+    authToken = json.token;
+    localStorage.setItem('cms_token', authToken);
+    showCms();
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function verifyToken(token) {
+  try {
+    const r = await fetch(`${API}/api/admin/verify`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+function logout() {
+  localStorage.removeItem('cms_token');
+  authToken = '';
+  document.getElementById('cms').style.display = 'none';
+  document.getElementById('loginOverlay').style.display = 'flex';
+  document.getElementById('loginPassword').value = '';
+  document.getElementById('loginError').textContent = '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT MAP
+// ═══════════════════════════════════════════════════════════════
+
+function initMap() {
+  const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+      version: 8,
+      sources: {
+        raster: {
+          type: 'raster',
+          tiles: [`${API}/tiles/{z}/{x}/{y}.png`],
+          tileSize: 256,
+          attribution: '© OpenStreetMap contributors',
+        },
+      },
+      layers: [{ id: 'raster-bg', type: 'raster', source: 'raster' }],
+    },
+    center: [107.6191, -6.9175],
+    zoom: 9,
+    attributionControl: false,
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-left');
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+  // Mapbox GL Draw
+  const draw = new MapboxDraw({
+    displayControlsDefault: false,
+    controls: {},
+    styles: drawStyles(),
+  });
+  map.addControl(draw);
+  state.draw = draw;
+  state.map = map;
+
+  // Track cursor coordinates
+  map.on('mousemove', e => {
+    document.getElementById('statusCoords').textContent =
+      `lat: ${e.lngLat.lat.toFixed(5)}  lon: ${e.lngLat.lng.toFixed(5)}`;
+  });
+
+  // Listen for draw events
+  map.on('draw.create', onDrawCreate);
+  map.on('draw.update', onDrawUpdate);
+
+  // Highlight source/layer
+  map.on('load', () => {
+    map.addSource('highlight', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    map.addLayer({
+      id: 'highlight-fill',
+      type: 'fill',
+      source: 'highlight',
+      paint: { 'fill-color': '#6366f1', 'fill-opacity': 0.2 },
+    });
+    map.addLayer({
+      id: 'highlight-line',
+      type: 'line',
+      source: 'highlight',
+      paint: { 'line-color': '#6366f1', 'line-width': 2.5 },
+    });
+
+    // Preview source/layer (browse mode)
+    map.addSource('preview', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    map.addLayer({
+      id: 'preview-fill',
+      type: 'fill',
+      source: 'preview',
+      paint: { 'fill-color': '#334155', 'fill-opacity': 0.08 },
+    });
+    map.addLayer({
+      id: 'preview-line',
+      type: 'line',
+      source: 'preview',
+      paint: { 'line-color': '#475569', 'line-width': 1.5 },
+    });
+    map.addLayer({
+      id: 'preview-label',
+      type: 'symbol',
+      source: 'preview',
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-size': 11,
+        'text-max-width': 8,
+        'text-allow-overlap': false,
+      },
+      paint: { 'text-color': '#94a3b8', 'text-halo-color': '#0f172a', 'text-halo-width': 1 },
+      minzoom: 8,
+    });
+
+    // Click on preview to select
+    map.on('click', 'preview-fill', e => {
+      const id = e.features[0]?.properties?.id;
+      if (id) selectBoundary(id);
+    });
+    map.on('mouseenter', 'preview-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'preview-fill', () => { map.getCanvas().style.cursor = ''; });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW STYLES
+// ═══════════════════════════════════════════════════════════════
+
+function drawStyles() {
+  return [
+    { id: 'gl-draw-polygon-fill', type: 'fill', filter: ['all',['==','$type','Polygon'],['!=','mode','static']],
+      paint: { 'fill-color': '#6366f1', 'fill-outline-color': '#6366f1', 'fill-opacity': 0.1 }},
+    { id: 'gl-draw-polygon-stroke', type: 'line', filter: ['all',['==','$type','Polygon'],['!=','mode','static']],
+      layout: {}, paint: { 'line-color': '#6366f1', 'line-width': 2 }},
+    { id: 'gl-draw-line', type: 'line', filter: ['all',['==','$type','LineString'],['!=','mode','static']],
+      layout: {}, paint: { 'line-color': '#f59e0b', 'line-width': 2.5, 'line-dasharray': [3,2] }},
+    { id: 'gl-draw-point-point', type: 'circle', filter: ['all',['==','$type','Point'],['!=','mode','static'],['!=','meta','midpoint']],
+      paint: { 'circle-radius': 5, 'circle-color': '#6366f1' }},
+    { id: 'gl-draw-point-midpoint', type: 'circle', filter: ['all',['==','$type','Point'],['==','meta','midpoint']],
+      paint: { 'circle-radius': 3, 'circle-color': '#6366f1', 'circle-opacity': 0.5 }},
+    { id: 'gl-draw-polygon-and-line-vertex', type: 'circle', filter: ['all',['==','meta','vertex'],['==','$type','Point'],['!=','mode','static']],
+      paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#6366f1', 'circle-stroke-width': 2 }},
+  ];
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  API HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+async function apiFetch(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}`, ...(opts.headers || {}) };
+  const r = await fetch(`${API}${path}`, { ...opts, headers });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.error || `HTTP ${r.status}`);
+  return json;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LOAD BOUNDARIES LIST
+// ═══════════════════════════════════════════════════════════════
+
+async function loadBoundaries() {
+  const level = document.getElementById('levelSelect').value;
+  setMode('browse');
+  clearHighlight();
+  try {
+    const data = await apiFetch(`/api/admin/boundaries?level=${level}&include_inactive=true`);
+    state.boundaries = data.data || [];
+    renderList(state.boundaries);
+    showPreview(state.boundaries);
+    toast(`${state.boundaries.length} wilayah dimuat`, 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+function renderList(list) {
+  const el = document.getElementById('boundaryList');
+  const empty = document.getElementById('listEmpty');
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const filtered = search
+    ? list.filter(b => b.name.toLowerCase().includes(search) || b.code.toLowerCase().includes(search))
+    : list;
+
+  if (!filtered.length) {
+    el.innerHTML = '';
+    empty.textContent = search ? 'Tidak ditemukan' : 'Tidak ada data';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  el.innerHTML = filtered.map(b => `
+    <div class="boundary-item ${state.selected?.id === b.id ? 'active' : ''} ${!b.is_active ? 'inactive' : ''}"
+         data-id="${b.id}" onclick="selectBoundary(${b.id})">
+      <input type="checkbox" class="chk" data-id="${b.id}"
+             onclick="event.stopPropagation(); toggleMerge(${b.id}, this)"
+             ${state.mergeIds.has(b.id) ? 'checked' : ''} />
+      <span class="name">${b.name}</span>
+      <span class="code">${b.code}</span>
+      <span class="level-badge level-${b.admin_level}">${levelLabel(b.admin_level)}</span>
+    </div>`).join('');
+}
+
+function levelLabel(l) {
+  return { province: 'Prov', city: 'Kab/Kot', district: 'Kec', village: 'Desa' }[l] || l;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SELECT BOUNDARY
+// ═══════════════════════════════════════════════════════════════
+
+async function selectBoundary(id) {
+  if (state.mode === 'new' || state.mode === 'split') return;
+  if (state.mode === 'merge') { /* handled by checkbox */ return; }
+
+  try {
+    const data = await apiFetch(`/api/admin/boundaries/${id}`);
+    state.selected = data.data;
+    highlightBoundary(state.selected);
+    fillEditForm(state.selected);
+    document.getElementById('editPanel').classList.add('visible');
+    renderList(state.boundaries); // re-render to highlight active item
+    document.getElementById('statusSelected').innerHTML =
+      `<span class="hl">${state.selected.name}</span> (${state.selected.code})`;
+    document.getElementById('statusGeom').textContent =
+      `Luas: ${state.selected.area_km2 ?? '—'} km²  ·  Populasi: ${state.selected.population ?? '—'}`;
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+function highlightBoundary(boundary) {
+  const map = state.map;
+  if (!map || !map.getSource('highlight')) return;
+  const feature = {
+    type: 'Feature',
+    id: boundary.id,
+    geometry: boundary.geometry,
+    properties: { id: boundary.id, name: boundary.name },
+  };
+  map.getSource('highlight').setData({ type: 'FeatureCollection', features: [feature] });
+
+  // Fit bounds
+  try {
+    const coords = flatCoords(boundary.geometry);
+    const bounds = coords.reduce(
+      (b, c) => b.extend(c),
+      new maplibregl.LngLatBounds(coords[0], coords[0]),
+    );
+    map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
+  } catch {}
+}
+
+function clearHighlight() {
+  const map = state.map;
+  if (map && map.getSource?.('highlight')) {
+    map.getSource('highlight').setData({ type: 'FeatureCollection', features: [] });
+  }
+}
+
+function showPreview(boundaries) {
+  const map = state.map;
+  if (!map || !map.getSource?.('preview')) return;
+  // Show only non-null geom (geometry not loaded in list mode)
+  // We show simplified highlight from /api/boundaries endpoint instead
+  map.getSource('preview').setData({
+    type: 'FeatureCollection',
+    features: boundaries.map(b => ({
+      type: 'Feature',
+      id: b.id,
+      geometry: null, // will be loaded on click; for full preview use /api/boundaries/:level
+      properties: { id: b.id, name: b.name, code: b.code },
+    })).filter(f => f.geometry),
+  });
+  // Load GeoJSON preview from public API (simplified)
+  const level = document.getElementById('levelSelect').value;
+  fetch(`${API}/api/boundaries/${level}?zoom=10`)
+    .then(r => r.json())
+    .then(fc => { if (map.getSource('preview')) map.getSource('preview').setData(fc); })
+    .catch(() => {});
+}
+
+function flatCoords(geom) {
+  const all = [];
+  if (!geom) return all;
+  const rings = geom.type === 'MultiPolygon'
+    ? geom.coordinates.flatMap(p => p)
+    : geom.coordinates;
+  rings.forEach(ring => ring.forEach(c => all.push(c)));
+  return all;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EDIT FORM
+// ═══════════════════════════════════════════════════════════════
+
+function fillEditForm(b) {
+  document.getElementById('editName').value       = b.name || '';
+  document.getElementById('editAltName').value    = b.alt_name || '';
+  document.getElementById('editCode').value       = b.code || '';
+  document.getElementById('editLevel').value      = b.admin_level || 'city';
+  document.getElementById('editParentId').value   = b.parent_id || '';
+  document.getElementById('editPopulation').value = b.population || '';
+  document.getElementById('editMetadata').value   = JSON.stringify(b.metadata || {}, null, 2);
+  document.getElementById('editIsActive').value   = String(b.is_active);
+}
+
+async function saveMetadata() {
+  if (!state.selected) return;
+  const id = state.selected.id;
+
+  let metadata;
+  try { metadata = JSON.parse(document.getElementById('editMetadata').value || '{}'); }
+  catch { toast('Metadata JSON tidak valid', 'err'); return; }
+
+  const payload = {
+    name:       document.getElementById('editName').value.trim(),
+    alt_name:   document.getElementById('editAltName').value.trim() || null,
+    code:       document.getElementById('editCode').value.trim(),
+    parent_id:  parseInt(document.getElementById('editParentId').value) || null,
+    population: parseInt(document.getElementById('editPopulation').value) || null,
+    is_active:  document.getElementById('editIsActive').value === 'true',
+    metadata,
+  };
+
+  try {
+    const data = await apiFetch(`/api/admin/boundaries/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    Object.assign(state.selected, data.data);
+    // Update list item
+    const idx = state.boundaries.findIndex(b => b.id === id);
+    if (idx >= 0) Object.assign(state.boundaries[idx], data.data);
+    renderList(state.boundaries);
+    toast('Metadata disimpan', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EDIT GEOMETRY
+// ═══════════════════════════════════════════════════════════════
+
+function startEditGeometry() {
+  if (!state.selected?.geometry) { toast('Tidak ada geometri', 'err'); return; }
+  setMode('editGeom');
+
+  // Load current geometry into draw
+  state.draw.deleteAll();
+  state.draw.add({
+    type: 'Feature',
+    id: `edit_${state.selected.id}`,
+    geometry: state.selected.geometry,
+    properties: {},
+  });
+
+  // Switch draw to simple_select so user can click vertices
+  state.draw.changeMode('simple_select', {
+    featureIds: state.draw.getAll().features.map(f => f.id),
+  });
+
+  setModeIndicator('Mode Edit Geometri — seret titik untuk mengubah bentuk, lalu klik "Simpan Geometri"');
+  document.getElementById('editGeomBtn').textContent = 'Simpan Geometri';
+  document.getElementById('editGeomBtn').className = 'btn btn-save';
+  document.getElementById('editGeomBtn').onclick = saveGeometry;
+}
+
+async function saveGeometry() {
+  const id = state.selected.id;
+  const all = state.draw.getAll();
+  if (!all.features.length) { toast('Tidak ada geometri', 'err'); return; }
+
+  const geom = all.features[0].geometry;
+  try {
+    const data = await apiFetch(`/api/admin/boundaries/${id}/geometry`, {
+      method: 'PUT',
+      body: JSON.stringify({ geometry: geom }),
+    });
+    state.selected.geometry = geom;
+    Object.assign(state.selected, { area_km2: data.data.area_km2 });
+    state.draw.deleteAll();
+    highlightBoundary(state.selected);
+    setMode('browse');
+    toast('Geometri disimpan', 'ok');
+    document.getElementById('editGeomBtn').textContent = 'Edit Geometri';
+    document.getElementById('editGeomBtn').className = 'btn btn-geom';
+    document.getElementById('editGeomBtn').onclick = startEditGeometry;
+    document.getElementById('statusGeom').textContent = `Luas: ${data.data.area_km2 ?? '—'} km²`;
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  CREATE NEW BOUNDARY
+// ═══════════════════════════════════════════════════════════════
+
+function startDrawNew() {
+  setMode('new');
+  state.drawnGeom = null;
+  document.getElementById('newPanel').classList.add('visible');
+  document.getElementById('editPanel').classList.remove('visible');
+  document.getElementById('splitPanel').classList.remove('visible');
+  state.draw.deleteAll();
+  state.draw.changeMode('draw_polygon');
+  setModeIndicator('Mode Gambar — klik untuk menambah titik, double-klik untuk menyelesaikan polygon');
+  document.getElementById('newSaveBtn').disabled = true;
+  document.getElementById('newDrawHint').textContent = 'Menggambar... double-klik untuk selesai.';
+}
+
+function cancelNew() {
+  setMode('browse');
+  state.draw.deleteAll();
+  state.drawnGeom = null;
+  document.getElementById('newPanel').classList.remove('visible');
+  setModeIndicator('');
+}
+
+async function saveNewBoundary() {
+  if (!state.drawnGeom) { toast('Gambarlah polygon terlebih dahulu', 'err'); return; }
+  const name = document.getElementById('newName').value.trim();
+  const code = document.getElementById('newCode').value.trim();
+  const level = document.getElementById('newLevel').value;
+  if (!name || !code) { toast('Nama dan kode wajib diisi', 'err'); return; }
+
+  const payload = {
+    admin_level: level,
+    code,
+    name,
+    alt_name:   document.getElementById('newAltName').value.trim() || null,
+    parent_id:  parseInt(document.getElementById('newParentId').value) || null,
+    population: parseInt(document.getElementById('newPopulation').value) || null,
+    geometry:   state.drawnGeom,
+  };
+
+  try {
+    const data = await apiFetch('/api/admin/boundaries', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    state.boundaries.push({ ...data.data, admin_level: level, is_active: true });
+    renderList(state.boundaries);
+    state.draw.deleteAll();
+    state.drawnGeom = null;
+    document.getElementById('newPanel').classList.remove('visible');
+    setMode('browse');
+    toast(`Berhasil dibuat: ${name}`, 'ok');
+    selectBoundary(data.data.id);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SPLIT
+// ═══════════════════════════════════════════════════════════════
+
+function startSplit() {
+  if (!state.selected) return;
+  setMode('split');
+  state.splitLine = null;
+  document.getElementById('splitPanel').classList.add('visible');
+  state.draw.deleteAll();
+  state.draw.changeMode('draw_line_string');
+  setModeIndicator('Mode Split — gambar garis potong melintasi batas wilayah, double-klik untuk selesai');
+  document.getElementById('splitSaveBtn').disabled = true;
+}
+
+function cancelSplit() {
+  setMode('browse');
+  state.splitLine = null;
+  state.draw.deleteAll();
+  document.getElementById('splitPanel').classList.remove('visible');
+  setModeIndicator('');
+}
+
+async function saveSplit() {
+  if (!state.splitLine || !state.selected) return;
+
+  const nameA = document.getElementById('splitNameA').value.trim();
+  const codeA = document.getElementById('splitCodeA').value.trim();
+  const nameB = document.getElementById('splitNameB').value.trim();
+  const codeB = document.getElementById('splitCodeB').value.trim();
+
+  if (!nameA || !codeA || !nameB || !codeB) {
+    toast('Isi nama dan kode untuk kedua wilayah', 'err'); return;
+  }
+
+  try {
+    const r = await fetch(`${API}/api/boundaries/split`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        boundary_id: state.selected.id,
+        cut_line: state.splitLine,
+        new_regions: [
+          { name: nameA, code: codeA },
+          { name: nameB, code: codeB },
+        ],
+        performed_by: 'cms',
+      }),
+    });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.error);
+
+    // Remove original from list, add new ones
+    state.boundaries = state.boundaries.filter(b => b.id !== state.selected.id);
+    json.new_regions.forEach(nr => state.boundaries.push({ ...nr, is_active: true }));
+    renderList(state.boundaries);
+    clearHighlight();
+    state.selected = null;
+    document.getElementById('editPanel').classList.remove('visible');
+    document.getElementById('splitPanel').classList.remove('visible');
+    state.draw.deleteAll();
+    setMode('browse');
+    setModeIndicator('');
+    toast(`Split berhasil: ${json.message}`, 'ok');
+    showPreview(state.boundaries);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MERGE
+// ═══════════════════════════════════════════════════════════════
+
+function toggleMerge(id, chk) {
+  if (chk.checked) state.mergeIds.add(id);
+  else state.mergeIds.delete(id);
+  updateMergeBar();
+}
+
+function updateMergeBar() {
+  const bar = document.getElementById('mergeBar');
+  const cnt = state.mergeIds.size;
+  if (state.mode === 'merge' && cnt > 0) {
+    bar.classList.add('visible');
+    document.getElementById('mergeCount').textContent = `${cnt} wilayah dipilih`;
+    document.getElementById('mergeExecuteBtn').disabled = cnt < 2;
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+function startMergeMode() {
+  setMode('merge');
+  state.mergeIds.clear();
+  updateMergeBar();
+  toast('Pilih 2+ wilayah dari daftar menggunakan checkbox', '');
+}
+
+function cancelMerge() {
+  state.mergeIds.clear();
+  setMode('browse');
+  document.getElementById('mergeBar').classList.remove('visible');
+  renderList(state.boundaries);
+}
+
+function doMerge() {
+  if (state.mergeIds.size < 2) return;
+  showDialog(
+    `Gabung ${state.mergeIds.size} Wilayah`,
+    `<div class="form-row"><label>Nama Baru</label><input id="mergeNewName" placeholder="Nama wilayah gabungan"></div>
+     <div class="form-row"><label>Kode Baru</label><input id="mergeNewCode" placeholder="Kode wilayah gabungan"></div>`,
+    async () => {
+      const newName = document.getElementById('mergeNewName').value.trim();
+      const newCode = document.getElementById('mergeNewCode').value.trim();
+      if (!newName || !newCode) { toast('Nama dan kode wajib diisi', 'err'); return; }
+      try {
+        const r = await fetch(`${API}/api/boundaries/merge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({
+            boundary_ids: [...state.mergeIds],
+            new_name: newName,
+            new_code: newCode,
+            performed_by: 'cms',
+          }),
+        });
+        const json = await r.json();
+        if (!r.ok) throw new Error(json.error);
+
+        state.boundaries = state.boundaries.filter(b => !state.mergeIds.has(b.id));
+        state.boundaries.push({ id: json.new_id, name: newName, code: newCode, is_active: true });
+        state.mergeIds.clear();
+        renderList(state.boundaries);
+        clearHighlight();
+        cancelMerge();
+        showPreview(state.boundaries);
+        toast(`Merge berhasil: ${newName}`, 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+    },
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DELETE
+// ═══════════════════════════════════════════════════════════════
+
+async function deleteBoundary() {
+  if (!state.selected) return;
+  const b = state.selected;
+  if (!confirm(`Hapus "${b.name}" (${b.code})?\n\nIni akan menonaktifkan wilayah (soft delete).`)) return;
+  try {
+    await apiFetch(`/api/admin/boundaries/${b.id}`, { method: 'DELETE' });
+    const idx = state.boundaries.findIndex(x => x.id === b.id);
+    if (idx >= 0) state.boundaries[idx].is_active = false;
+    renderList(state.boundaries);
+    clearHighlight();
+    state.selected = null;
+    document.getElementById('editPanel').classList.remove('visible');
+    document.getElementById('statusSelected').textContent = 'Tidak ada pilihan';
+    document.getElementById('statusGeom').textContent = '';
+    toast(`Dihapus: ${b.name}`, 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HISTORY
+// ═══════════════════════════════════════════════════════════════
+
+async function showHistory() {
+  try {
+    const data = await apiFetch('/api/admin/history');
+    const rows = data.data || [];
+    const html = rows.length
+      ? `<div style="max-height:300px;overflow-y:auto">
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <tr style="color:#64748b;border-bottom:1px solid #334155">
+              <th style="text-align:left;padding:4px">Aksi</th>
+              <th style="text-align:left;padding:4px">Sumber</th>
+              <th style="text-align:left;padding:4px">Hasil</th>
+              <th style="text-align:left;padding:4px">Waktu</th>
+            </tr>
+            ${rows.map(r => `
+              <tr style="border-bottom:1px solid #1e293b">
+                <td style="padding:4px;color:#f59e0b">Split</td>
+                <td style="padding:4px;color:#e2e8f0">${r.source_name}</td>
+                <td style="padding:4px;color:#94a3b8">${r.result_names || '—'}</td>
+                <td style="padding:4px;color:#64748b">${new Date(r.performed_at).toLocaleDateString('id')}</td>
+              </tr>`).join('')}
+          </table>
+        </div>`
+      : '<p style="color:#64748b;font-size:13px">Belum ada riwayat.</p>';
+    showDialog('Riwayat Split / Merge', html, null);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DRAW EVENTS
+// ═══════════════════════════════════════════════════════════════
+
+function onDrawCreate(e) {
+  const feature = e.features[0];
+  if (!feature) return;
+
+  if (state.mode === 'new') {
+    state.drawnGeom = feature.geometry;
+    document.getElementById('newSaveBtn').disabled = false;
+    document.getElementById('newDrawHint').textContent = 'Polygon selesai. Isi metadata dan klik Simpan.';
+    // Switch to select mode so user can still see it
+    state.draw.changeMode('simple_select', { featureIds: [feature.id] });
+  } else if (state.mode === 'split') {
+    state.splitLine = feature.geometry;
+    document.getElementById('splitSaveBtn').disabled = false;
+    setModeIndicator('Garis potong siap. Isi nama wilayah baru, lalu klik Simpan Split.');
+    state.draw.changeMode('simple_select', { featureIds: [feature.id] });
+  }
+}
+
+function onDrawUpdate(e) {
+  const feature = e.features[0];
+  if (!feature) return;
+  if (state.mode === 'new') {
+    state.drawnGeom = feature.geometry;
+  } else if (state.mode === 'editGeom') {
+    // geometry updated live in draw buffer, saved on button click
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MODE HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function setMode(m) {
+  state.mode = m;
+  if (m === 'browse') {
+    setModeIndicator('');
+    document.getElementById('tbNew').classList.remove('active');
+    document.getElementById('tbMerge').classList.remove('active');
+    if (state.draw) {
+      state.draw.deleteAll();
+      state.draw.changeMode('simple_select');
+    }
+  } else if (m === 'new') {
+    document.getElementById('tbNew').classList.add('active');
+  } else if (m === 'merge') {
+    document.getElementById('tbMerge').classList.add('active');
+  }
+  updateMergeBar();
+}
+
+function setModeIndicator(text) {
+  const el = document.getElementById('modeIndicator');
+  if (text) { el.textContent = text; el.classList.add('visible'); }
+  else { el.textContent = ''; el.classList.remove('visible'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DIALOG
+// ═══════════════════════════════════════════════════════════════
+
+let dialogOkCallback = null;
+
+function showDialog(title, contentHtml, okFn) {
+  document.getElementById('dialogTitle').textContent = title;
+  document.getElementById('dialogContent').innerHTML = contentHtml;
+  dialogOkCallback = okFn;
+  document.getElementById('dialogOverlay').classList.add('visible');
+  document.getElementById('dialogOkBtn').style.display = okFn ? '' : 'none';
+  document.getElementById('dialogCancelBtn').textContent = okFn ? 'Batal' : 'Tutup';
+}
+
+function closeDialog() {
+  document.getElementById('dialogOverlay').classList.remove('visible');
+  dialogOkCallback = null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════════════
+
+let toastTimer;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SHOW CMS
+// ═══════════════════════════════════════════════════════════════
+
+function showCms() {
+  document.getElementById('loginOverlay').style.display = 'none';
+  document.getElementById('cms').style.display = 'flex';
+  initMap();
+  bindEvents();
+}
+
+function bindEvents() {
+  // Login
+  document.getElementById('loginBtn').onclick = doLogin;
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('logoutBtn').onclick = logout;
+
+  // Sidebar controls
+  document.getElementById('loadBoundariesBtn').onclick = loadBoundaries;
+  document.getElementById('searchInput').addEventListener('input', () => renderList(state.boundaries));
+
+  // Edit panel buttons
+  document.getElementById('saveMetaBtn').onclick   = saveMetadata;
+  document.getElementById('editGeomBtn').onclick   = startEditGeometry;
+  document.getElementById('startSplitBtn').onclick = startSplit;
+  document.getElementById('deleteBtn').onclick     = deleteBoundary;
+  document.getElementById('editCloseBtn').onclick  = () => {
+    document.getElementById('editPanel').classList.remove('visible');
+    state.selected = null;
+    clearHighlight();
+    document.getElementById('statusSelected').textContent = 'Tidak ada pilihan';
+    document.getElementById('statusGeom').textContent = '';
+    renderList(state.boundaries);
+  };
+
+  // Split panel
+  document.getElementById('splitSaveBtn').onclick  = saveSplit;
+  document.getElementById('splitCancelBtn').onclick = cancelSplit;
+
+  // New boundary panel
+  document.getElementById('newSaveBtn').onclick   = saveNewBoundary;
+  document.getElementById('newCancelBtn').onclick = cancelNew;
+
+  // Toolbar
+  document.getElementById('tbNew').onclick     = () => state.mode === 'new' ? cancelNew() : startDrawNew();
+  document.getElementById('tbMerge').onclick   = () => state.mode === 'merge' ? cancelMerge() : startMergeMode();
+  document.getElementById('tbZoomSel').onclick = () => { if (state.selected) highlightBoundary(state.selected); };
+  document.getElementById('tbHistory').onclick = showHistory;
+
+  // Merge bar
+  document.getElementById('mergeExecuteBtn').onclick = doMerge;
+  document.getElementById('mergeCancelBtn').onclick  = cancelMerge;
+
+  // Dialog
+  document.getElementById('dialogOkBtn').onclick     = () => { if (dialogOkCallback) dialogOkCallback(); else closeDialog(); };
+  document.getElementById('dialogCancelBtn').onclick = closeDialog;
+  document.getElementById('dialogOverlay').onclick   = e => { if (e.target === document.getElementById('dialogOverlay')) closeDialog(); };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOTSTRAP
+// ═══════════════════════════════════════════════════════════════
+
+(async () => {
+  document.getElementById('loginBtn').onclick = doLogin;
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('logoutBtn').onclick = logout;
+
+  if (authToken) {
+    const valid = await verifyToken(authToken);
+    if (valid) { showCms(); return; }
+    localStorage.removeItem('cms_token');
+    authToken = '';
+  }
+  document.getElementById('loginOverlay').style.display = 'flex';
+})();
+</script>
+</body>
+</html>
