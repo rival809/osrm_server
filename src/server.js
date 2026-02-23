@@ -11,6 +11,7 @@ const boundaryRoutes = require('./boundaryRoutes');
 const legacyGeoRoutes = require('./legacyGeoRoutes');
 const { router: adminAuthRouter } = require('./adminAuth');
 const adminRoutes = require('./adminRoutes');
+const adminBapendaRoutes = require('./adminBapendaRoutes');
 const fs = require('fs');
 const path = require('path');
 
@@ -63,6 +64,7 @@ app.use('/api/boundaries', boundaryRoutes);
 // Admin CMS API (login + CRUD — requires ADMIN_TOKEN)
 app.use('/api/admin', adminAuthRouter);
 app.use('/api/admin/boundaries', adminRoutes);
+app.use('/api/admin/bapenda', adminBapendaRoutes);
 
 // ── Legacy GeoJSON routes (mirrors old Go/Gin project) ─────────────
 // GET /api/geojson/kabupaten, /api/geojson/kecamatan/:p3d_id, /api/geojson/desa

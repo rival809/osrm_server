@@ -120,6 +120,14 @@
     .boundary-item .name  { font-size: 13px; font-weight: 500; color: #e2e8f0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .boundary-item .code  { font-size: 11px; color: #64748b; white-space: nowrap; }
     .bi-empty { padding: 20px 12px; color: #475569; font-size: 13px; text-align: center; }
+    /* Bapenda per-type field visibility */
+    .fkab, .fkec, .fdesa { display: none; }
+    #editPanel.type-kabupaten .fkab,
+    #newPanel.type-kabupaten .fkab { display: flex; }
+    #editPanel.type-kecamatan .fkec,
+    #newPanel.type-kecamatan .fkec { display: flex; }
+    #editPanel.type-desa .fdesa,
+    #newPanel.type-desa .fdesa { display: flex; }
 
     /* Merge bar */
     #mergeBar {
@@ -309,13 +317,20 @@
 
       <!-- Level selector + load -->
       <div id="topBar">
-        <select id="levelSelect">
-          <option value="province">Provinsi</option>
-          <option value="city" selected>Kota / Kabupaten</option>
-          <option value="district">Kecamatan</option>
-          <option value="village">Kelurahan / Desa</option>
+        <select id="levelSelect" onchange="onLevelChange()">
+          <option value="kabupaten" selected>Kab / Kota</option>
+          <option value="kecamatan">Kecamatan</option>
+          <option value="desa">Desa / Kelurahan</option>
         </select>
         <button id="loadBoundariesBtn">Muat</button>
+      </div>
+
+      <!-- Parent filter (shown for kecamatan/desa) -->
+      <div id="parentFilterWrap" style="display:none;padding:4px 12px 8px;border-bottom:1px solid #21304a">
+        <label style="display:block;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;font-weight:600" id="parentFilterLabel">kd_wil</label>
+        <input id="parentFilterInput" type="text"
+               style="width:100%;padding:7px 12px;border-radius:7px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:13px"
+               placeholder="Mis: 12020" />
       </div>
 
       <!-- Search -->
@@ -324,11 +339,7 @@
       </div>
 
       <!-- Merge bar (shown when checkboxes selected) -->
-      <div id="mergeBar">
-        <span id="mergeCount">0 dipilih</span>
-        <button id="mergeCancelBtn">Batal</button>
-        <button id="mergeExecuteBtn">Gabung →</button>
-      </div>
+      <!-- mergeBar removed (not used for Bapenda tables) -->
 
       <!-- Boundary list -->
       <div id="listWrap">
@@ -336,43 +347,57 @@
         <div id="boundaryList"></div>
       </div>
 
-      <!-- Split panel -->
-      <div id="splitPanel">
-        <h4>✂ Mode Split</h4>
-        <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Gambar garis potong di peta, lalu isi nama wilayah baru di bawah ini.</p>
-        <div class="split-region">
-          <h5>Wilayah A</h5>
-          <div class="form-row"><label>Nama</label><input id="splitNameA" placeholder="Nama wilayah A" /></div>
-          <div class="form-row"><label>Kode</label><input id="splitCodeA" placeholder="Kode wilayah A" /></div>
-        </div>
-        <div class="split-region">
-          <h5>Wilayah B</h5>
-          <div class="form-row"><label>Nama</label><input id="splitNameB" placeholder="Nama wilayah B" /></div>
-          <div class="form-row"><label>Kode</label><input id="splitCodeB" placeholder="Kode wilayah B" /></div>
-        </div>
-        <div style="display:flex;gap:6px;margin-top:8px">
-          <button class="btn btn-split" id="splitSaveBtn">Simpan Split</button>
-          <button class="btn btn-cancel" id="splitCancelBtn">Batal</button>
-        </div>
-      </div>
+      <!-- Split panel (not used for Bapenda tables) -->
+      <div id="splitPanel" style="display:none"></div>
 
       <!-- New boundary panel -->
       <div id="newPanel">
         <h4>+ Buat Boundary Baru</h4>
         <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Gambar polygon di peta, lalu isi metadata di bawah.</p>
-        <div class="form-row"><label>Level</label>
-          <select id="newLevel">
-            <option value="province">Provinsi</option>
-            <option value="city" selected>Kota / Kabupaten</option>
-            <option value="district">Kecamatan</option>
-            <option value="village">Kelurahan / Desa</option>
-          </select>
+        <!-- kabupaten fields -->
+        <div class="form-row fkab" id="new-row-kd_wil">
+          <label>kd_wil <span style="color:#ef4444">*</span></label>
+          <input id="newKdWil" placeholder="Mis: 12020" />
         </div>
-        <div class="form-row"><label>Nama</label><input id="newName" placeholder="Nama wilayah" /></div>
-        <div class="form-row"><label>Kode</label><input id="newCode" placeholder="Mis: 32.73.01" /></div>
-        <div class="form-row"><label>Nama Alternatif</label><input id="newAltName" placeholder="(opsional)" /></div>
-        <div class="form-row"><label>Parent ID</label><input id="newParentId" type="number" placeholder="ID boundary induk (opsional)" /></div>
-        <div class="form-row"><label>Populasi</label><input id="newPopulation" type="number" placeholder="(opsional)" /></div>
+        <!-- kecamatan fields -->
+        <div class="form-row fkec" id="new-row-kd_kecamatan">
+          <label>kd_kecamatan <span style="color:#ef4444">*</span></label>
+          <input id="newKdKecamatan" placeholder="Mis: 17" />
+        </div>
+        <div class="form-row fkec" id="new-row-new-kd_wil-kec">
+          <label>kd_wil (ID_KAB) <span style="color:#ef4444">*</span></label>
+          <input id="newKdWilKec" placeholder="Mis: 12020" />
+        </div>
+        <div class="form-row fkec">
+          <label>Nama Kab</label>
+          <input id="newNmKab" placeholder="Mis: KAB. BANDUNG" />
+        </div>
+        <div class="form-row fkec">
+          <label>Jmlh KK</label>
+          <input id="newJmlhKk" type="number" placeholder="(opsional)" />
+        </div>
+        <!-- desa fields -->
+        <div class="form-row fdesa">
+          <label>unique_code <span style="color:#ef4444">*</span></label>
+          <input id="newUniqueCode" placeholder="Mis: 3204005001" />
+        </div>
+        <div class="form-row fdesa" id="new-row-kd_kec_desa">
+          <label>kd_kecamatan (parent) <span style="color:#ef4444">*</span></label>
+          <input id="newKdKecDesa" placeholder="Mis: 10103" />
+        </div>
+        <div class="form-row fdesa">
+          <label>Nama Kecamatan</label>
+          <input id="newNmKecamatan" placeholder="(opsional)" />
+        </div>
+        <div class="form-row fdesa">
+          <label>p3d_id kecamatan</label>
+          <input id="newKdKecP3d" type="number" placeholder="(opsional)" />
+        </div>
+        <!-- common -->
+        <div class="form-row">
+          <label>Nama <span style="color:#ef4444">*</span></label>
+          <input id="newNama" placeholder="Nama wilayah" />
+        </div>
         <div style="display:flex;gap:6px;margin-top:4px">
           <button class="btn btn-new" id="newSaveBtn" disabled>Simpan</button>
           <button class="btn btn-cancel" id="newCancelBtn">Batal</button>
@@ -389,34 +414,28 @@
           </div>
         </div>
         <div id="editPanelInner">
-          <div class="form-row"><label>Nama</label><input id="editName" /></div>
-          <div class="form-row"><label>Nama Alternatif</label><input id="editAltName" /></div>
-          <div class="form-row"><label>Kode</label><input id="editCode" /></div>
-          <div class="form-row">
-            <label>Level</label>
-            <select id="editLevel" disabled>
-              <option value="province">Provinsi</option>
-              <option value="city">Kota / Kabupaten</option>
-              <option value="district">Kecamatan</option>
-              <option value="village">Kelurahan / Desa</option>
-            </select>
-            <div class="hint">Level tidak dapat diubah</div>
-          </div>
-          <div class="form-row"><label>Parent ID</label><input id="editParentId" type="number" /></div>
-          <div class="form-row"><label>Populasi</label><input id="editPopulation" type="number" /></div>
-          <div class="form-row"><label>Metadata (JSON)</label><textarea id="editMetadata" rows="3"></textarea></div>
-          <div class="form-row">
-            <label>Status</label>
-            <select id="editIsActive">
-              <option value="true">Aktif</option>
-              <option value="false">Nonaktif</option>
-            </select>
+          <!-- common -->
+          <div class="form-row"><label>Nama</label><input id="editNama" /></div>
+          <!-- kabupaten -->
+          <div class="form-row fkab"><label>kd_wil (p3d_id)</label><input id="editKdWil" /></div>
+          <!-- kecamatan -->
+          <div class="form-row fkec"><label>kd_kecamatan (district_id)</label><input id="editKdKecamatan" /></div>
+          <div class="form-row fkec"><label>kd_wil / ID_KAB</label><input id="editKdWilKec" /></div>
+          <div class="form-row fkec"><label>Nama Kab (nm_kab)</label><input id="editNmKab" /></div>
+          <div class="form-row fkec"><label>Jmlh KK</label><input id="editJmlhKk" type="number" /></div>
+          <!-- desa -->
+          <div class="form-row fdesa"><label>unique_code</label><input id="editUniqueCode" /></div>
+          <div class="form-row fdesa"><label>kd_kecamatan (district_id)</label><input id="editKdKecDesa" /></div>
+          <div class="form-row fdesa"><label>Nama Kecamatan</label><input id="editNmKecamatan" /></div>
+          <div class="form-row fdesa"><label>p3d_id kecamatan</label><input id="editKdKecP3d" type="number" /></div>
+          <!-- info only -->
+          <div class="form-row" id="editUpdatedRow"><label>Terakhir diperbarui</label>
+            <input id="editUpdatedAt" disabled style="opacity:.5" />
           </div>
         </div>
         <div class="btn-row">
           <button class="btn btn-save"   id="saveMetaBtn">Simpan</button>
           <button class="btn btn-geom"   id="editGeomBtn">Edit Geometri</button>
-          <button class="btn btn-split"  id="startSplitBtn">Split</button>
           <button class="btn btn-delete" id="deleteBtn">Hapus</button>
         </div>
       </div>
@@ -432,9 +451,7 @@
       <!-- Toolbar -->
       <div id="toolbar">
         <button class="tb-btn" id="tbNew"   title="Buat Boundary Baru">＋</button>
-        <button class="tb-btn" id="tbMerge" title="Mode Merge (pilih dari daftar)">⊕</button>
         <button class="tb-btn" id="tbZoomSel" title="Zoom ke pilihan">⊙</button>
-        <button class="tb-btn" id="tbHistory" title="Riwayat split/merge">🕓</button>
       </div>
 
       <!-- Map element -->
@@ -613,18 +630,16 @@ function initMap() {
       paint: {
         'fill-color': [
           'match', ['get', 'admin_level'],
-          'province', '#7c3aed',
-          'city',     '#7c3aed',
-          'district', '#10b981',
-          'village',  '#f59e0b',
+          'kabupaten', '#7c3aed',
+          'kecamatan', '#10b981',
+          'desa',      '#f59e0b',
           '#6366f1',
         ],
         'fill-opacity': [
           'match', ['get', 'admin_level'],
-          'province', 0.0,
-          'city',     0.0,
-          'district', 0.20,
-          'village',  0.15,
+          'kabupaten', 0.0,
+          'kecamatan', 0.20,
+          'desa',      0.15,
           0.08,
         ],
       },
@@ -637,18 +652,16 @@ function initMap() {
       paint: {
         'line-color': [
           'match', ['get', 'admin_level'],
-          'province', '#7c3aed',
-          'city',     '#7c3aed',
-          'district', '#059669',
-          'village',  '#d97706',
+          'kabupaten', '#7c3aed',
+          'kecamatan', '#059669',
+          'desa',      '#d97706',
           '#475569',
         ],
         'line-width': [
           'match', ['get', 'admin_level'],
-          'province', 2.5,
-          'city',     2.5,
-          'district', 1.2,
-          'village',  0.8,
+          'kabupaten', 2.5,
+          'kecamatan', 1.2,
+          'desa',      0.8,
           1.5,
         ],
       },
@@ -658,7 +671,7 @@ function initMap() {
       type: 'symbol',
       source: 'preview',
       layout: {
-        'text-field': ['get', 'name'],
+        'text-field': ['coalesce', ['get', 'KABKOT'], ['get', 'nm_kecamatan'], ['get', 'village'], ''],
         'text-size': 11,
         'text-max-width': 8,
         'text-allow-overlap': false,
@@ -669,8 +682,11 @@ function initMap() {
 
     // Click on preview to select
     map.on('click', 'preview-fill', e => {
-      const id = e.features[0]?.properties?.id;
-      if (id) selectBoundary(id);
+      const type = document.getElementById('levelSelect').value;
+      const feat = e.features[0];
+      if (!feat) return;
+      const id = (type === 'desa') ? feat.id : feat.properties?.OBJECTID;
+      if (id) selectBoundary(parseInt(id));
     });
     map.on('mouseenter', 'preview-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'preview-fill', () => { map.getCanvas().style.cursor = ''; });
@@ -715,14 +731,20 @@ async function apiFetch(path, opts = {}) {
 // ═══════════════════════════════════════════════════════════════
 
 async function loadBoundaries() {
-  const level = document.getElementById('levelSelect').value;
+  const type = document.getElementById('levelSelect').value;
   setMode('browse');
   clearHighlight();
   try {
-    const data = await apiFetch(`/api/admin/boundaries?level=${level}&include_inactive=true`);
+    let url = `/api/admin/bapenda/${type}`;
+    const parent = document.getElementById('parentFilterInput').value.trim();
+    if (parent) {
+      if (type === 'kecamatan') url += `?kd_wil=${encodeURIComponent(parent)}`;
+      else if (type === 'desa')  url += `?kd_kecamatan=${encodeURIComponent(parent)}`;
+    }
+    const data = await apiFetch(url);
     state.boundaries = data.data || [];
     renderList(state.boundaries);
-    showPreview(state.boundaries);
+    showPreview();
     toast(`${state.boundaries.length} wilayah dimuat`, 'ok');
   } catch (e) {
     toast(e.message, 'err');
@@ -730,11 +752,16 @@ async function loadBoundaries() {
 }
 
 function renderList(list) {
-  const el = document.getElementById('boundaryList');
+  const el    = document.getElementById('boundaryList');
   const empty = document.getElementById('listEmpty');
+  const type  = document.getElementById('levelSelect').value;
   const search = document.getElementById('searchInput').value.toLowerCase();
+
+  const getName = b => b.nama || b.village || '\u2014';
+  const getCode = b => b.kd_wil || b.kd_kecamatan || b.unique_code || '\u2014';
+
   const filtered = search
-    ? list.filter(b => b.name.toLowerCase().includes(search) || b.code.toLowerCase().includes(search))
+    ? list.filter(b => getName(b).toLowerCase().includes(search) || getCode(b).toLowerCase().includes(search))
     : list;
 
   if (!filtered.length) {
@@ -744,20 +771,14 @@ function renderList(list) {
     return;
   }
   empty.style.display = 'none';
+  const typeLabel = { kabupaten: 'Kab', kecamatan: 'Kec', desa: 'Desa' }[type] || type;
   el.innerHTML = filtered.map(b => `
-    <div class="boundary-item ${state.selected?.id === b.id ? 'active' : ''} ${!b.is_active ? 'inactive' : ''}"
+    <div class="boundary-item ${state.selected?.id === b.id ? 'active' : ''}"
          data-id="${b.id}" onclick="selectBoundary(${b.id})">
-      <input type="checkbox" class="chk" data-id="${b.id}"
-             onclick="event.stopPropagation(); toggleMerge(${b.id}, this)"
-             ${state.mergeIds.has(b.id) ? 'checked' : ''} />
-      <span class="name">${b.name}</span>
-      <span class="code">${b.code}</span>
-      <span class="level-badge level-${b.admin_level}">${levelLabel(b.admin_level)}</span>
+      <span class="name">${getName(b)}</span>
+      <span class="code">${getCode(b)}</span>
+      <span class="level-badge level-${type}">${typeLabel}</span>
     </div>`).join('');
-}
-
-function levelLabel(l) {
-  return { province: 'Prov', city: 'Kab/Kot', district: 'Kec', village: 'Desa' }[l] || l;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -765,20 +786,20 @@ function levelLabel(l) {
 // ═══════════════════════════════════════════════════════════════
 
 async function selectBoundary(id) {
-  if (state.mode === 'new' || state.mode === 'split') return;
-  if (state.mode === 'merge') { /* handled by checkbox */ return; }
-
+  if (state.mode === 'new') return;
+  const type = document.getElementById('levelSelect').value;
   try {
-    const data = await apiFetch(`/api/admin/boundaries/${id}`);
+    const data = await apiFetch(`/api/admin/bapenda/${type}/${id}`);
     state.selected = data.data;
     highlightBoundary(state.selected);
     fillEditForm(state.selected);
     document.getElementById('editPanel').classList.add('visible');
-    renderList(state.boundaries); // re-render to highlight active item
+    renderList(state.boundaries);
+    const name = state.selected.nama || state.selected.village || '—';
+    const code = state.selected.kd_wil || state.selected.kd_kecamatan || state.selected.unique_code || '—';
     document.getElementById('statusSelected').innerHTML =
-      `<span class="hl">${state.selected.name}</span> (${state.selected.code})`;
-    document.getElementById('statusGeom').textContent =
-      `Luas: ${state.selected.area_km2 ?? '—'} km²  ·  Populasi: ${state.selected.population ?? '—'}`;
+      `<span class="hl">${name}</span> (${code})`;
+    document.getElementById('statusGeom').textContent = '';
   } catch (e) {
     toast(e.message, 'err');
   }
@@ -787,11 +808,12 @@ async function selectBoundary(id) {
 function highlightBoundary(boundary) {
   const map = state.map;
   if (!map || !map.getSource('highlight')) return;
+  const bname = boundary.nama || boundary.village || '';
   const feature = {
     type: 'Feature',
     id: boundary.id,
     geometry: boundary.geometry,
-    properties: { id: boundary.id, name: boundary.name },
+    properties: { id: boundary.id, name: bname },
   };
   map.getSource('highlight').setData({ type: 'FeatureCollection', features: [feature] });
 
@@ -813,16 +835,34 @@ function clearHighlight() {
   }
 }
 
-function showPreview(boundaries) {
+function showPreview() {
   const map = state.map;
   if (!map || !map.getSource?.('preview')) return;
 
-  // Load GeoJSON preview from public API (simplified, use current map zoom)
-  const level = document.getElementById('levelSelect').value;
-  const zoom  = Math.round(state.map ? state.map.getZoom() : 10);
-  fetch(`${API}/api/boundaries/${level}?zoom=${zoom}`)
+  const type = document.getElementById('levelSelect').value;
+  const parent = (document.getElementById('parentFilterInput')?.value || '').trim();
+
+  let url;
+  if (type === 'kabupaten') {
+    url = `${API}/api/geojson/kabupaten`;
+  } else if (type === 'kecamatan') {
+    url = `${API}/api/geojson/kecamatan${parent ? '?kd_wil=' + encodeURIComponent(parent) : ''}`;
+  } else {
+    url = `${API}/api/geojson/desa${parent ? '?kode=' + encodeURIComponent(parent) : ''}`;
+  }
+
+  fetch(url)
     .then(r => r.json())
-    .then(fc => { if (map.getSource('preview')) map.getSource('preview').setData(fc); })
+    .then(fc => {
+      // Tag each feature with admin_level so paint expressions work
+      if (fc && fc.features) {
+        fc.features.forEach(f => {
+          if (!f.properties) f.properties = {};
+          f.properties.admin_level = type;
+        });
+      }
+      if (map.getSource('preview')) map.getSource('preview').setData(fc);
+    })
     .catch(() => {});
 }
 
@@ -841,41 +881,66 @@ function flatCoords(geom) {
 // ═══════════════════════════════════════════════════════════════
 
 function fillEditForm(b) {
-  document.getElementById('editName').value       = b.name || '';
-  document.getElementById('editAltName').value    = b.alt_name || '';
-  document.getElementById('editCode').value       = b.code || '';
-  document.getElementById('editLevel').value      = b.admin_level || 'city';
-  document.getElementById('editParentId').value   = b.parent_id || '';
-  document.getElementById('editPopulation').value = b.population || '';
-  document.getElementById('editMetadata').value   = JSON.stringify(b.metadata || {}, null, 2);
-  document.getElementById('editIsActive').value   = String(b.is_active);
+  const type = document.getElementById('levelSelect').value;
+  const panel = document.getElementById('editPanel');
+  panel.classList.remove('type-kabupaten', 'type-kecamatan', 'type-desa');
+  panel.classList.add(`type-${type}`);
+
+  // common
+  document.getElementById('editNama').value = b.nama || b.village || '';
+  document.getElementById('editUpdatedAt').value = b.updated_at || '';
+
+  // kabupaten
+  if (document.getElementById('editKdWil')) document.getElementById('editKdWil').value = b.kd_wil || b.p3d_id || '';
+
+  // kecamatan
+  if (document.getElementById('editKdKecamatan')) document.getElementById('editKdKecamatan').value = b.kd_kecamatan || b.district_id || '';
+  if (document.getElementById('editKdWilKec'))    document.getElementById('editKdWilKec').value    = b.kd_wil || b.p3d_id || '';
+  if (document.getElementById('editNmKab'))       document.getElementById('editNmKab').value       = b.nm_kab || b.p3d || '';
+  if (document.getElementById('editJmlhKk'))      document.getElementById('editJmlhKk').value      = b.jmlh_kk || '';
+
+  // desa
+  if (document.getElementById('editUniqueCode'))  document.getElementById('editUniqueCode').value  = b.unique_code || '';
+  if (document.getElementById('editKdKecDesa'))   document.getElementById('editKdKecDesa').value   = b.kd_kecamatan || b.district_id || '';
+  if (document.getElementById('editNmKecamatan')) document.getElementById('editNmKecamatan').value = b.nm_kecamatan || b.p3d || '';
+  if (document.getElementById('editKdKecP3d'))    document.getElementById('editKdKecP3d').value    = b.kd_kec_p3d || b.p3d_id || '';
 }
 
 async function saveMetadata() {
   if (!state.selected) return;
-  const id = state.selected.id;
+  const id   = state.selected.id;
+  const type = document.getElementById('levelSelect').value;
 
-  let metadata;
-  try { metadata = JSON.parse(document.getElementById('editMetadata').value || '{}'); }
-  catch { toast('Metadata JSON tidak valid', 'err'); return; }
-
-  const payload = {
-    name:       document.getElementById('editName').value.trim(),
-    alt_name:   document.getElementById('editAltName').value.trim() || null,
-    code:       document.getElementById('editCode').value.trim(),
-    parent_id:  parseInt(document.getElementById('editParentId').value) || null,
-    population: parseInt(document.getElementById('editPopulation').value) || null,
-    is_active:  document.getElementById('editIsActive').value === 'true',
-    metadata,
-  };
+  let payload;
+  if (type === 'kabupaten') {
+    payload = {
+      kd_wil: document.getElementById('editKdWil').value.trim(),
+      nama:   document.getElementById('editNama').value.trim(),
+    };
+  } else if (type === 'kecamatan') {
+    payload = {
+      kd_kecamatan: document.getElementById('editKdKecamatan').value.trim(),
+      kd_wil:       document.getElementById('editKdWilKec').value.trim(),
+      nama:         document.getElementById('editNama').value.trim(),
+      nm_kab:       document.getElementById('editNmKab').value.trim() || null,
+      jmlh_kk:      parseInt(document.getElementById('editJmlhKk').value) || null,
+    };
+  } else {
+    payload = {
+      unique_code:  document.getElementById('editUniqueCode').value.trim(),
+      kd_kecamatan: document.getElementById('editKdKecDesa').value.trim(),
+      nama:         document.getElementById('editNama').value.trim(),
+      nm_kecamatan: document.getElementById('editNmKecamatan').value.trim() || null,
+      kd_kec_p3d:   parseInt(document.getElementById('editKdKecP3d').value) || null,
+    };
+  }
 
   try {
-    const data = await apiFetch(`/api/admin/boundaries/${id}`, {
+    const data = await apiFetch(`/api/admin/bapenda/${type}/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
     Object.assign(state.selected, data.data);
-    // Update list item
     const idx = state.boundaries.findIndex(b => b.id === id);
     if (idx >= 0) Object.assign(state.boundaries[idx], data.data);
     renderList(state.boundaries);
@@ -914,18 +979,18 @@ function startEditGeometry() {
 }
 
 async function saveGeometry() {
-  const id = state.selected.id;
-  const all = state.draw.getAll();
+  const id   = state.selected.id;
+  const type = document.getElementById('levelSelect').value;
+  const all  = state.draw.getAll();
   if (!all.features.length) { toast('Tidak ada geometri', 'err'); return; }
 
   const geom = all.features[0].geometry;
   try {
-    const data = await apiFetch(`/api/admin/boundaries/${id}/geometry`, {
+    await apiFetch(`/api/admin/bapenda/${type}/${id}/geometry`, {
       method: 'PUT',
       body: JSON.stringify({ geometry: geom }),
     });
     state.selected.geometry = geom;
-    Object.assign(state.selected, { area_km2: data.data.area_km2 });
     state.draw.deleteAll();
     highlightBoundary(state.selected);
     setMode('browse');
@@ -933,7 +998,6 @@ async function saveGeometry() {
     document.getElementById('editGeomBtn').textContent = 'Edit Geometri';
     document.getElementById('editGeomBtn').className = 'btn btn-geom';
     document.getElementById('editGeomBtn').onclick = startEditGeometry;
-    document.getElementById('statusGeom').textContent = `Luas: ${data.data.area_km2 ?? '—'} km²`;
   } catch (e) {
     toast(e.message, 'err');
   }
@@ -944,11 +1008,14 @@ async function saveGeometry() {
 // ═══════════════════════════════════════════════════════════════
 
 function startDrawNew() {
+  const type = document.getElementById('levelSelect').value;
   setMode('new');
   state.drawnGeom = null;
-  document.getElementById('newPanel').classList.add('visible');
+  const newPanel = document.getElementById('newPanel');
+  newPanel.classList.add('visible');
+  newPanel.classList.remove('type-kabupaten', 'type-kecamatan', 'type-desa');
+  newPanel.classList.add(`type-${type}`);
   document.getElementById('editPanel').classList.remove('visible');
-  document.getElementById('splitPanel').classList.remove('visible');
   state.draw.deleteAll();
   state.draw.changeMode('draw_polygon');
   setModeIndicator('Mode Gambar — klik untuk menambah titik, double-klik untuk menyelesaikan polygon');
@@ -966,33 +1033,51 @@ function cancelNew() {
 
 async function saveNewBoundary() {
   if (!state.drawnGeom) { toast('Gambarlah polygon terlebih dahulu', 'err'); return; }
-  const name = document.getElementById('newName').value.trim();
-  const code = document.getElementById('newCode').value.trim();
-  const level = document.getElementById('newLevel').value;
-  if (!name || !code) { toast('Nama dan kode wajib diisi', 'err'); return; }
+  const type = document.getElementById('levelSelect').value;
 
-  const payload = {
-    admin_level: level,
-    code,
-    name,
-    alt_name:   document.getElementById('newAltName').value.trim() || null,
-    parent_id:  parseInt(document.getElementById('newParentId').value) || null,
-    population: parseInt(document.getElementById('newPopulation').value) || null,
-    geometry:   state.drawnGeom,
-  };
+  let payload;
+  if (type === 'kabupaten') {
+    const kd_wil = document.getElementById('newKdWil').value.trim();
+    const nama   = document.getElementById('newNama').value.trim();
+    if (!kd_wil || !nama) { toast('kd_wil dan Nama wajib diisi', 'err'); return; }
+    payload = { kd_wil, nama, geometry: state.drawnGeom };
+  } else if (type === 'kecamatan') {
+    const kd_kecamatan = document.getElementById('newKdKecamatan').value.trim();
+    const kd_wil       = document.getElementById('newKdWilKec').value.trim();
+    const nama         = document.getElementById('newNama').value.trim();
+    if (!kd_kecamatan || !kd_wil || !nama) { toast('kd_kecamatan, kd_wil, dan Nama wajib diisi', 'err'); return; }
+    payload = {
+      kd_kecamatan, kd_wil, nama,
+      nm_kab:  document.getElementById('newNmKab').value.trim() || null,
+      jmlh_kk: parseInt(document.getElementById('newJmlhKk').value) || null,
+      geometry: state.drawnGeom,
+    };
+  } else {
+    const unique_code  = document.getElementById('newUniqueCode').value.trim();
+    const kd_kecamatan = document.getElementById('newKdKecDesa').value.trim();
+    const nama         = document.getElementById('newNama').value.trim();
+    if (!unique_code || !kd_kecamatan || !nama) { toast('unique_code, kd_kecamatan, dan Nama wajib diisi', 'err'); return; }
+    payload = {
+      unique_code, kd_kecamatan, nama,
+      nm_kecamatan: document.getElementById('newNmKecamatan').value.trim() || null,
+      kd_kec_p3d:   parseInt(document.getElementById('newKdKecP3d').value) || null,
+      geometry: state.drawnGeom,
+    };
+  }
 
   try {
-    const data = await apiFetch('/api/admin/boundaries', {
+    const data = await apiFetch(`/api/admin/bapenda/${type}`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    state.boundaries.push({ ...data.data, admin_level: level, is_active: true });
+    state.boundaries.push(data.data);
     renderList(state.boundaries);
     state.draw.deleteAll();
     state.drawnGeom = null;
     document.getElementById('newPanel').classList.remove('visible');
     setMode('browse');
-    toast(`Berhasil dibuat: ${name}`, 'ok');
+    const created_name = data.data.nama || data.data.village || '';
+    toast(`Berhasil dibuat: ${created_name}`, 'ok');
     selectBoundary(data.data.id);
   } catch (e) {
     toast(e.message, 'err');
@@ -1000,149 +1085,17 @@ async function saveNewBoundary() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  SPLIT
+//  SPLIT / MERGE (not applicable for Bapenda tables)
 // ═══════════════════════════════════════════════════════════════
 
-function startSplit() {
-  if (!state.selected) return;
-  setMode('split');
-  state.splitLine = null;
-  document.getElementById('splitPanel').classList.add('visible');
-  state.draw.deleteAll();
-  state.draw.changeMode('draw_line_string');
-  setModeIndicator('Mode Split — gambar garis potong melintasi batas wilayah, double-klik untuk selesai');
-  document.getElementById('splitSaveBtn').disabled = true;
-}
-
-function cancelSplit() {
-  setMode('browse');
-  state.splitLine = null;
-  state.draw.deleteAll();
-  document.getElementById('splitPanel').classList.remove('visible');
-  setModeIndicator('');
-}
-
-async function saveSplit() {
-  if (!state.splitLine || !state.selected) return;
-
-  const nameA = document.getElementById('splitNameA').value.trim();
-  const codeA = document.getElementById('splitCodeA').value.trim();
-  const nameB = document.getElementById('splitNameB').value.trim();
-  const codeB = document.getElementById('splitCodeB').value.trim();
-
-  if (!nameA || !codeA || !nameB || !codeB) {
-    toast('Isi nama dan kode untuk kedua wilayah', 'err'); return;
-  }
-
-  try {
-    const r = await fetch(`${API}/api/boundaries/split`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({
-        boundary_id: state.selected.id,
-        cut_line: state.splitLine,
-        new_regions: [
-          { name: nameA, code: codeA },
-          { name: nameB, code: codeB },
-        ],
-        performed_by: 'cms',
-      }),
-    });
-    const json = await r.json();
-    if (!r.ok) throw new Error(json.error);
-
-    // Remove original from list, add new ones
-    state.boundaries = state.boundaries.filter(b => b.id !== state.selected.id);
-    json.new_regions.forEach(nr => state.boundaries.push({ ...nr, is_active: true }));
-    renderList(state.boundaries);
-    clearHighlight();
-    state.selected = null;
-    document.getElementById('editPanel').classList.remove('visible');
-    document.getElementById('splitPanel').classList.remove('visible');
-    state.draw.deleteAll();
-    setMode('browse');
-    setModeIndicator('');
-    toast(`Split berhasil: ${json.message}`, 'ok');
-    showPreview(state.boundaries);
-  } catch (e) {
-    toast(e.message, 'err');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  MERGE
-// ═══════════════════════════════════════════════════════════════
-
-function toggleMerge(id, chk) {
-  if (chk.checked) state.mergeIds.add(id);
-  else state.mergeIds.delete(id);
-  updateMergeBar();
-}
-
-function updateMergeBar() {
-  const bar = document.getElementById('mergeBar');
-  const cnt = state.mergeIds.size;
-  if (state.mode === 'merge' && cnt > 0) {
-    bar.classList.add('visible');
-    document.getElementById('mergeCount').textContent = `${cnt} wilayah dipilih`;
-    document.getElementById('mergeExecuteBtn').disabled = cnt < 2;
-  } else {
-    bar.classList.remove('visible');
-  }
-}
-
-function startMergeMode() {
-  setMode('merge');
-  state.mergeIds.clear();
-  updateMergeBar();
-  toast('Pilih 2+ wilayah dari daftar menggunakan checkbox', '');
-}
-
-function cancelMerge() {
-  state.mergeIds.clear();
-  setMode('browse');
-  document.getElementById('mergeBar').classList.remove('visible');
-  renderList(state.boundaries);
-}
-
-function doMerge() {
-  if (state.mergeIds.size < 2) return;
-  showDialog(
-    `Gabung ${state.mergeIds.size} Wilayah`,
-    `<div class="form-row"><label>Nama Baru</label><input id="mergeNewName" placeholder="Nama wilayah gabungan"></div>
-     <div class="form-row"><label>Kode Baru</label><input id="mergeNewCode" placeholder="Kode wilayah gabungan"></div>`,
-    async () => {
-      const newName = document.getElementById('mergeNewName').value.trim();
-      const newCode = document.getElementById('mergeNewCode').value.trim();
-      if (!newName || !newCode) { toast('Nama dan kode wajib diisi', 'err'); return; }
-      try {
-        const r = await fetch(`${API}/api/boundaries/merge`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({
-            boundary_ids: [...state.mergeIds],
-            new_name: newName,
-            new_code: newCode,
-            performed_by: 'cms',
-          }),
-        });
-        const json = await r.json();
-        if (!r.ok) throw new Error(json.error);
-
-        state.boundaries = state.boundaries.filter(b => !state.mergeIds.has(b.id));
-        state.boundaries.push({ id: json.new_id, name: newName, code: newCode, is_active: true });
-        state.mergeIds.clear();
-        renderList(state.boundaries);
-        clearHighlight();
-        cancelMerge();
-        showPreview(state.boundaries);
-        toast(`Merge berhasil: ${newName}`, 'ok');
-      } catch (e) {
-        toast(e.message, 'err');
-      }
-    },
-  );
-}
+function startSplit()    { toast('Split tidak tersedia untuk tabel Bapenda', 'err'); }
+function cancelSplit()   {}
+async function saveSplit() {}
+function toggleMerge()   {}
+function updateMergeBar() {}
+function startMergeMode() { toast('Merge tidak tersedia untuk tabel Bapenda', 'err'); }
+function cancelMerge()   {}
+function doMerge()       {}
 
 // ═══════════════════════════════════════════════════════════════
 //  DELETE
@@ -1150,19 +1103,20 @@ function doMerge() {
 
 async function deleteBoundary() {
   if (!state.selected) return;
-  const b = state.selected;
-  if (!confirm(`Hapus "${b.name}" (${b.code})?\n\nIni akan menonaktifkan wilayah (soft delete).`)) return;
+  const b    = state.selected;
+  const type = document.getElementById('levelSelect').value;
+  const bname = b.nama || b.village || 'wilayah ini';
+  if (!confirm(`Hapus "${bname}"?\n\nData akan dihapus permanen dari database.`)) return;
   try {
-    await apiFetch(`/api/admin/boundaries/${b.id}`, { method: 'DELETE' });
-    const idx = state.boundaries.findIndex(x => x.id === b.id);
-    if (idx >= 0) state.boundaries[idx].is_active = false;
+    await apiFetch(`/api/admin/bapenda/${type}/${b.id}`, { method: 'DELETE' });
+    state.boundaries = state.boundaries.filter(x => x.id !== b.id);
     renderList(state.boundaries);
     clearHighlight();
     state.selected = null;
     document.getElementById('editPanel').classList.remove('visible');
     document.getElementById('statusSelected').textContent = 'Tidak ada pilihan';
     document.getElementById('statusGeom').textContent = '';
-    toast(`Dihapus: ${b.name}`, 'ok');
+    toast(`Dihapus: ${bname}`, 'ok');
   } catch (e) {
     toast(e.message, 'err');
   }
@@ -1213,12 +1167,6 @@ function onDrawCreate(e) {
     state.drawnGeom = feature.geometry;
     document.getElementById('newSaveBtn').disabled = false;
     document.getElementById('newDrawHint').textContent = 'Polygon selesai. Isi metadata dan klik Simpan.';
-    // Switch to select mode so user can still see it
-    state.draw.changeMode('simple_select', { featureIds: [feature.id] });
-  } else if (state.mode === 'split') {
-    state.splitLine = feature.geometry;
-    document.getElementById('splitSaveBtn').disabled = false;
-    setModeIndicator('Garis potong siap. Isi nama wilayah baru, lalu klik Simpan Split.');
     state.draw.changeMode('simple_select', { featureIds: [feature.id] });
   }
 }
@@ -1242,17 +1190,13 @@ function setMode(m) {
   if (m === 'browse') {
     setModeIndicator('');
     document.getElementById('tbNew').classList.remove('active');
-    document.getElementById('tbMerge').classList.remove('active');
     if (state.draw) {
       state.draw.deleteAll();
       state.draw.changeMode('simple_select');
     }
   } else if (m === 'new') {
     document.getElementById('tbNew').classList.add('active');
-  } else if (m === 'merge') {
-    document.getElementById('tbMerge').classList.add('active');
   }
-  updateMergeBar();
 }
 
 function setModeIndicator(text) {
@@ -1305,6 +1249,29 @@ function showCms() {
   bindEvents();
 }
 
+// Level change: show/hide parent filter
+function onLevelChange() {
+  const type = document.getElementById('levelSelect').value;
+  const wrap  = document.getElementById('parentFilterWrap');
+  const label = document.getElementById('parentFilterLabel');
+  document.getElementById('parentFilterInput').value = '';
+  if (type === 'kecamatan') {
+    wrap.style.display = '';
+    label.textContent = 'kd_wil (filter kabupaten)';
+  } else if (type === 'desa') {
+    wrap.style.display = '';
+    label.textContent = 'kd_kecamatan (filter kecamatan)';
+  } else {
+    wrap.style.display = 'none';
+  }
+  // Clear list
+  state.boundaries = [];
+  renderList([]);
+  clearHighlight();
+  state.selected = null;
+  document.getElementById('editPanel').classList.remove('visible');
+}
+
 function bindEvents() {
   // Login
   document.getElementById('loginBtn').onclick = doLogin;
@@ -1314,11 +1281,11 @@ function bindEvents() {
   // Sidebar controls
   document.getElementById('loadBoundariesBtn').onclick = loadBoundaries;
   document.getElementById('searchInput').addEventListener('input', () => renderList(state.boundaries));
+  document.getElementById('parentFilterInput').addEventListener('keydown', e => { if (e.key === 'Enter') loadBoundaries(); });
 
   // Edit panel buttons
   document.getElementById('saveMetaBtn').onclick   = saveMetadata;
   document.getElementById('editGeomBtn').onclick   = startEditGeometry;
-  document.getElementById('startSplitBtn').onclick = startSplit;
   document.getElementById('deleteBtn').onclick     = deleteBoundary;
   document.getElementById('editCloseBtn').onclick  = () => {
     document.getElementById('editPanel').classList.remove('visible');
@@ -1329,23 +1296,13 @@ function bindEvents() {
     renderList(state.boundaries);
   };
 
-  // Split panel
-  document.getElementById('splitSaveBtn').onclick  = saveSplit;
-  document.getElementById('splitCancelBtn').onclick = cancelSplit;
-
   // New boundary panel
   document.getElementById('newSaveBtn').onclick   = saveNewBoundary;
   document.getElementById('newCancelBtn').onclick = cancelNew;
 
   // Toolbar
   document.getElementById('tbNew').onclick     = () => state.mode === 'new' ? cancelNew() : startDrawNew();
-  document.getElementById('tbMerge').onclick   = () => state.mode === 'merge' ? cancelMerge() : startMergeMode();
   document.getElementById('tbZoomSel').onclick = () => { if (state.selected) highlightBoundary(state.selected); };
-  document.getElementById('tbHistory').onclick = showHistory;
-
-  // Merge bar
-  document.getElementById('mergeExecuteBtn').onclick = doMerge;
-  document.getElementById('mergeCancelBtn').onclick  = cancelMerge;
 
   // Dialog
   document.getElementById('dialogOkBtn').onclick     = () => { if (dialogOkCallback) dialogOkCallback(); else closeDialog(); };
