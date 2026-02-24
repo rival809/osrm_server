@@ -531,6 +531,7 @@ docker exec osrm-postgres pg_dump -U nominatim -d nominatim -Fc \
 ```
 
 **Windows PowerShell:**
+
 ```powershell
 docker exec osrm-postgres pg_dump -U nominatim -d nominatim -Fc `
   -t district_boundaries `
@@ -548,6 +549,7 @@ docker exec -i osrm-postgres pg_restore -U nominatim -d nominatim --clean --if-e
 ```
 
 **Windows PowerShell:**
+
 ```powershell
 Get-Content -Encoding Byte ./data/district_boundaries.dump -Raw | `
   docker exec -i osrm-postgres pg_restore -U nominatim -d nominatim --clean --if-exists -Fc

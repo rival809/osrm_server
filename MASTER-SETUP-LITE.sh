@@ -80,6 +80,13 @@ function check_prerequisites() {
     # Check Docker
     if command -v docker &> /dev/null; then
         print_success "Docker installed: $(docker --version)"
+        # Verify Docker daemon is running
+        if docker info &> /dev/null; then
+            print_success "Docker daemon is running"
+        else
+            print_error "Docker daemon is not running. Please start Docker first."
+            missing=1
+        fi
     else
         print_error "Docker not found"
         echo "   Install from: https://docs.docker.com/get-docker/"
@@ -96,6 +103,15 @@ function check_prerequisites() {
 
 function setup_environment() {
     print_section "ENVIRONMENT SETUP"
+
+    # Create required directories
+    print_step "Creating directories" "data, cache, logs"
+    for dir in data cache cache/.metadata logs; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            print_success "Created directory: $dir"
+        fi
+    done
     
     print_step "Installing Node.js dependencies" "Installing required packages"
     
@@ -149,18 +165,31 @@ function download_osm_data() {
     # Create data directory
     mkdir -p data
     
-    print_step "Downloading Java OSM data" "~800MB - This may take a while"
+    print_step "Downloading Java Island OSM data" "~800MB - This may take a while"
     
-    local url="https://download.geofabrik.de/asia/indonesia-latest.osm.pbf"
+    local url="https://download.geofabrik.de/asia/indonesia/java-latest.osm.pbf"
     
-    if wget -O "$pbf_file" "$url"; then
-        local file_size=$(du -h "$pbf_file" | cut -f1)
-        print_success "Download complete ($file_size)"
-        return 0
-    else
-        print_error "Download failed"
-        return 1
+    if command -v curl &> /dev/null; then
+        print_success "Using curl for download..."
+        if curl -L --progress-bar -o "$pbf_file" "$url"; then
+            local file_size=$(du -h "$pbf_file" | cut -f1)
+            print_success "Download complete ($file_size)"
+            return 0
+        else
+            print_warning "curl download failed, trying wget..."
+        fi
     fi
+
+    if command -v wget &> /dev/null; then
+        if wget -O "$pbf_file" "$url"; then
+            local file_size=$(du -h "$pbf_file" | cut -f1)
+            print_success "Download complete ($file_size)"
+            return 0
+        fi
+    fi
+
+    print_error "Download failed. Please download manually from: $url"
+    return 1
 }
 
 function convert_pbf_to_mbtiles() {
@@ -178,24 +207,38 @@ function convert_pbf_to_mbtiles() {
         fi
     fi
     
-    print_step "Converting PBF to MBTiles" "10-30 minutes - CPU intensive"
+    print_step "Converting PBF to MBTiles using planetiler" "10-30 minutes - CPU intensive"
     echo -e "${NC}   This process generates vector tiles for the map display${NC}"
-    
-    # Install tilemaker if needed
-    if ! command -v tilemaker &> /dev/null; then
-        print_step "Installing tilemaker" "Vector tile generation tool"
-        npm install -g tilemaker-bin
+    echo ""
+
+    # Pull planetiler Docker image
+    echo -e "${CYAN}   Pulling planetiler Docker image...${NC}"
+    docker pull ghcr.io/onthegomap/planetiler:latest
+
+    local absolute_data_dir="$(pwd)/data"
+
+    echo -e "${CYAN}   Running planetiler conversion...${NC}"
+    echo -e "${NC}   This will take 10-30 minutes...${NC}"
+
+    if ! docker run -it --rm \
+        -v "${absolute_data_dir}:/data" \
+        -e JAVA_TOOL_OPTIONS="-Xmx2g" \
+        ghcr.io/onthegomap/planetiler:latest \
+        --bounds=105.0,-8.8,114.0,-5.9 \
+        --output=/data/java.mbtiles \
+        --osm-path=/data/java-latest.osm.pbf; then
+        print_error "MBTiles generation failed. Tileserver will not work without this file."
+        return 1
     fi
-    
-    # Run conversion (skip if fails - non-critical)
-    if tilemaker --input "$pbf_file" --output "$mbtiles_file" --process resources/process-openmaptiles.lua --config resources/config-openmaptiles.json; then
-        print_success "MBTiles generated successfully"
+
+    if [ -f "$mbtiles_file" ]; then
+        local file_size=$(du -h "$mbtiles_file" | cut -f1)
+        print_success "MBTiles generated successfully: $mbtiles_file ($file_size)"
+        return 0
     else
-        print_warning "MBTiles generation failed (non-critical)"
-        echo -e "${YELLOW}   You can continue without MBTiles (will use external tile provider)${NC}"
+        print_error "MBTiles file was not created."
+        return 1
     fi
-    
-    return 0
 }
 
 function process_osrm_data() {

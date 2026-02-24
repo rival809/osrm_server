@@ -129,12 +129,44 @@ function Install-Prerequisites {
         Write-Error "npm not found"
         return $false
     }
+
+    # Check Docker (required for MBTiles generation and OSRM processing)
+    Write-Step "Checking Docker" "Required for MBTiles and OSRM processing"
+    try {
+        $dockerVersion = docker --version 2>$null
+        if ($dockerVersion) {
+            Write-Success "Docker installed: $dockerVersion"
+        } else {
+            throw "Docker not found"
+        }
+        # Verify Docker daemon is running
+        docker info 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Docker daemon not running"
+        }
+        Write-Success "Docker daemon is running"
+    } catch {
+        Write-Error "Docker issue: $($_.Exception.Message)"
+        Write-Host "   Please install Docker Desktop from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
+        Write-Host "   And make sure Docker is running before continuing." -ForegroundColor Yellow
+        return $false
+    }
     
     return $true
 }
 
 function Setup-Environment {
     Write-Section "ENVIRONMENT SETUP"
+
+    # Create required directories
+    Write-Step "Creating directories" "data, cache, logs"
+    $directories = @("data", "cache", "cache\.metadata", "logs")
+    foreach ($dir in $directories) {
+        if (-not (Test-Path $dir)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            Write-Success "Created directory: $dir"
+        }
+    }
     
     Write-Step "Installing Node.js dependencies" "Installing required packages"
     
@@ -146,9 +178,9 @@ function Setup-Environment {
         return $false
     }
     
-    # Create .env file
+    # Create .env file (always overwrite to apply latest config)
     Write-Step "Creating environment configuration" "Setting up .env file"
-    
+
     $envContent = @"
 # OSRM Service Configuration (Lightweight Proxy Mode - LITE)
 NODE_ENV=$Environment
@@ -166,10 +198,9 @@ MAX_MEMORY_MB=10000
 # Logging
 LOG_LEVEL=info
 "@
-    
     try {
-        $envContent | Out-File -FilePath ".env" -Encoding UTF8
-        Write-Success "Environment file created"
+        $envContent | Out-File -FilePath ".env" -Encoding UTF8 -Force
+        Write-Success ".env file written"
     } catch {
         Write-Error "Failed to create .env file: $($_.Exception.Message)"
         return $false
@@ -196,12 +227,30 @@ function Download-OSMData {
     # Create data directory
     New-Item -ItemType Directory -Force -Path "data" | Out-Null
     
-    Write-Step "Downloading Java OSM data" "~800MB - This may take a while"
+    Write-Step "Downloading Java Island OSM data" "~800MB - This may take a while"
     
-    $url = "https://download.geofabrik.de/asia/indonesia-latest.osm.pbf"
-    
+    $url = "https://download.geofabrik.de/asia/indonesia/java-latest.osm.pbf"
+
+    # Try curl.exe first (faster, built-in on Windows 10+)
+    $curlPath = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlPath) {
+        try {
+            Write-Host "   Using curl.exe for download..." -ForegroundColor Cyan
+            & curl.exe -L --progress-bar -o $pbfFile $url
+            if ($LASTEXITCODE -eq 0) {
+                $fileSize = (Get-Item $pbfFile).Length / 1MB
+                Write-Success "Download complete ($([math]::Round($fileSize, 2)) MB)"
+                return $true
+            } else {
+                throw "curl failed with exit code $LASTEXITCODE"
+            }
+        } catch {
+            Write-Warning "curl download failed, falling back to PowerShell..."
+        }
+    }
+
     try {
-        # Use built-in PowerShell download
+        Write-Host "   Using PowerShell download..." -ForegroundColor Cyan
         $ProgressPreference = 'SilentlyContinue'
         Invoke-WebRequest -Uri $url -OutFile $pbfFile -UseBasicParsing
         $ProgressPreference = 'Continue'
@@ -230,50 +279,156 @@ function Convert-PbfToMbtiles {
         }
     }
     
-    Write-Step "Converting PBF to MBTiles" "10-30 minutes - CPU intensive"
+    Write-Step "Converting PBF to MBTiles using planetiler" "10-30 minutes - CPU intensive"
     Write-Host "   This process generates vector tiles for the map display" -ForegroundColor Gray
-    
-    try {
-        # Install tilemaker if needed
-        if (-not (Get-Command tilemaker -ErrorAction SilentlyContinue)) {
-            Write-Step "Installing tilemaker" "Vector tile generation tool"
-            npm install -g tilemaker-bin
-        }
-        
-        # Run conversion
-        tilemaker --input $pbfFile --output $mbtilesFile --process resources/process-openmaptiles.lua --config resources/config-openmaptiles.json
-        
-        Write-Success "MBTiles generated successfully"
+    Write-Host ""
+
+    # Pull planetiler Docker image
+    Write-Host "   Pulling planetiler Docker image..." -ForegroundColor Cyan
+    docker pull ghcr.io/onthegomap/planetiler:latest
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to pull planetiler image. Check your internet connection and Docker."
+        return $false
+    }
+
+    # Get absolute path for Docker volume mount
+    $currentPath = (Get-Location).Path
+    $dataPath = Join-Path $currentPath "data"
+
+    Write-Host "   Running planetiler conversion..." -ForegroundColor Cyan
+    Write-Host "   This will take 10-30 minutes..." -ForegroundColor Gray
+
+    docker run -it --rm `
+        -v "${dataPath}:/data" `
+        -e JAVA_TOOL_OPTIONS="-Xmx2g" `
+        ghcr.io/onthegomap/planetiler:latest `
+        --bounds=105.0,-8.8,114.0,-5.9 `
+        --output=/data/java.mbtiles `
+        --osm-path=/data/java-latest.osm.pbf
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "MBTiles generation failed. Tileserver will not work without this file."
+        return $false
+    }
+
+    if (Test-Path $mbtilesFile) {
+        $fileSizeMB = [math]::Round((Get-Item $mbtilesFile).Length / 1MB, 2)
+        Write-Success "MBTiles generated successfully: $mbtilesFile ($fileSizeMB MB)"
         return $true
-    } catch {
-        Write-Error "MBTiles generation failed: $($_.Exception.Message)"
-        Write-Host "   You can continue without MBTiles (will use external tile provider)" -ForegroundColor Yellow
-        return $true  # Non-critical error
+    } else {
+        Write-Error "MBTiles file was not created."
+        return $false
     }
 }
 
 function Process-OSRMData {
     Write-Section "OSRM DATA PROCESSING"
-    
-    $pbfFile = "data/java-latest.osm.pbf"
-    $osrmFile = "data/java-latest.osrm"
-    
-    Write-Step "Processing OSRM routing data" "Using Docker containers"
-    Write-Host "   This creates optimized routing graphs (~10-20 minutes)" -ForegroundColor Gray
-    
-    try {
-        # Run processing script
-        if (Test-Path "scripts/process-osrm-v6.ps1") {
-            & "scripts/process-osrm-v6.ps1"
+
+    $pbfFile = "data\java-latest.osm.pbf"
+    if (-not (Test-Path $pbfFile)) {
+        Write-Error "OSM PBF file not found. Please download first."
+        return $false
+    }
+
+    # Smart skip: check if all required OSRM files already exist
+    $requiredFiles = @(
+        "data\java-latest.osrm",
+        "data\java-latest.osrm.cells",
+        "data\java-latest.osrm.cell_metrics",
+        "data\java-latest.osrm.cnbg",
+        "data\java-latest.osrm.cnbg_to_ebg",
+        "data\java-latest.osrm.datasource_names",
+        "data\java-latest.osrm.ebg_nodes",
+        "data\java-latest.osrm.edges",
+        "data\java-latest.osrm.enw",
+        "data\java-latest.osrm.fileIndex",
+        "data\java-latest.osrm.geometry",
+        "data\java-latest.osrm.icd",
+        "data\java-latest.osrm.maneuver_overrides",
+        "data\java-latest.osrm.mldgr",
+        "data\java-latest.osrm.names",
+        "data\java-latest.osrm.nbg_nodes",
+        "data\java-latest.osrm.partition",
+        "data\java-latest.osrm.properties",
+        "data\java-latest.osrm.restrictions",
+        "data\java-latest.osrm.timestamp",
+        "data\java-latest.osrm.tld",
+        "data\java-latest.osrm.tls",
+        "data\java-latest.osrm.turn_duration_penalties",
+        "data\java-latest.osrm.turn_penalties_index",
+        "data\java-latest.osrm.turn_weight_penalties"
+    )
+
+    $foundCount = 0
+    $allFilesExist = $true
+    foreach ($file in $requiredFiles) {
+        if (Test-Path $file) { $foundCount++ } else { $allFilesExist = $false }
+    }
+
+    if ($foundCount -ge 3) {
+        if ($allFilesExist) {
+            Write-Success "OSRM data already processed and complete ($foundCount of $($requiredFiles.Count) files found)"
         } else {
-            Write-Warning "OSRM processing script not found"
-            Write-Host "   Run manually: docker run -t -v `"$PWD/data:/data`" ghcr.io/project-osrm/osrm-backend osrm-extract ..." -ForegroundColor Yellow
+            Write-Warning "OSRM data partially processed: found $foundCount of $($requiredFiles.Count) files"
         }
-        
-        Write-Success "OSRM data processing complete"
+        $reprocess = Read-Host "Do you want to reprocess OSRM data? (y/N)"
+        if ($reprocess.ToLower() -ne "y") {
+            Write-Success "Skipping OSRM processing, using existing data"
+            return $true
+        }
+        Write-Warning "Reprocessing OSRM data..."
+        $oldFiles = Get-ChildItem "data" -Filter "java-latest.osrm*" -ErrorAction SilentlyContinue
+        if ($oldFiles) {
+            $oldFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+            Write-Host "   Removed $($oldFiles.Count) old file(s)" -ForegroundColor Gray
+        }
+    }
+
+    Write-Step "Processing OSM data for routing" "This may take 10-20 minutes"
+    Write-Host ""
+
+    $absoluteDataDir = (Resolve-Path "data").Path
+    $osrmImage = "ghcr.io/project-osrm/osrm-backend:v6.0.0"
+
+    try {
+        # Step 1: Extract
+        Write-Host "Step 1/3: Extracting..." -ForegroundColor Cyan
+        Write-Host "   This will take 5-10 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf
+        if (-not (Test-Path "data\java-latest.osrm.nbg_nodes")) {
+            throw "Extract failed - output files not generated"
+        }
+        Write-Success "Extract completed"
+
+        # Step 2: Partition
+        Write-Host "Step 2/3: Partitioning..." -ForegroundColor Cyan
+        Write-Host "   This will take 3-5 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-partition /data/java-latest.osrm
+        if (-not (Test-Path "data\java-latest.osrm.partition")) {
+            throw "Partition failed - output files not generated"
+        }
+        Write-Success "Partition completed"
+
+        # Step 3: Customize
+        Write-Host "Step 3/3: Customizing..." -ForegroundColor Cyan
+        Write-Host "   This will take 2-5 minutes..." -ForegroundColor Gray
+        docker run -t -v "${absoluteDataDir}:/data" $osrmImage osrm-customize /data/java-latest.osrm
+        if (-not (Test-Path "data\java-latest.osrm.cells")) {
+            throw "Customize failed - output files not generated"
+        }
+        Write-Success "Customize completed"
+
+        Write-Host ""
+        Write-Success "OSRM data processing completed successfully!"
+        Write-Host "   All required files have been generated" -ForegroundColor Gray
         return $true
     } catch {
         Write-Error "OSRM processing failed: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "Troubleshooting:" -ForegroundColor Yellow
+        Write-Host "   1. Ensure Docker is running" -ForegroundColor Gray
+        Write-Host "   2. Check if data/java-latest.osm.pbf exists and is not corrupt" -ForegroundColor Gray
+        Write-Host "   3. Verify sufficient disk space (~2GB needed)" -ForegroundColor Gray
         return $false
     }
 }
