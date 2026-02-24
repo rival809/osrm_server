@@ -243,20 +243,116 @@ function convert_pbf_to_mbtiles() {
 
 function process_osrm_data() {
     print_section "OSRM DATA PROCESSING"
-    
+
     local pbf_file="data/java-latest.osm.pbf"
-    
-    print_step "Processing OSRM routing data" "Using Docker containers"
-    echo -e "${NC}   This creates optimized routing graphs (~10-20 minutes)${NC}"
-    
-    if [ -f "scripts/process-osrm-v6.sh" ]; then
-        bash scripts/process-osrm-v6.sh
-        print_success "OSRM data processing complete"
-    else
-        print_warning "OSRM processing script not found"
-        echo -e "${YELLOW}   Run manually with Docker commands${NC}"
+    if [ ! -f "$pbf_file" ]; then
+        print_error "OSM PBF file not found. Please download first."
+        return 1
     fi
-    
+
+    # Smart skip: check if required OSRM files already exist
+    local required_files=(
+        "data/java-latest.osrm"
+        "data/java-latest.osrm.cells"
+        "data/java-latest.osrm.cell_metrics"
+        "data/java-latest.osrm.cnbg"
+        "data/java-latest.osrm.cnbg_to_ebg"
+        "data/java-latest.osrm.datasource_names"
+        "data/java-latest.osrm.ebg_nodes"
+        "data/java-latest.osrm.edges"
+        "data/java-latest.osrm.enw"
+        "data/java-latest.osrm.fileIndex"
+        "data/java-latest.osrm.geometry"
+        "data/java-latest.osrm.icd"
+        "data/java-latest.osrm.maneuver_overrides"
+        "data/java-latest.osrm.mldgr"
+        "data/java-latest.osrm.names"
+        "data/java-latest.osrm.nbg_nodes"
+        "data/java-latest.osrm.partition"
+        "data/java-latest.osrm.properties"
+        "data/java-latest.osrm.restrictions"
+        "data/java-latest.osrm.timestamp"
+        "data/java-latest.osrm.tld"
+        "data/java-latest.osrm.tls"
+        "data/java-latest.osrm.turn_duration_penalties"
+        "data/java-latest.osrm.turn_penalties_index"
+        "data/java-latest.osrm.turn_weight_penalties"
+    )
+
+    local found_count=0
+    local all_exist=true
+    for f in "${required_files[@]}"; do
+        if [ -f "$f" ]; then
+            found_count=$((found_count + 1))
+        else
+            all_exist=false
+        fi
+    done
+
+    local total=${#required_files[@]}
+    if [ "$found_count" -ge 3 ]; then
+        if [ "$all_exist" = true ]; then
+            print_success "OSRM data already processed and complete ($found_count of $total files found)"
+        else
+            print_warning "OSRM data partially processed: found $found_count of $total files"
+        fi
+        read -p "Do you want to reprocess OSRM data? (y/N): " reprocess
+        if [ "${reprocess,,}" != "y" ]; then
+            print_success "Skipping OSRM processing, using existing data"
+            return 0
+        fi
+        print_warning "Reprocessing OSRM data..."
+        local old_count
+        old_count=$(find data -maxdepth 1 -name "java-latest.osrm*" 2>/dev/null | wc -l)
+        if [ "$old_count" -gt 0 ]; then
+            find data -maxdepth 1 -name "java-latest.osrm*" -delete
+            echo -e "${NC}   Removed $old_count old file(s)${NC}"
+        fi
+    fi
+
+    print_step "Processing OSM data for routing" "This may take 10-20 minutes"
+    echo ""
+
+    local absolute_data_dir
+    absolute_data_dir="$(realpath data)"
+    local osrm_image="ghcr.io/project-osrm/osrm-backend:v6.0.0"
+
+    # Step 1: Extract
+    echo -e "${CYAN}Step 1/3: Extracting...${NC}"
+    echo -e "${NC}   This will take 5-10 minutes...${NC}"
+    docker run -t -v "${absolute_data_dir}:/data" "$osrm_image" \
+        osrm-extract -p /opt/car.lua /data/java-latest.osm.pbf
+    if [ ! -f "data/java-latest.osrm.nbg_nodes" ]; then
+        print_error "Extract failed - output files not generated"
+        return 1
+    fi
+    print_success "Extract completed"
+
+    # Step 2: Partition
+    echo -e "${CYAN}Step 2/3: Partitioning...${NC}"
+    echo -e "${NC}   This will take 3-5 minutes...${NC}"
+    docker run -t -v "${absolute_data_dir}:/data" "$osrm_image" \
+        osrm-partition /data/java-latest.osrm
+    if [ ! -f "data/java-latest.osrm.partition" ]; then
+        print_error "Partition failed - output files not generated"
+        return 1
+    fi
+    print_success "Partition completed"
+
+    # Step 3: Customize
+    echo -e "${CYAN}Step 3/3: Customizing...${NC}"
+    echo -e "${NC}   This will take 2-5 minutes...${NC}"
+    docker run -t -v "${absolute_data_dir}:/data" "$osrm_image" \
+        osrm-customize /data/java-latest.osrm
+    if [ ! -f "data/java-latest.osrm.cells" ]; then
+        print_error "Customize failed - output files not generated"
+        return 1
+    fi
+    print_success "Customize completed"
+
+    echo ""
+    print_success "OSRM data processing completed successfully!"
+    echo -e "${NC}   All required files have been generated${NC}"
     return 0
 }
 
