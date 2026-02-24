@@ -304,7 +304,8 @@ function Convert-PbfToMbtiles {
         ghcr.io/onthegomap/planetiler:latest `
         --bounds=105.0,-8.8,114.0,-5.9 `
         --output=/data/java.mbtiles `
-        --osm-path=/data/java-latest.osm.pbf
+        --osm-path=/data/java-latest.osm.pbf `
+        --force
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "MBTiles generation failed. Tileserver will not work without this file."
