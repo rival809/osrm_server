@@ -515,6 +515,57 @@ docker compose up -d
 
 ---
 
+## 🗄️ Database Backup & Restore (Boundaries)
+
+Tabel boundaries (`district_boundaries`, `village_boundaries`, `province_boundaries`) disimpan di container `osrm-postgres` (DB: `nominatim`, user: `nominatim`).
+
+### Dump (Backup)
+
+```bash
+# Dump langsung ke host via stdout (tanpa tulis file di dalam container)
+docker exec osrm-postgres pg_dump -U nominatim -d nominatim -Fc \
+  -t district_boundaries \
+  -t village_boundaries \
+  -t province_boundaries \
+  > ./data/district_boundaries.dump
+```
+
+**Windows PowerShell:**
+
+```powershell
+docker exec osrm-postgres pg_dump -U nominatim -d nominatim -Fc `
+  -t district_boundaries `
+  -t village_boundaries `
+  -t province_boundaries | `
+  Set-Content -Encoding Byte ./data/district_boundaries.dump
+```
+
+### Restore
+
+```bash
+# Restore langsung dari host via stdin
+docker exec -i osrm-postgres pg_restore -U nominatim -d nominatim --clean --if-exists -Fc \
+  < ./data/district_boundaries.dump
+```
+
+**Windows PowerShell:**
+
+```powershell
+Get-Content -Encoding Byte ./data/district_boundaries.dump -Raw | `
+  docker exec -i osrm-postgres pg_restore -U nominatim -d nominatim --clean --if-exists -Fc
+```
+
+### Dump Tabel Tertentu Saja
+
+```bash
+# Hanya district_boundaries
+docker exec osrm-postgres pg_dump -U nominatim -d nominatim -Fc \
+  -t district_boundaries \
+  > ./data/district_boundaries_only.dump
+```
+
+---
+
 ## � License
 
 MIT

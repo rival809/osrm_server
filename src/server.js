@@ -6,6 +6,14 @@ const compression = require('compression');
 const { body, query, validationResult } = require('express-validator');
 const logger = require('./logger');
 const MemoryMonitor = require('./memoryMonitor');
+const { checkHealth: checkPostGIS } = require('./db');
+const boundaryRoutes = require('./boundaryRoutes');
+const legacyGeoRoutes = require('./legacyGeoRoutes');
+const { router: adminAuthRouter } = require('./adminAuth');
+const adminRoutes = require('./adminRoutes');
+const adminBapendaRoutes = require('./adminBapendaRoutes');
+const fs = require('fs');
+const path = require('path');
 
 // Initialize Express
 const app = express();
@@ -27,7 +35,7 @@ app.use(compression());
 app.use(cors({
   origin: '*',
   credentials: false,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -50,11 +58,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve static files
 app.use(express.static('public'));
 
+// Administrative Boundary API (public read, split, merge)
+app.use('/api/boundaries', boundaryRoutes);
+
+// Admin CMS API (login + CRUD — requires ADMIN_TOKEN)
+app.use('/api/admin', adminAuthRouter);
+app.use('/api/admin/boundaries', adminRoutes);
+app.use('/api/admin/bapenda', adminBapendaRoutes);
+
+// ── Legacy GeoJSON routes (mirrors old Go/Gin project) ─────────────
+// GET /api/geojson/kabupaten, /api/geojson/kecamatan/:p3d_id, /api/geojson/desa
+app.use('/', legacyGeoRoutes);
+
 // OSRM URL
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5003';
 
 // Tileserver URL (required for self-hosted setup)
-const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://localhost:5001/styles/basic-preview';
+const TILE_SERVER_URL = process.env.TILE_SERVER_URL || 'http://127.0.0.1:5001/styles/basic-preview';
+
+// Vector PBF: tileserver-gl serves at /data/<name>/{z}/{x}/{y}.pbf
+// Derive host from TILE_SERVER_URL so Docker env override applies automatically
+const TILE_SERVER_DATA_URL = process.env.TILE_SERVER_DATA_URL ||
+  `${new URL(TILE_SERVER_URL).origin}/data/v3`;
 
 // Nominatim URL (for reverse geocoding)
 const NOMINATIM_URL = process.env.NOMINATIM_URL || 'http://localhost:5002';
@@ -120,6 +145,9 @@ app.get('/health', async (req, res) => {
     } catch (e) {
       nominatimStatus = 'unreachable';
     }
+
+    // Check PostGIS
+    const postgisHealth = await checkPostGIS();
     
     res.json({
       status: 'ok',
@@ -131,6 +159,7 @@ app.get('/health', async (req, res) => {
       osrmBackend: OSRM_URL,
       nominatim: NOMINATIM_URL,
       nominatimStatus,
+      postgis: postgisHealth,
       memory: {
         current: memoryStats.current,
         percent: memoryStats.percent,
@@ -505,8 +534,6 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
 
   } catch (error) {
     logger.error(`Tile proxy error for ${req.params.z}/${req.params.x}/${req.params.y}:`, error.message);
-    
-    // Return simple error response
     res.status(error.response?.status || 500).json({
       error: 'Failed to fetch tile from tileserver',
       message: error.message,
@@ -515,8 +542,150 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
   }
 });
 
+/**
+ * Vector tile (PBF) endpoint - proxy to tileserver-gl mbtiles data
+ * GET /tiles/pbf/:z/:x/:y.pbf
+ */
+app.get('/tiles/pbf/:z/:x/:y.pbf', async (req, res) => {
+  try {
+    const { z, x, y } = req.params;
+    const zoom = parseInt(z);
+
+    if (zoom < 0 || zoom > 18) {
+      return res.status(400).json({ error: 'Zoom level must be between 0-18' });
+    }
+
+    const tileUrl = `${TILE_SERVER_DATA_URL}/${z}/${x}/${y}.pbf`;
+    logger.debug(`Proxying vector tile request: ${z}/${x}/${y}`);
+
+    const response = await axios.get(tileUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10000,
+      headers: { 'User-Agent': 'OSRM-Tile-Service/2.0' }
+    });
+
+    res.set('Content-Type', 'application/x-protobuf');
+    res.set('X-Tile-Source', 'tileserver-vector-proxy');
+    res.set('Cache-Control', 'public, max-age=86400');
+    // Forward Content-Encoding if gzipped by tileserver
+    if (response.headers['content-encoding']) {
+      res.set('Content-Encoding', response.headers['content-encoding']);
+    }
+    res.send(Buffer.from(response.data));
+
+  } catch (error) {
+    logger.error(`Vector tile proxy error for ${req.params.z}/${req.params.x}/${req.params.y}:`, error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to fetch vector tile from tileserver',
+      message: error.message,
+      tile: `${req.params.z}/${req.params.x}/${req.params.y}`
+    });
+  }
+});
+
 
 // No helper functions needed for lightweight proxy mode
+
+/**
+ * Proxy tileserver TileJSON for a data source.
+ * GET /data/:name.json  (e.g. /data/v3.json)
+ */
+app.get('/data/:name.json', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const tileJsonUrl = `${tileBase}/data/${req.params.name}.json`;
+    const response = await axios.get(tileJsonUrl, { timeout: 10000 });
+    const tj = response.data;
+
+    // Rewrite tile URLs to go through our PBF proxy
+    if (tj.tiles) {
+      tj.tiles = tj.tiles.map(t =>
+        t.replace(/^https?:\/\/[^/]+\/data\/[^/]+\//, `${req.protocol}://${req.get('host')}/tiles/pbf/`)
+      );
+    }
+
+    res.set('Content-Type', 'application/json');
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(tj);
+  } catch (error) {
+    logger.error('TileJSON proxy error:', error.message);
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch TileJSON', message: error.message });
+  }
+});
+
+/**
+ * Proxy fonts from tileserver (used by MapLibre GL for label rendering).
+ * GET /fonts/*
+ */
+app.get('/fonts/*', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const fontUrl = `${tileBase}/fonts/${req.params[0]}`;
+    const response = await axios.get(fontUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    res.set('Content-Type', response.headers['content-type'] || 'application/x-protobuf');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(response.data));
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch font', message: error.message });
+  }
+});
+
+/**
+ * Proxy sprites from tileserver (used by MapLibre GL for icons).
+ * GET /sprites/*
+ */
+app.get('/sprites/*', async (req, res) => {
+  try {
+    const tileBase = new URL(TILE_SERVER_URL).origin;
+    const spriteUrl = `${tileBase}/sprites/${req.params[0]}`;
+    const response = await axios.get(spriteUrl, { responseType: 'arraybuffer', timeout: 10000 });
+    res.set('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(response.data));
+  } catch (error) {
+    res.status(error.response?.status || 500).json({ error: 'Failed to fetch sprite', message: error.message });
+  }
+});
+
+/**
+ * Proxy tileserver style.json, rewriting tile source URLs to go through our PBF proxy.
+ * GET /tiles/style.json
+ */
+app.get('/tiles/style.json', async (req, res) => {
+  try {
+    const styleUrl = `${new URL(TILE_SERVER_URL).origin}/styles/basic-preview/style.json`;
+    const response = await axios.get(styleUrl, { timeout: 10000 });
+    const style = response.data;
+
+    // Rewrite vector tile sources to use our proxy endpoint
+    if (style.sources) {
+      for (const src of Object.values(style.sources)) {
+        if (src.tiles) {
+          src.tiles = src.tiles.map(t =>
+            t.replace(/^https?:\/\/[^/]+\/data\/[^/]+\//, `${req.protocol}://${req.get('host')}/tiles/pbf/`)
+          );
+        }
+        if (src.url) {
+          src.url = src.url.replace(/^https?:\/\/[^/]+/, `${req.protocol}://${req.get('host')}`);
+        }
+      }
+    }
+    // Rewrite glyphs (fonts) and sprites URLs
+    const origin = `${req.protocol}://${req.get('host')}`;
+    if (style.glyphs) style.glyphs = style.glyphs.replace(/^https?:\/\/[^/]+/, origin);
+    if (style.sprite) style.sprite = style.sprite.replace(/^https?:\/\/[^/]+/, origin);
+    if (Array.isArray(style.sprite)) {
+      style.sprite = style.sprite.map(s => ({ ...s, url: s.url.replace(/^https?:\/\/[^/]+/, origin) }));
+    }
+
+    res.set('Content-Type', 'application/json');
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(style);
+  } catch (error) {
+    logger.error('Style proxy error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch style.json', message: error.message });
+  }
+});
 
 // Graceful shutdown handling
 process.on('SIGTERM', () => {
@@ -553,6 +722,8 @@ app.listen(PORT, '0.0.0.0', () => {
   logger.info(`   🗺️  Tiles: http://localhost:${PORT}/tiles/{z}/{x}/{y}.png (proxy)`);
   logger.info(`   📍 Reverse Geocoding: http://localhost:${PORT}/geocode/reverse?lat=-6.9175&lon=107.6191`);
   logger.info(`   🔍 Search Location: http://localhost:${PORT}/geocode/search?q=Bandung`);
+  logger.info(`   🗺️  Boundaries:     http://localhost:${PORT}/api/boundaries/city`);
+  logger.info(`   ✂️  Split:          POST http://localhost:${PORT}/api/boundaries/split`);
   logger.info('');
   logger.info('🌐 Web UI: http://localhost:' + PORT);
   logger.info('='.repeat(50));

@@ -12,11 +12,24 @@
     "preload": "node -e \"const axios = require('axios'); axios.post('http://localhost/cache/preload', {zoomLevels: [10,11,12]}).then(r => console.log(r.data)).catch(e => console.error(e.message))\"",
     "cache-stats": "node -e \"const axios = require('axios'); axios.get('http://localhost/cache/stats').then(r => console.log(JSON.stringify(r.data, null, 2))).catch(e => console.error(e.message))\"",
     "test:geocoding": "node test-geocoding.js",
+    "db:init": "node src/db-init.js",
+    "db:import": "node scripts/import-boundaries.js",
+    "db:import:jabar": "node scripts/import-jabar-boundaries.js",
+    "db:import:jabar:dry": "DRY_RUN=1 node scripts/import-jabar-boundaries.js",
+    "db:import:jabar:kab": "SKIP_KECAMATAN=1 node scripts/import-jabar-boundaries.js",
+    "db:import:provinces": "node scripts/import-province-boundaries.js",
+    "db:import:provinces:dry": "DRY_RUN=1 node scripts/import-province-boundaries.js",
+    "db:import:districts": "node scripts/import-district-boundaries.js",
+    "db:import:districts:dry": "DRY_RUN=1 node scripts/import-district-boundaries.js",
+    "db:import:villages": "node scripts/import-village-boundaries.js",
+    "db:import:villages:dry": "DRY_RUN=1 node scripts/import-village-boundaries.js",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f osrm-api-1 osrm-api-2",
-    "docker:status": "docker-compose ps"
+    "docker:status": "docker-compose ps",
+    "db:import:villages:supplement": "node scripts/import-village-supplement.js",
+    "db:import:villages:supplement:dry": "DRY_RUN=1 node scripts/import-village-supplement.js"
   },
   "keywords": [
     "osrm",
@@ -34,6 +47,7 @@
     "express-rate-limit": "^8.2.1",
     "express-validator": "^7.3.1",
     "helmet": "^8.1.0",
+    "pg": "^8.13.1",
     "winston": "^3.18.3"
   },
   "devDependencies": {

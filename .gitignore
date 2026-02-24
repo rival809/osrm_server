@@ -19,6 +19,7 @@ data/*.osrm.*
 data/*
 !data/.gitkeep
 !data/README.md
+!data/district_boundaries.dump
 
 # Cache (persistent tile storage)
 cache/*

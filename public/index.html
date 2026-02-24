@@ -1,132 +1,190 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSRM Tile Service - Jawa Barat</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>OSRM Tile Service - Jawa</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" />
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* MapLibre tooltip popup */
+        .ml-tooltip .maplibregl-popup-content {
+            background: rgba(30,30,30,0.85); color: white; padding: 5px 10px;
+            border-radius: 4px; font-size: 12px; font-weight: 600; pointer-events: none;
+            white-space: nowrap; box-shadow: 0 1px 6px rgba(0,0,0,0.3);
         }
+        .ml-tooltip .maplibregl-popup-tip { border-top-color: rgba(30,30,30,0.85); }
+        .ml-tooltip.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: rgba(30,30,30,0.85); }
+        .ml-tooltip.maplibregl-popup-anchor-top    .maplibregl-popup-tip { border-bottom-color: rgba(30,30,30,0.85); }
+    </style>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
+            display: flex; flex-direction: column; height: 100vh;
         }
         #header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px 20px;
+            color: white; padding: 12px 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex; justify-content: space-between; align-items: center;
         }
-        #header h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
+        #header h1 { font-size: 22px; }
+        #header p { font-size: 13px; opacity: 0.9; }
+
+        #tabs {
+            background: #f8f9fa; display: flex; border-bottom: 2px solid #e0e0e0;
         }
-        #header p {
-            font-size: 14px;
-            opacity: 0.9;
+        .tab-btn {
+            padding: 10px 20px; border: none; background: none; cursor: pointer;
+            font-size: 14px; font-weight: 600; color: #666; position: relative;
+            transition: color .2s;
         }
-        #controls {
-            background: white;
-            padding: 15px 20px;
-            border-bottom: 1px solid #e0e0e0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .input-group {
-            display: flex;
-            gap: 5px;
-            align-items: center;
-        }
-        .input-group label {
-            font-size: 14px;
-            font-weight: 600;
-            min-width: 50px;
-        }
-        .input-group input {
-            padding: 8px 12px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            width: 150px;
-        }
-        button {
-            padding: 8px 16px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            transition: background 0.3s;
-        }
-        button:hover {
-            background: #5568d3;
-        }
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-        #map {
-            flex: 1;
-            position: relative;
-        }
-        #info {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            z-index: 1000;
-            max-width: 300px;
-            display: none;
-        }
-        #info.show {
-            display: block;
-        }
-        #info h3 {
-            margin-bottom: 10px;
+        .tab-btn:hover { color: #667eea; }
+        .tab-btn.active {
             color: #667eea;
         }
-        #info p {
-            margin: 5px 0;
-            font-size: 14px;
+        .tab-btn.active::after {
+            content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+            height: 3px; background: #667eea; border-radius: 3px 3px 0 0;
         }
-        .marker-start {
-            background-color: #22c55e;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        .tab-panel { display: none; background: white; padding: 12px 20px; border-bottom: 1px solid #e0e0e0; }
+        .tab-panel.active { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+        .input-group { display: flex; gap: 5px; align-items: center; }
+        .input-group label { font-size: 13px; font-weight: 600; min-width: 45px; }
+        .input-group input, .input-group select {
+            padding: 7px 10px; border: 1px solid #ddd; border-radius: 4px;
+            font-size: 13px;
         }
-        .marker-end {
-            background-color: #ef4444;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        .input-group input { width: 150px; }
+        button, .btn {
+            padding: 7px 14px; background: #667eea; color: white; border: none;
+            border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;
+            transition: background 0.2s; display: inline-flex; align-items: center; gap: 4px;
         }
+        button:hover, .btn:hover { background: #5568d3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-outline {
+            background: white; color: #667eea; border: 1.5px solid #667eea;
+        }
+        .btn-outline:hover { background: #f0f2ff; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #22c55e; }
+        .btn-success:hover { background: #16a34a; }
+
+        .separator { width: 1px; height: 28px; background: #ddd; margin: 0 4px; }
+
+        #map-wrapper { flex: 1; position: relative; }
+        #map { width: 100%; height: 100%; }
+
+        #info {
+            position: absolute; bottom: 20px; left: 20px; background: white;
+            padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000; max-width: 300px; display: none;
+        }
+        #info.show { display: block; }
+        #info h3 { margin-bottom: 8px; color: #667eea; font-size: 15px; }
+        #info p { margin: 4px 0; font-size: 13px; }
+
+        #boundary-panel {
+            position: absolute; top: 10px; right: 10px; width: 320px; max-height: calc(100% - 20px);
+            background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+            z-index: 1000; display: none; flex-direction: column; overflow: hidden;
+        }
+        #boundary-panel.show { display: flex; }
+        #boundary-panel .bp-header {
+            padding: 12px 14px; background: #667eea; color: white;
+            font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; align-items: center;
+        }
+        #boundary-panel .bp-header button {
+            background: rgba(255,255,255,0.2); padding: 3px 8px; font-size: 12px;
+        }
+        #boundary-panel .bp-body { padding: 12px 14px; overflow-y: auto; flex: 1; }
+        #boundary-panel .bp-body p { font-size: 13px; margin: 4px 0; }
+        #boundary-panel .bp-body .label { color: #888; font-size: 12px; }
+        #boundary-panel .bp-body .value { font-weight: 600; }
+        .bp-children { margin-top: 8px; }
+        .bp-children .child-item {
+            padding: 6px 8px; background: #f8f9fa; border-radius: 4px; margin-bottom: 4px;
+            font-size: 12px; cursor: pointer; transition: background .15s;
+        }
+        .bp-children .child-item:hover { background: #e8eaff; }
+
+        /* Breadcrumb */
+        #breadcrumb {
+            padding: 6px 14px; background: #f0f2ff; border-bottom: 1px solid #dde;
+            font-size: 12px; display: none; flex-wrap: wrap; gap: 2px; align-items: center;
+        }
+        #breadcrumb.show { display: flex; }
+        .bc-item { color: #667eea; cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+        .bc-item:hover { background: #dde3ff; }
+        .bc-sep { color: #aaa; padding: 0 2px; }
+        .bc-current { color: #333; font-weight: 600; padding: 2px 4px; }
+        .dblclick-hint {
+            position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.65); color: white; padding: 6px 14px;
+            border-radius: 20px; font-size: 12px; z-index: 999; pointer-events: none;
+            opacity: 0; transition: opacity .4s;
+        }
+        .dblclick-hint.show { opacity: 1; }
+
+        .legend {
+            position: absolute; bottom: 20px; right: 10px; background: white;
+            padding: 10px 14px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 999; display: none; font-size: 12px;
+        }
+        .legend.show { display: block; }
+        .legend h4 { margin-bottom: 6px; font-size: 13px; }
+        .legend-item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+        .legend-color { width: 18px; height: 12px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.2); }
+
+        /* Toast */
+        .toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #333; color: white; padding: 10px 20px; border-radius: 6px;
+            z-index: 9999; font-size: 13px; opacity: 0; transition: opacity .3s;
+        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #ef4444; }
+        .toast.success { background: #22c55e; }
+
+        /* Fix: MapLibre focus outline */
+        .maplibregl-canvas:focus { outline: none !important; }
+
+        /* Tile mode toggle */
+        #tile-mode-toggle {
+            display: flex; align-items: center; gap: 4px;
+            background: rgba(255,255,255,0.15); border-radius: 20px;
+            padding: 4px 6px; cursor: pointer; user-select: none;
+        }
+        #tile-mode-toggle span {
+            font-size: 12px; font-weight: 600; color: white; padding: 3px 10px;
+            border-radius: 14px; transition: background .2s;
+        }
+        #tile-mode-toggle span.active { background: rgba(255,255,255,0.35); }
     </style>
 </head>
 <body>
     <div id="header">
-        <h1>🗺️ OSRM Tile Service - Jawa Barat</h1>
-        <p>Routing dan Tile Server untuk Wilayah Jawa Barat</p>
+        <div>
+            <h1>🗺️ OSRM Service - Pulau Jawa</h1>
+            <p>Routing, Tiles & Administrative Boundaries</p>
+        </div>
+        <div id="tile-mode-toggle" title="Ganti mode render tile">
+            <span id="mode-png" class="active">🖼️ PNG</span>
+            <span id="mode-pbf">⬡ Vektor</span>
+        </div>
     </div>
-    
-    <div id="controls">
+
+    <!-- Tabs -->
+    <div id="tabs">
+        <button class="tab-btn active" data-tab="routing">🛣️ Routing</button>
+        <button class="tab-btn" data-tab="boundaries">🏛️ Boundaries</button>
+    </div>
+
+    <!-- Tab Panel: Routing -->
+    <div id="panel-routing" class="tab-panel active">
         <div class="input-group">
             <label>Start:</label>
             <input type="text" id="start" placeholder="lon,lat" value="107.6191,-6.9175">
@@ -136,11 +194,28 @@
             <input type="text" id="end" placeholder="lon,lat" value="107.6098,-6.9145">
         </div>
         <button id="routeBtn">🛣️ Cari Rute</button>
-        <button id="clearBtn">🗑️ Clear</button>
+        <button id="clearBtn" class="btn-outline">🗑️ Clear</button>
     </div>
 
-    <div id="map"></div>
-    
+    <!-- Tab Panel: Boundaries -->
+    <div id="panel-boundaries" class="tab-panel">
+        <div id="breadcrumb"></div>
+        <div class="input-group">
+            <input type="text" id="kdWilInput" placeholder="kd_wil (misal: 12020, 12030)" style="width:220px" title="Kosongkan untuk muat semua kabupaten">
+            <button id="muatKabBtn" title="Muat kabupaten sesuai kd_wil (kosong = semua)">🔍 Muat</button>
+        </div>
+        <button id="clearBoundaryBtn" class="btn-outline">🗑️ Hapus Layer</button>
+        <button id="allKecamatanBtn" class="btn-outline" style="display:none" title="Muat kecamatan dari semua kabupaten sekaligus">🗺️ Semua Kecamatan</button>
+        <button id="clearKecamatanBtn" class="btn-outline" style="display:none" title="Hapus semua layer kecamatan">✕ Hapus Kecamatan</button>
+        <div class="separator"></div>
+        <span style="font-size:12px;color:#999;margin-left:6px">Klik wilayah untuk toggle kecamatan</span>
+    </div>
+
+    <div id="map-wrapper">
+        <div id="map"></div>
+    </div>
+
+    <!-- Route info -->
     <div id="info">
         <h3>📊 Informasi Rute</h3>
         <p><strong>Jarak:</strong> <span id="distance">-</span></p>
@@ -148,184 +223,594 @@
         <p><strong>Status:</strong> <span id="status">-</span></p>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Boundary detail panel -->
+    <div id="boundary-panel">
+        <div class="bp-header">
+            <span id="bp-title">Detail Wilayah</span>
+            <button onclick="closeBoundaryPanel()">✕</button>
+        </div>
+        <div class="bp-body" id="bp-body"></div>
+    </div>
+
+    <!-- double-click hint -->
+    <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
+
+    <!-- Legend -->
+    <div class="legend" id="legend">
+        <h4>🎨 Legenda</h4>
+        <div class="legend-item"><span class="legend-color" style="background:transparent;border:2px solid #7c3aed"></span> Kota/Kabupaten</div>
+        <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
     <script>
-        // Use relative URL to go through Nginx
-        const API_URL = window.location.origin;
-        
-        // Initialize map - center on Bandung
-        const map = L.map('map').setView([-6.9175, 107.6191], 13);
-        
-        // Use backend tiles (backend handles OSM fallback)
-        L.tileLayer(`${API_URL}/tiles/{z}/{x}/{y}.png`, {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 18,
-            minZoom: 2
-        }).addTo(map);
-        
-        console.log('Map initialized with local tiles:', `${API_URL}/tiles/{z}/{x}/{y}.png`);
+    //  GLOBALS
+    const API_URL = window.location.origin;
 
-        let startMarker = null;
-        let endMarker = null;
-        let routeLine = null;
+    const makePngStyle = () => ({
+        version: 8,
+        sources: { raster: { type: 'raster', tiles: [`${API_URL}/tiles/{z}/{x}/{y}.png`], tileSize: 256, attribution: '&copy; OpenStreetMap contributors' } },
+        layers:  [{ id: 'raster-bg', type: 'raster', source: 'raster' }]
+    });
 
-        // Elements
-        const startInput = document.getElementById('start');
-        const endInput = document.getElementById('end');
-        const routeBtn = document.getElementById('routeBtn');
-        const clearBtn = document.getElementById('clearBtn');
-        const info = document.getElementById('info');
-        const distanceEl = document.getElementById('distance');
-        const durationEl = document.getElementById('duration');
-        const statusEl = document.getElementById('status');
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: makePngStyle(),
+        center: [107.6191, -6.9175],
+        zoom: 10,
+        attributionControl: false,
+    });
+    map.addControl(new maplibregl.NavigationControl(), 'top-left');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
-        // Parse coordinate string
-        function parseCoord(coordStr) {
-            const [lon, lat] = coordStr.split(',').map(s => parseFloat(s.trim()));
-            return { lon, lat };
+    let tileMode = 'png';
+
+    async function setTileMode(mode) {
+        tileMode = mode;
+        document.getElementById('mode-png').classList.toggle('active', mode === 'png');
+        document.getElementById('mode-pbf').classList.toggle('active', mode === 'pbf');
+        let style;
+        if (mode === 'pbf') {
+            const resp = await fetch(`${API_URL}/tiles/style.json`);
+            style = await resp.json();
+        } else {
+            style = makePngStyle();
         }
+        map.setStyle(style);
+        map.once('style.load', reAddAllOverlays);
+    }
 
-        // Format distance
-        function formatDistance(meters) {
-            if (meters < 1000) {
-                return `${Math.round(meters)} m`;
-            }
-            return `${(meters / 1000).toFixed(2)} km`;
+    document.getElementById('tile-mode-toggle').addEventListener('click', () => {
+        setTileMode(tileMode === 'png' ? 'pbf' : 'png');
+    });
+
+    //  TOAST
+    function toast(msg, type = '') {
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast show ' + type;
+        setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    //  HELPERS
+    function geojsonBounds(geojson) {
+        let W = Infinity, S = Infinity, E = -Infinity, N = -Infinity;
+        const pt = ([lng, lat]) => { if(lng<W)W=lng; if(lat<S)S=lat; if(lng>E)E=lng; if(lat>N)N=lat; };
+        const geom = g => {
+            if (!g) return;
+            if (g.type==='Point') pt(g.coordinates);
+            else if (g.type==='LineString') g.coordinates.forEach(pt);
+            else if (g.type==='Polygon') g.coordinates.forEach(r=>r.forEach(pt));
+            else if (g.type==='MultiPolygon') g.coordinates.forEach(p=>p.forEach(r=>r.forEach(pt)));
+            else if (g.type==='MultiLineString') g.coordinates.forEach(r=>r.forEach(pt));
+            else if (g.type==='GeometryCollection') g.geometries.forEach(geom);
+        };
+        const features = geojson.features || (geojson.type==='Feature' ? [geojson] : []);
+        features.forEach(f => geom(f.geometry));
+        return [[W,S],[E,N]];
+    }
+
+    function normProps(feature, level) {
+        const p = feature.properties || {};
+        if (level === 'city') {
+            return { name: p.KABKOT || p.name || '(tanpa nama)', p3d_id: p.ID_KAB || p.id_kab || null, level: 'city' };
+        } else if (level === 'district') {
+            return {
+                name: p.nm_kecamatan || p.name || p.kecamatan || p.nama || '(tanpa nama)',
+                district_id: p.kd_kecamatan || p.district_id || p.kode || null,
+                p3d_id: p.ID_KAB || p.p3d_id || null, level: 'district',
+            };
         }
+        return { name: p.name || '(tanpa nama)', level };
+    }
 
-        // Format duration
-        function formatDuration(seconds) {
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = Math.floor(seconds % 60);
-            
-            if (hours > 0) {
-                return `${hours}j ${minutes}m ${secs}d`;
-            }
-            if (minutes > 0) {
-                return `${minutes}m ${secs}d`;
-            }
-            return `${secs}d`;
+    function findFullFeature(props, level) {
+        const data = boundaryData[level];
+        if (!data) return null;
+        return data.features.find(f => {
+            const fp = f.properties;
+            if (level === 'city')     return (fp.ID_KAB || fp.id_kab) === (props.ID_KAB || props.id_kab);
+            if (level === 'district') return (
+                (fp.kd_kecamatan || fp.district_id || fp.kode) === (props.kd_kecamatan || props.district_id || props.kode)
+                && (fp.ID_KAB || fp.p3d_id) === (props.ID_KAB || props.p3d_id)
+            );
+            return false;
+        }) || null;
+    }
+
+    //  LAYER MANAGEMENT
+    const COLORS = {
+        city:     { fill: '#7c3aed', border: '#7c3aed', fillOpacity: 0, borderWidth: 2.5 },
+        district: { fill: '#10b981', border: '#059669', fillOpacity: 0.20, borderWidth: 1.2 },
+    };
+
+    // Layer stacking order (bottom → top): district-fill, district-border, city-fill, city-border, hl-fill, hl-border
+    const LAYER_ORDER = ['district-fill','district-border','city-fill','city-border','hl-fill','hl-border'];
+
+    function getInsertBeforeId(layerId) {
+        const idx = LAYER_ORDER.indexOf(layerId);
+        for (let i = idx + 1; i < LAYER_ORDER.length; i++) {
+            if (map.getLayer(LAYER_ORDER[i])) return LAYER_ORDER[i];
         }
+        return undefined; // add on top
+    }
 
-        // Get route
-        async function getRoute() {
-            try {
-                routeBtn.disabled = true;
-                statusEl.textContent = 'Mencari rute...';
-                info.classList.add('show');
+    let boundaryData     = {};
+    let selectedFeature  = null;
+    let currentLevel     = 'city';
+    let drillStack       = [];
+    let _layersAdded     = {}; // track which levels have layers
+    let loadedDistrictCities = new Map(); // p3d_id → features[]
 
-                const start = parseCoord(startInput.value);
-                const end = parseCoord(endInput.value);
+    function srcId(lvl)    { return `${lvl}-src`; }
+    function fillId(lvl)   { return `${lvl}-fill`; }
+    function borderId(lvl) { return `${lvl}-border`; }
 
-                // Add markers
-                if (startMarker) map.removeLayer(startMarker);
-                if (endMarker) map.removeLayer(endMarker);
+    function safeAddSource(id, data) {
+        if (map.getSource(id)) map.getSource(id).setData(data);
+        else map.addSource(id, { type: 'geojson', data });
+    }
+    function safeRemoveLayer(id) { if (map.getLayer(id))  map.removeLayer(id); }
+    function safeRemoveSource(id){ if (map.getSource(id)) map.removeSource(id); }
 
-                startMarker = L.circleMarker([start.lat, start.lon], {
-                    radius: 8,
-                    fillColor: '#22c55e',
-                    color: 'white',
-                    weight: 2,
-                    fillOpacity: 1
-                }).addTo(map);
-
-                endMarker = L.circleMarker([end.lat, end.lon], {
-                    radius: 8,
-                    fillColor: '#ef4444',
-                    color: 'white',
-                    weight: 2,
-                    fillOpacity: 1
-                }).addTo(map);
-
-                // Request route
-                const response = await fetch(
-                    `${API_URL}/route?start=${start.lon},${start.lat}&end=${end.lon},${end.lat}`
-                );
-                const data = await response.json();
-
-                if (!data.success || !data.data.routes || data.data.routes.length === 0) {
-                    throw new Error('Rute tidak ditemukan');
-                }
-
-                const route = data.data.routes[0];
-
-                // Draw route
-                if (routeLine) map.removeLayer(routeLine);
-                
-                const coordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                routeLine = L.polyline(coordinates, {
-                    color: '#667eea',
-                    weight: 5,
-                    opacity: 0.7
-                }).addTo(map);
-
-                // Fit bounds
-                const bounds = L.latLngBounds(coordinates);
-                map.fitBounds(bounds, { padding: [50, 50] });
-
-                // Update info
-                distanceEl.textContent = formatDistance(route.distance);
-                durationEl.textContent = formatDuration(route.duration);
-                statusEl.textContent = '✅ Berhasil';
-
-            } catch (error) {
-                console.error('Error:', error);
-                statusEl.textContent = `❌ Error: ${error.message}`;
-                distanceEl.textContent = '-';
-                durationEl.textContent = '-';
-            } finally {
-                routeBtn.disabled = false;
-            }
+    function addBoundaryLevel(level, geojson) {
+        const c = COLORS[level];
+        boundaryData[level] = geojson;
+        safeAddSource(srcId(level), geojson);
+        if (!map.getLayer(fillId(level))) {
+            const beforeFill = getInsertBeforeId(fillId(level));
+            map.addLayer({ id: fillId(level), type: 'fill', source: srcId(level), paint: { 'fill-color': c.fill, 'fill-opacity': c.fillOpacity } }, beforeFill);
         }
-
-        // Clear map
-        function clearMap() {
-            if (startMarker) {
-                map.removeLayer(startMarker);
-                startMarker = null;
-            }
-            if (endMarker) {
-                map.removeLayer(endMarker);
-                endMarker = null;
-            }
-            if (routeLine) {
-                map.removeLayer(routeLine);
-                routeLine = null;
-            }
-            info.classList.remove('show');
-            distanceEl.textContent = '-';
-            durationEl.textContent = '-';
-            statusEl.textContent = '-';
+        if (!map.getLayer(borderId(level))) {
+            const beforeBorder = getInsertBeforeId(borderId(level));
+            map.addLayer({ id: borderId(level), type: 'line', source: srcId(level), paint: { 'line-color': c.border, 'line-width': c.borderWidth } }, beforeBorder);
         }
+        _layersAdded[level] = true;
+        setupLayerEvents(level);
+    }
 
-        // Click map to set coordinates
-        let clickMode = 'start';
-        map.on('click', (e) => {
-            const coord = `${e.latlng.lng.toFixed(6)},${e.latlng.lat.toFixed(6)}`;
-            
-            if (clickMode === 'start') {
-                startInput.value = coord;
-                clickMode = 'end';
+    function removeBoundaryLevel(level) {
+        safeRemoveLayer(fillId(level)); safeRemoveLayer(borderId(level)); safeRemoveSource(srcId(level));
+        delete boundaryData[level]; delete _layersAdded[level];
+    }
+
+    function rebuildDistrictLayer() {
+        const allFeatures = [...loadedDistrictCities.values()].flat();
+        if (allFeatures.length === 0) {
+            removeBoundaryLevel('district');
+        } else {
+            const merged = { type: 'FeatureCollection', features: allFeatures };
+            if (map.getSource('district-src')) {
+                map.getSource('district-src').setData(merged);
+                boundaryData['district'] = merged;
             } else {
-                endInput.value = coord;
-                clickMode = 'start';
+                addBoundaryLevel('district', merged);
             }
+        }
+        renderBreadcrumb();
+    }
+
+    function addHighlightLayer(feature) {
+        const fc = { type: 'FeatureCollection', features: [feature] };
+        safeAddSource('hl-src', fc);
+        if (!map.getLayer('hl-fill'))   map.addLayer({ id: 'hl-fill',   type: 'fill', source: 'hl-src', paint: { 'fill-color': '#764ba2', 'fill-opacity': 0.30 } });
+        if (!map.getLayer('hl-border')) map.addLayer({ id: 'hl-border', type: 'line', source: 'hl-src', paint: { 'line-color': '#764ba2', 'line-width': 3 } });
+        // ensure highlight is always on top
+        if (map.getLayer('hl-fill'))   map.moveLayer('hl-fill');
+        if (map.getLayer('hl-border')) map.moveLayer('hl-border');
+    }
+
+    function removeHighlightLayer() {
+        safeRemoveLayer('hl-fill'); safeRemoveLayer('hl-border'); safeRemoveSource('hl-src');
+        selectedFeature = null;
+    }
+
+    function reAddAllOverlays() {
+        // re-register all active boundary levels after style change
+        const snapshot = { ...boundaryData };
+        _layersAdded = {};
+        for (const [lvl, data] of Object.entries(snapshot)) addBoundaryLevel(lvl, data);
+        if (selectedFeature) addHighlightLayer(selectedFeature);
+        if (routeGeoJSON)    addRouteLayer(routeGeoJSON);
+    }
+
+    const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'ml-tooltip', offset: 8 });
+
+    function setupLayerEvents(level) {
+        const fid = fillId(level);
+
+        map.on('mouseenter', fid, e => {
+            map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mousemove', fid, e => {
+            const seen = new Set();
+            const lines = [];
+            for (const f of e.features) {
+                const norm = normProps(f, level);
+                const kd  = level === 'city' ? norm.p3d_id : norm.district_id;
+                const key = `${norm.p3d_id}|${kd}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                lines.push(level === 'district' && norm.p3d_id
+                    ? `<b>${kd ?? '?'}</b> \u2013 ${norm.name} <small style="opacity:.62">[${norm.p3d_id}]</small>`
+                    : (kd ? `${kd} \u2013 ${norm.name}` : norm.name));
+            }
+            if (lines.length) tooltip.setLngLat(e.lngLat).setHTML(lines.join('<br>')).addTo(map);
+        });
+        map.on('mouseleave', fid, () => { map.getCanvas().style.cursor = ''; tooltip.remove(); });
+
+        map.on('click', fid, e => {
+            // collect all unique overlapping features at this point
+            const seen = new Set();
+            const uniq = [];
+            for (const f of e.features) {
+                const norm = normProps(f, level);
+                const key  = `${norm.p3d_id}|${norm.district_id || norm.p3d_id}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                uniq.push(f);
+            }
+            const primary = findFullFeature(uniq[0].properties, level) || uniq[0];
+            currentLevel = level;
+            removeHighlightLayer();
+            addHighlightLayer(primary);
+            selectedFeature = primary;
+            showBoundaryPanel(primary, level, uniq.length > 1 ? uniq : null);
         });
 
-        // Event listeners
-        routeBtn.addEventListener('click', getRoute);
-        clearBtn.addEventListener('click', clearMap);
-
-        // Enter key to search
-        [startInput, endInput].forEach(input => {
-            input.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') getRoute();
+        if (level === 'city') {
+            map.on('dblclick', fid, e => {
+                e.preventDefault();
+                const norm = normProps(e.features[0], 'city');
+                if (!norm.p3d_id) { toast('p3d_id tidak ditemukan', 'error'); return; }
+                closeBoundaryPanel();
+                toggleKecamatan(norm.p3d_id, norm.name);
             });
-        });
+        }
+    }
 
-        console.log('🗺️ OSRM Tile Service Demo');
-        console.log('Click on map to set start/end points');
+    //  ROUTING
+    let startMarker = null, endMarker = null, routeGeoJSON = null;
+    const startInput = document.getElementById('start');
+    const endInput   = document.getElementById('end');
+    const routeBtn   = document.getElementById('routeBtn');
+    const clearBtn   = document.getElementById('clearBtn');
+    const info       = document.getElementById('info');
+    const distanceEl = document.getElementById('distance');
+    const durationEl = document.getElementById('duration');
+    const statusEl   = document.getElementById('status');
+
+    function parseCoord(s) { const [lon,lat]=s.split(',').map(v=>parseFloat(v.trim())); return {lon,lat}; }
+    function fmtDist(m)  { return m<1000?`${Math.round(m)} m`:`${(m/1000).toFixed(2)} km`; }
+    function fmtDur(s)   { const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),d=Math.floor(s%60); return h>0?`${h}j ${m}m ${d}d`:m>0?`${m}m ${d}d`:`${d}d`; }
+
+    function makeMarkerEl(color) {
+        const el = document.createElement('div');
+        el.style.cssText = `width:16px;height:16px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4)`;
+        return el;
+    }
+
+    function addRouteLayer(geojson) {
+        routeGeoJSON = geojson;
+        safeAddSource('route-src', geojson);
+        if (!map.getLayer('route-line')) map.addLayer({ id: 'route-line', type: 'line', source: 'route-src', paint: { 'line-color': '#667eea', 'line-width': 5, 'line-opacity': 0.8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    }
+
+    function removeRouteLayer() { safeRemoveLayer('route-line'); safeRemoveSource('route-src'); routeGeoJSON = null; }
+
+    async function getRoute() {
+        try {
+            routeBtn.disabled = true;
+            statusEl.textContent = 'Mencari rute...';
+            info.classList.add('show');
+            const s = parseCoord(startInput.value), e = parseCoord(endInput.value);
+            if (startMarker) { startMarker.remove(); startMarker = null; }
+            if (endMarker)   { endMarker.remove();   endMarker   = null; }
+            startMarker = new maplibregl.Marker({ element: makeMarkerEl('#22c55e') }).setLngLat([s.lon, s.lat]).addTo(map);
+            endMarker   = new maplibregl.Marker({ element: makeMarkerEl('#ef4444') }).setLngLat([e.lon, e.lat]).addTo(map);
+            const resp = await fetch(`${API_URL}/route?start=${s.lon},${s.lat}&end=${e.lon},${e.lat}`);
+            const data = await resp.json();
+            if (!data.success || !data.data.routes?.length) throw new Error('Rute tidak ditemukan');
+            const route = data.data.routes[0];
+            removeRouteLayer();
+            addRouteLayer(route.geometry);
+            const coords = route.geometry.coordinates;
+            const lngs = coords.map(c=>c[0]), lats = coords.map(c=>c[1]);
+            map.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]], { padding: 60 });
+            distanceEl.textContent = fmtDist(route.distance);
+            durationEl.textContent = fmtDur(route.duration);
+            statusEl.textContent   = '✅ Berhasil';
+        } catch (err) {
+            console.error(err);
+            statusEl.textContent   = `❌ ${err.message}`;
+            distanceEl.textContent = durationEl.textContent = '-';
+        } finally { routeBtn.disabled = false; }
+    }
+
+    function clearRoute() {
+        if (startMarker) { startMarker.remove(); startMarker = null; }
+        if (endMarker)   { endMarker.remove();   endMarker   = null; }
+        removeRouteLayer();
+        info.classList.remove('show');
+        distanceEl.textContent = durationEl.textContent = statusEl.textContent = '-';
+    }
+
+    let clickMode = 'start';
+    map.on('click', e => {
+        // Only set coord if no boundary layer was clicked (boundary click stops propagation via layer event)
+        if (document.getElementById('panel-routing').classList.contains('active')) {
+            const coord = `${e.lngLat.lng.toFixed(6)},${e.lngLat.lat.toFixed(6)}`;
+            if (clickMode === 'start') { startInput.value = coord; clickMode = 'end'; }
+            else { endInput.value = coord; clickMode = 'start'; }
+        }
+    });
+
+    routeBtn.addEventListener('click', getRoute);
+    clearBtn.addEventListener('click', clearRoute);
+    [startInput, endInput].forEach(i => i.addEventListener('keypress', e => { if (e.key==='Enter') getRoute(); }));
+
+    //  BOUNDARY LAYER
+    const clearBndBtn = document.getElementById('clearBoundaryBtn');
+    const legend      = document.getElementById('legend');
+    const bcEl        = document.getElementById('breadcrumb');
+
+    function renderBreadcrumb() {
+        const count = loadedDistrictCities.size;
+        const allKecBtn    = document.getElementById('allKecamatanBtn');
+        const clearKecBtn  = document.getElementById('clearKecamatanBtn');
+        if (count === 0) {
+            bcEl.classList.remove('show');
+            if (allKecBtn)   allKecBtn.style.display   = boundaryData.city ? '' : 'none';
+            if (clearKecBtn) clearKecBtn.style.display = 'none';
+            return;
+        }
+        if (allKecBtn)   allKecBtn.style.display   = '';
+        if (clearKecBtn) clearKecBtn.style.display  = '';
+        bcEl.classList.add('show');
+        const names = [...loadedDistrictCities.keys()].map(id => {
+            const f = boundaryData.city?.features.find(f => normProps(f,'city').p3d_id === id);
+            return f ? normProps(f,'city').name : id;
+        });
+        const label = count === 1 ? names[0] : `${count} Kab/Kota`;
+        bcEl.innerHTML = `<span class="bc-item" onclick="jumpTo(0)">Kab/Kota</span>
+            <span class="bc-sep">›</span>
+            <span class="bc-current">${label}</span>`;
+    }
+
+    function jumpTo(depth) {
+        if (depth === 0) {
+            loadedDistrictCities.clear();
+            rebuildDistrictLayer();
+            drillStack = [];
+        }
+        closeBoundaryPanel();
+        renderBreadcrumb();
+    }
+    window.jumpTo = jumpTo;
+
+    async function drillInto(fromLevel, p3dId, parentName) {
+        if (fromLevel !== 'city') return;
+        if (loadedDistrictCities.has(p3dId)) {
+            // already loaded – just zoom and refresh panel
+            renderBreadcrumb();
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+            return;
+        }
+        try {
+            const resp = await fetch(`${API_URL}/api/geojson/kecamatan?kd_wil=${encodeURIComponent(p3dId)}`);
+            if (!resp.ok) throw new Error(`Data kecamatan untuk kd_wil=${p3dId} tidak ditemukan`);
+            const geojson = await resp.json();
+            loadedDistrictCities.set(p3dId, geojson.features || []);
+            rebuildDistrictLayer();
+            const bounds = geojsonBounds(geojson);
+            if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
+            toast(`✅ ${geojson.features?.length||0} kecamatan di ${parentName} ditambahkan`, 'success');
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+        } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
+    }
+    window.drillInto = drillInto;
+
+    async function toggleKecamatan(p3dId, parentName) {
+        if (loadedDistrictCities.has(p3dId)) {
+            loadedDistrictCities.delete(p3dId);
+            rebuildDistrictLayer();
+            toast(`Kecamatan ${parentName} dihapus dari tampilan`, 'success');
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+        } else {
+            await drillInto('city', p3dId, parentName);
+        }
+    }
+    window.toggleKecamatan = toggleKecamatan;
+
+    async function loadAllKecamatan() {
+        if (!boundaryData.city) { toast('Muat layer Kab/Kota terlebih dahulu', 'error'); return; }
+        const btn = document.getElementById('allKecamatanBtn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Memuat...';
+        const cityFeatures = boundaryData.city.features;
+        const remaining = cityFeatures.map(f => normProps(f,'city').p3d_id).filter(id => id && !loadedDistrictCities.has(String(id)));
+
+        if (remaining.length === 0) {
+            toast('Semua kecamatan sudah dimuat', 'success');
+            btn.disabled = false; btn.textContent = '🗺️ Semua Kecamatan';
+            return;
+        }
+        try {
+            // Single request: all = no param, subset = ?ids=a,b,c
+            const allCity = cityFeatures.length === remaining.length;
+            const url = allCity
+                ? `${API_URL}/api/geojson/kecamatan`
+                : `${API_URL}/api/geojson/kecamatan?ids=${remaining.join(',')}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const geojson = await resp.json();
+            // Group features by p3d_id / ID_KAB
+            (geojson.features || []).forEach(f => {
+                const id = String(f.properties?.ID_KAB || '');
+                if (!id) return;
+                if (!loadedDistrictCities.has(id)) loadedDistrictCities.set(id, []);
+                loadedDistrictCities.get(id).push(f);
+            });
+            rebuildDistrictLayer();
+            const total = [...loadedDistrictCities.values()].reduce((s, f) => s + f.length, 0);
+            toast(`✅ ${total} kecamatan dari ${loadedDistrictCities.size} kab/kota dimuat`, 'success');
+        } catch(e) { toast(`❌ ${e.message}`, 'error'); }
+        finally { btn.disabled = false; btn.textContent = '🗺️ Semua Kecamatan'; }
+    }
+    window.loadAllKecamatan = loadAllKecamatan;
+
+    async function loadAllBoundaries(ids = []) {
+        clearBoundaries(false);
+        const btn = document.getElementById('muatKabBtn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+        try {
+            const qs   = ids.length > 0 ? `?kd_wil=${ids.join(',')}` : '';
+            const resp = await fetch(`${API_URL}/api/geojson/kabupaten${qs}`);
+            if (!resp.ok) throw new Error('Gagal memuat data kabupaten');
+            const data = await resp.json();
+            addBoundaryLevel('city', data);
+            const bounds = geojsonBounds(data);
+            if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
+            legend.classList.add('show');
+            bcEl.classList.remove('show');
+            const allKecBtn = document.getElementById('allKecamatanBtn');
+            if (allKecBtn) allKecBtn.style.display = '';
+            const label = ids.length > 0 ? `${data.features?.length||0} Kab/Kota (filter: ${ids.join(', ')})` : `${data.features?.length||0} Kab/Kota`;
+            toast(`✅ ${label} dimuat · Klik wilayah untuk toggle kecamatan`, 'success');
+        } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
+        finally { if (btn) { btn.disabled = false; btn.textContent = '🔍 Muat'; } }
+    }
+
+    function loadBoundaries() { return loadAllBoundaries(); }
+
+    function clearBoundaries(hidePanel = true) {
+        ['city','district'].forEach(removeBoundaryLevel);
+        removeHighlightLayer();
+        loadedDistrictCities.clear();
+        drillStack = [];
+        const allKecBtn   = document.getElementById('allKecamatanBtn');
+        const clearKecBtn = document.getElementById('clearKecamatanBtn');
+        if (allKecBtn)   allKecBtn.style.display   = 'none';
+        if (clearKecBtn) clearKecBtn.style.display  = 'none';
+        if (hidePanel) { closeBoundaryPanel(); legend.classList.remove('show'); }
+        renderBreadcrumb();
+    }
+
+    function showBoundaryPanel(feature, level, allFeatures) {
+        const p    = feature.properties || {};
+        const norm = normProps(feature, level || currentLevel);
+        document.getElementById('bp-title').textContent = norm.name;
+        const safeP3d  = String(norm.p3d_id || '').replace(/'/g, "\\'");
+        const safeName = norm.name.replace(/'/g, "\\'");
+        let drillBtn = '';
+        if (level === 'city' && norm.p3d_id) {
+            const isLoaded = loadedDistrictCities.has(String(norm.p3d_id));
+            if (isLoaded) {
+                drillBtn = `<button class="btn btn-outline" style="width:100%;margin-bottom:8px;font-size:12px;border-color:#ef4444;color:#ef4444"
+                    onclick="toggleKecamatan('${safeP3d}','${safeName}')">
+                    ✕ Hapus Kecamatan ${safeName}</button>`;
+            } else {
+                drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
+                    onclick="toggleKecamatan('${safeP3d}','${safeName}')">
+                    ▶ Tampilkan Kecamatan</button>`;
+            }
+        }
+        // If multiple overlapping kab for same kecamatan, show combined kd info
+        let multiKdHtml = '';
+        if (allFeatures && allFeatures.length > 1 && level === 'district') {
+            const badges = allFeatures.map(f => {
+                const n = normProps(f, 'district');
+                return `<span style="background:#e8eaff;border-radius:4px;padding:2px 7px;margin:2px;display:inline-block;font-size:12px"><b>${n.district_id ?? '?'}</b> <span style="opacity:.65">[${n.p3d_id}]</span></span>`;
+            }).join('');
+            multiKdHtml = `<div style="margin-bottom:8px;padding:6px 8px;background:#f0f2ff;border-radius:6px">`
+                + `<div style="font-size:11px;color:#555;margin-bottom:4px">Kode kecamatan (per kab):</div>${badges}</div>`;
+        }
+        const propsHtml = Object.entries(p).map(([k,v])=>`<p><span class="label">${k}:</span> <span class="value">${v??'-'}</span></p>`).join('');
+        document.getElementById('bp-body').innerHTML = `${drillBtn}${multiKdHtml}${propsHtml}`;
+        document.getElementById('boundary-panel').classList.add('show');
+    }
+
+    window.closeBoundaryPanel = () => {
+        document.getElementById('boundary-panel').classList.remove('show');
+        removeHighlightLayer();
+    };
+
+    clearBndBtn.addEventListener('click', () => clearBoundaries(true));
+
+    const muatKabBtn = document.getElementById('muatKabBtn');
+    if (muatKabBtn) {
+        muatKabBtn.addEventListener('click', () => {
+            const raw = (document.getElementById('kdWilInput')?.value || '').trim();
+            const ids = raw ? raw.split(/[,\s]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s)) : [];
+            loadAllBoundaries(ids);
+        });
+        document.getElementById('kdWilInput')?.addEventListener('keypress', e => {
+            if (e.key === 'Enter') muatKabBtn.click();
+        });
+    }
+
+    const allKecamatanBtn  = document.getElementById('allKecamatanBtn');
+    const clearKecamatanBtn = document.getElementById('clearKecamatanBtn');
+    if (allKecamatanBtn)   allKecamatanBtn.addEventListener('click', loadAllKecamatan);
+    if (clearKecamatanBtn) clearKecamatanBtn.addEventListener('click', () => {
+        loadedDistrictCities.clear();
+        rebuildDistrictLayer();
+    });
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+            if (btn.dataset.tab === 'boundaries' && !boundaryData.city) loadAllBoundaries();
+        });
+    });
+
+    //  COORDINATE LOOKUP (right-click)
+    let lookupPopup = null;
+    map.on('contextmenu', async e => {
+        if (lookupPopup) { lookupPopup.remove(); lookupPopup = null; }
+        const { lng, lat } = e.lngLat;
+        lookupPopup = new maplibregl.Popup({ maxWidth: '280px' })
+            .setLngLat(e.lngLat).setHTML('<i>Mencari wilayah...</i>').addTo(map);
+        try {
+            const resp = await fetch(`${API_URL}/api/boundaries/lookup?lat=${lat.toFixed(6)}&lon=${lng.toFixed(6)}`);
+            const data = await resp.json();
+            if (!data.success || !data.results.length) {
+                lookupPopup.setHTML('<b>Tidak ditemukan</b><br>Koordinat di luar boundary yang tersedia.'); return;
+            }
+            const levelLabel = { province:'Provinsi', city:'Kota/Kab', district:'Kecamatan', village:'Kel/Desa' };
+            const rows = data.results.map(r=>`<tr><td style="color:#888;padding:2px 6px 2px 0">${levelLabel[r.admin_level]||r.admin_level}</td><td style="font-weight:600">${r.name}</td><td style="color:#aaa;font-size:11px;padding-left:4px">${r.code}</td></tr>`).join('');
+            lookupPopup.setHTML(`<b>📍 ${lat.toFixed(5)}, ${lng.toFixed(5)}</b><table style="margin-top:6px;border-collapse:collapse;font-size:13px">${rows}</table>`);
+        } catch (err) { lookupPopup.setHTML(`❌ ${err.message}`); }
+    });
+
+    //  INIT
+    console.log('🗺️ OSRM Service + Boundaries Demo (MapLibre GL)');
     </script>
 </body>
 </html>
