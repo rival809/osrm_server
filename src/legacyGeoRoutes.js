@@ -49,8 +49,9 @@ router.get('/api/geojson/desa', async (req, res) => {
       )
     )::text AS fc
     FROM village_boundaries
-    WHERE ($1 = '' OR district_id::text = $1)
-      AND ($2 = '' OR p3d_id::text = $2)
+    WHERE ($1 = '' OR district_id = $1)
+      AND ($2 = '' OR p3d_id = $2)
+    ORDER BY village
   `;
 
   try {
