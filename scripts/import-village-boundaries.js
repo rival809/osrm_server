@@ -33,16 +33,16 @@ async function main() {
   console.log(`Total records: ${records.length}`);
 
   if (DRY_RUN) {
-    console.log('\n-- RAW keys of first record --');
-    if (records[0]) console.log(JSON.stringify(Object.keys(records[0])));
     console.log('\n-- DRY RUN preview (first 5 rows) --');
     records.slice(0, 5).forEach((r, i) => {
       const geom = r.geom || r.geometry;
+      const districtId = r.ID_KEC  || r.district_id;
+      const village    = r.DESA    || r.village;
+      const uniqueCode = r.ID2012  || r.unique_code;
       console.log(
-        `[${i}] district_id=${r.district_id} | unique_code=${r.unique_code} | ` +
-        `village=${r.village} | p3d_id=${r.p3d_id} | geom=${geom && geom.type}`
+        `[${i}] district_id=${districtId} | unique_code=${uniqueCode} | ` +
+        `village=${village} | geom=${geom && geom.type}`
       );
-      console.log(`     raw props: ${JSON.stringify({ ...r, geom: undefined, geometry: undefined })}`);
     });
     console.log('\nDry run complete. No data written.');
     return;
@@ -71,11 +71,12 @@ async function main() {
 
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
-    const districtId = r.district_id ? String(r.district_id).trim() : null;
-    const village    = r.village     ? String(r.village).trim()     : null;
-    const uniqueCode = r.unique_code ? String(r.unique_code).trim() : null;
-    const p3dId      = r.p3d_id      ? String(r.p3d_id).trim()      : null;
-    const p3d        = r.p3d         ? String(r.p3d).trim()          : null;
+    // Support both original field names and Jabar_By_Desa.geojson field names
+    const districtId = r.ID_KEC  != null ? String(r.ID_KEC).trim()  : (r.district_id ? String(r.district_id).trim() : null);
+    const village    = r.DESA    != null ? String(r.DESA).trim()    : (r.village     ? String(r.village).trim()     : null);
+    const uniqueCode = r.ID2012  != null ? String(r.ID2012).trim()  : (r.unique_code ? String(r.unique_code).trim() : null);
+    const p3dId      = r.p3d_id  != null ? String(r.p3d_id).trim()  : null;
+    const p3d        = r.p3d     != null ? String(r.p3d).trim()      : null;
     const geom       = r.geom || r.geometry;
 
     if (!districtId || !village) { skipped++; continue; }
