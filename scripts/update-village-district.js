@@ -38,7 +38,10 @@ const { Pool } = pgModule;
 
 const DRY_RUN      = process.env.DRY_RUN      === '1';
 const SKIP_KEC_CODE = process.env.SKIP_KEC_CODE === '1';
-const REPORT_FILE  = path.join(__dirname, '..', 'data', 'boundaries', 'update-village-district-report.csv');
+const REPORT_FILE  = process.env.REPORT_FILE
+  || (process.env.NODE_ENV === 'production'
+      ? '/tmp/update-village-district-report.csv'
+      : path.join(__dirname, '..', 'data', 'boundaries', 'update-village-district-report.csv'));
 const GEOJSON_FILE = path.join(__dirname, '..', 'data', 'boundaries', 'Jabar_By_Desa.geojson');
 const KEC_DIR      = path.join(__dirname, '..', 'data', 'boundaries', 'kec');
 
