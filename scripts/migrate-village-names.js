@@ -132,6 +132,52 @@ function findVillageMatch(nmDesaNew, dbRows) {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+    // --- DEBUG: Print mapping kecamatan by p3d_id ---
+    // Ambil semua kecamatan unik dari DB per p3d_id
+    const dbKecByP3d = {};
+    for (const row of allVillages) {
+      let kabId = row.kab_p3d_id;
+      if (kabId !== null && kabId !== undefined) kabId = String(Number(kabId));
+      else kabId = '__unknown__';
+      const kecNm = norm(row.kec_name || '');
+      if (!dbKecByP3d[kabId]) dbKecByP3d[kabId] = new Set();
+      dbKecByP3d[kabId].add(kecNm);
+    }
+
+    // Ambil semua kecamatan unik dari JSON per p3d_id
+    const jsonKecByP3d = {};
+    for (const file of fs.readdirSync(KEC_DIR).filter(f => f.endsWith('.json'))) {
+      let kdWil = path.basename(file, '.json');
+      kdWil = String(Number(kdWil));
+      let raw;
+      try {
+        raw = readKecJson(path.join(KEC_DIR, file));
+      } catch (e) { continue; }
+      const data = raw.data || [];
+      for (const row of data) {
+        const nmKec = norm((row.kd_pos_nm_kecamatan || '').trim());
+        if (!nmKec) continue;
+        if (!jsonKecByP3d[kdWil]) jsonKecByP3d[kdWil] = new Set();
+        jsonKecByP3d[kdWil].add(nmKec);
+      }
+    }
+
+    // Print mapping kecamatan by p3d_id
+    console.log('=== DEBUG: Mapping kecamatan by p3d_id ===');
+    const allP3d = Array.from(new Set([...Object.keys(dbKecByP3d), ...Object.keys(jsonKecByP3d)])).sort();
+    for (const p3d of allP3d) {
+      const dbList = dbKecByP3d[p3d] ? Array.from(dbKecByP3d[p3d]).sort() : [];
+      const jsonList = jsonKecByP3d[p3d] ? Array.from(jsonKecByP3d[p3d]).sort() : [];
+      console.log(`\nP3D: ${p3d}`);
+      console.log(`  DB   : ${dbList.join(', ')}`);
+      console.log(`  JSON : ${jsonList.join(', ')}`);
+      // Tampilkan kecamatan di JSON yang tidak ada di DB
+      const notInDb = jsonList.filter(n => !dbList.includes(n));
+      if (notInDb.length) {
+        console.log(`  ⚠️  Tidak ada di DB: ${notInDb.join(', ')}`);
+      }
+    }
+    console.log('=== END DEBUG ===\n');
   console.log(`\n🏘️  migrate-village-names.js  [${DRY_RUN ? 'DRY RUN' : 'LIVE'}]\n`);
 
   const client = await pool.connect();
