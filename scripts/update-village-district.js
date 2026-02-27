@@ -55,6 +55,68 @@ const pool = new Pool({
   statement_timeout: 120000,
 });
 
+// ── alias map: GeoJSON kecamatan name → canonical name in district_boundaries ──
+// Tambahkan entry baru jika ada NO_DISTRICT_MATCH yang tersisa
+const KEC_ALIAS = {
+  // Bogor
+  'KELAPA NUNGGAL':    'KLAPANUNGGAL',
+  'BOJONG GEDE':       'BOJONGGEDE',
+  'TAJUR HALANG':      'TAJURHALANG',
+  'RANCA BUNGUR':      'RANCABUNGUR',
+  // Sukabumi
+  'PELABUHAN RATU':    'PALABUHANRATU',
+  'KALI BUNDER':       'KALIBUNDER',
+  'TEGAL BULEUD':      'TEGALBULEUD',
+  'JAMPANG KULON':     'JAMPANGKULON',
+  'WARUNG KIARA':      'WARUNGKIARA',
+  'GEGER BITUNG':      'GEGERBITUNG',
+  'PARUNG KUDA':       'PARUNGKUDA',
+  'KALAPA NUNGGAL':    'KALAPANUNGGAL',
+  // Garut
+  'BLUBUR LIMBANGAN':  'LIMBANGAN',
+  'KARANG TENGAH':     'KARANGTENGAH',
+  // Tasikmalaya
+  'PAGERAGEUNG':       'PAGERAGEUNG',   // cek ulang
+  // Majalengka
+  'CINGAMBUL':         'CINGAMBUL',     // cek ulang
+  'SINDANGWANGI':      'SINDANG WANGI',
+  // Indramayu
+  'KANDANGHAUR':       'KANDANG HAUR',
+  // Kota Bogor
+  'TANAH SEREAL':      'TANAHSAREAL',
+  // Cirebon
+  'KARANGSEMBUNG':     'KARANG SEMBUNG',
+  'SUSUKANLEBAK':      'SUSUKAN LEBAK',
+  'TENGAH TANI':       'TENGAHTANI',
+  // Subang
+  'PAGADEN BARAT':     'PAGADENBARAT',
+  // Purwakarta
+  'TEGAL WARU':        'TEGALWARU',
+  'BABAKANCIKAO':      'BABAKAN CIKAO',
+  'PONDOK SALAM':      'PONDOKSALAM',
+  // Karawang
+  'TALAGASARI':        'TALAGA SARI',
+  // Bekasi
+  'MUARA GEMBONG':     'MUARAGEMBONG',
+  // Bandung Barat
+  'CIKALONG WETAN':    'CIKALONGWETAN',
+  // Kota Bekasi
+  'PONDOKGEDE':        'PONDOK GEDE',
+  'JATISAMPURNA':      'JATI SAMPURNA',
+  'PONDOKMELATI':      'PONDOK MELATI',
+  'JATIASIH':          'JATI ASIH',
+  'BANTARGEBANG':      'BANTAR GEBANG',
+  // Kota Depok
+  'SUKMA JAYA':        'SUKMAJAYA',
+  // Kota Bandung
+  'ASTANAANYAR':       'ASTANA ANYAR',
+  'BUAHBATU':          'BUAH BATU',
+  'UJUNG BERUNG':      'UJUNGBERUNG',
+  'MANDALAJATI':       'MANDALA JATI',
+  // Kota Sukabumi
+  'WARUDOYONG':        'WARU DOYONG',
+};
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /** Normalize: UPPERCASE + trim + collapse internal spaces + strip prefix KEC./KECAMATAN */
@@ -250,24 +312,24 @@ async function main() {
     if (!kecName || !desaName) { stats.distNoMatch++; continue; }
 
     // ── Match to district_boundaries ──────────────────────────────────────
-    // Strategy: try scoped match (by p3d_id heuristic) first, then global
-    let distResult = null;
+    // Apply alias before matching
+    const kecNameResolved = KEC_ALIAS[norm(kecName)] || kecName;
 
-    // Heuristic: find any district matching the kec name, prioritize by kab name or ID_KAB
-    // Since ID_KAB is BPS (3201) and p3d_id is custom (10200), we can't direct-map
-    // → just search global, but prefer candidates whose p3d name mentions the same kabupaten name
+    let distResult = null;
     const kabName = feat.KABKOT ? norm(feat.KABKOT) : null;
 
-    // Try scoped: filter candidates by kab name match
     let scopedCandidates = districtGlobal;
     if (kabName) {
       const byKab = districtGlobal.filter(c => norm(c.p3d || '').includes(kabName) || kabName.includes(norm(c.p3d || '')));
       if (byKab.length > 0) scopedCandidates = byKab;
     }
 
-    distResult = matchKec(kecName, scopedCandidates);
+    distResult = matchKec(kecNameResolved, scopedCandidates);
     if (!distResult && scopedCandidates !== districtGlobal) {
-      // fallback to global
+      distResult = matchKec(kecNameResolved, districtGlobal);
+    }
+    // last resort: try original name if alias didn't help
+    if (!distResult && kecNameResolved !== kecName) {
       distResult = matchKec(kecName, districtGlobal);
     }
 
@@ -325,16 +387,16 @@ async function main() {
     }
 
     updatePlan.push({
-      unique_code:   uniqueCode,
-      district_id:   distRow.district_id,   // custom 5-digit kec ID
+      unique_code:    uniqueCode,
+      district_id:    distRow.district_id,  // custom 5-digit kec ID
       district_db_id: distRow.id,           // serial PK of district_boundaries
-      p3d:           distRow.district,      // kecamatan name (canonical from DB)
-      p3d_id:        distRow.id,            // store district_boundaries PK as p3d_id
-      kec_kode:      kecKode,               // kode dari kec JSON (null if not found)
-      dist_tier:     distResult.tier,
-      kode_tier:     kodeTier,
-      desa:          desaName,
-      kecamatan:     kecName,
+      p3d:            distRow.district,     // kecamatan name (canonical from DB)
+      p3d_id:         distRow.id,           // store district_boundaries PK as p3d_id
+      // kec_kode intentionally NOT saved to unique_code — BPS code is kept as-is
+      dist_tier:      distResult.tier,
+      kode_tier:      kodeTier,
+      desa:           desaName,
+      kecamatan:      kecName,
     });
 
     if (distResult.tier !== 'exact' || (kecKode === null && !SKIP_KEC_CODE)) {
@@ -382,7 +444,8 @@ async function main() {
   // ── Apply updates ─────────────────────────────────────────────────────────
   console.log('\nApplying updates...');
 
-  const sqlByUniqueCode = `
+  // unique_code (BPS 10-digit) is never modified — only district_id, p3d, p3d_id are updated
+  const sqlUpdate = `
     UPDATE village_boundaries
     SET
       district_id = $1,
@@ -390,17 +453,6 @@ async function main() {
       p3d_id      = $3,
       updated_at  = NOW()
     WHERE unique_code = $4
-  `;
-
-  const sqlByUniqueCodeWithKode = `
-    UPDATE village_boundaries
-    SET
-      district_id = $1,
-      p3d         = $2,
-      p3d_id      = $3,
-      unique_code = $4,
-      updated_at  = NOW()
-    WHERE unique_code = $5
   `;
 
   let updated = 0, notFound = 0, errors = 0;
@@ -413,22 +465,12 @@ async function main() {
 
       try {
         let res;
-        if (u.kec_kode && !SKIP_KEC_CODE) {
-          res = await client2.query(sqlByUniqueCodeWithKode, [
-            u.district_id,
-            u.p3d,
-            u.p3d_id,
-            u.kec_kode,
-            u.unique_code,
-          ]);
-        } else {
-          res = await client2.query(sqlByUniqueCode, [
+        res = await client2.query(sqlUpdate, [
             u.district_id,
             u.p3d,
             u.p3d_id,
             u.unique_code,
           ]);
-        }
 
         if (res.rowCount > 0) updated++;
         else notFound++;
