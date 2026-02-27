@@ -6,7 +6,7 @@ const path = require('path');
 const DRY_RUN = process.env.DRY_RUN === '1';
 
 const SOURCE_PATH = path.join(
-  __dirname, '..', 'data', 'boundaries', 'data_lama', 'Desa', 'village-boundaries.json'
+  __dirname, '..', 'data', 'boundaries', 'Jabar_By_Desa.geojson'
 );
 
 let pool;
