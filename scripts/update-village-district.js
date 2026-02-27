@@ -303,11 +303,8 @@ async function main() {
 
     const kecName   = feat.KECAMATAN || feat.kecamatan || '';
     const desaName  = feat.DESA      || feat.desa      || '';
-    // ID2012 may be stored as a number, losing leading zeros → pad to 6 digits to match DB
-    const uniqueCode = String(feat.ID2012 || feat.unique_code || '').trim().padStart(6, '0');
-    // Map BPS kab code (e.g. "3201") to 5-digit custom p3d_id (e.g. "10200") via district rows
-    // kd_pos_kab_kota is e.g. "3201", but p3d_id in our DB is "10200" custom
-    // We use ID_KAB as a cross-ref hint
+    // old_district_id = ID_KEC from GeoJSON — same value stored in district_id during import
+    const oldDistrictId = String(feat.ID_KEC || feat.id_kec || '').trim();
     const idKab = feat.ID_KAB ? String(feat.ID_KAB) : null;
 
     if (!kecName || !desaName) { stats.distNoMatch++; continue; }
@@ -337,7 +334,7 @@ async function main() {
     if (!distResult) {
       stats.distNoMatch++;
       report.push({
-        unique_code: uniqueCode,
+        old_district_id: oldDistrictId,
         desa: desaName,
         kecamatan: kecName,
         kabupaten: feat.KABKOT || '',
@@ -388,23 +385,22 @@ async function main() {
     }
 
     updatePlan.push({
-      unique_code:    uniqueCode,
-      district_id:    distRow.district_id,  // custom kec ID from district_boundaries
-      district_db_id: distRow.id,           // serial PK of district_boundaries
-      p3d:            distRow.district,     // kecamatan name (canonical from DB)
-      p3d_id:         distRow.p3d_id,       // kabupaten p3d_id (e.g. "10200") — used for API filter
-      // kec_kode intentionally NOT saved to unique_code — BPS code is kept as-is
-      dist_tier:      distResult.tier,
-      kode_tier:      kodeTier,
-      desa:           desaName,
-      kecamatan:      kecName,
+      old_district_id: oldDistrictId,       // ID_KEC from GeoJSON — match key in DB
+      desa:            desaName,            // DESA from GeoJSON — match key in DB
+      district_id:     distRow.district_id, // new kec ID from district_boundaries
+      district_db_id:  distRow.id,
+      p3d:             distRow.district,    // kecamatan name (canonical)
+      p3d_id:          distRow.p3d_id,      // kabupaten p3d_id (e.g. "10200")
+      dist_tier:       distResult.tier,
+      kode_tier:       kodeTier,
+      kecamatan:       kecName,
     });
 
     // Only warn on non-exact district name match. kec kode NO match is suppressed
     // because kecKode is never written to the DB (unique_code/BPS code is preserved as-is).
     if (distResult.tier !== 'exact') {
       report.push({
-        unique_code: uniqueCode,
+        old_district_id: oldDistrictId,
         desa: desaName,
         kecamatan: kecName,
         kabupaten: feat.KABKOT || '',
@@ -429,8 +425,8 @@ async function main() {
     console.log('\n-- Preview first 10 update rows --');
     updatePlan.slice(0, 10).forEach((u, i) => {
       console.log(
-        `[${i}] unique_code=${u.unique_code} | desa=${u.desa} | kec=${u.kecamatan}` +
-        ` → district_id=${u.district_id} p3d=${u.p3d} kode=${u.kec_kode || 'n/a'}` +
+        `[${i}] old_district_id=${u.old_district_id} desa=${u.desa} | kec=${u.kecamatan}` +
+        ` → district_id=${u.district_id} p3d=${u.p3d} p3d_id=${u.p3d_id}` +
         ` [${u.dist_tier}/${u.kode_tier}]`
       );
     });
@@ -447,7 +443,8 @@ async function main() {
   // ── Apply updates ─────────────────────────────────────────────────────────
   console.log('\nApplying updates...');
 
-  // unique_code (BPS 10-digit) is never modified — only district_id, p3d, p3d_id are updated
+  // Match by old district_id (ID_KEC, imported as-is) + village name (case-insensitive)
+  // This avoids unique_code integer conversion issues entirely.
   const sqlUpdate = `
     UPDATE village_boundaries
     SET
@@ -455,7 +452,8 @@ async function main() {
       p3d         = $2,
       p3d_id      = $3,
       updated_at  = NOW()
-    WHERE unique_code = $4
+    WHERE district_id::text = $4
+      AND UPPER(village)    = UPPER($5)
   `;
 
   let updated = 0, notFound = 0, errors = 0;
@@ -464,18 +462,18 @@ async function main() {
   try {
     for (let i = 0; i < updatePlan.length; i++) {
       const u = updatePlan[i];
-      if (!u.unique_code) { notFound++; continue; }
+      if (!u.old_district_id || !u.desa) { notFound++; continue; }
 
       try {
-        let res;
-        res = await client2.query(sqlUpdate, [
+        const res = await client2.query(sqlUpdate, [
             u.district_id,
             u.p3d,
             u.p3d_id,
-            u.unique_code,
+            u.old_district_id,
+            u.desa,
           ]);
 
-        if (res.rowCount > 0) updated++;
+        if (res.rowCount > 0) updated += res.rowCount;
         else notFound++;
       } catch (err) {
         console.error(`[${i}] Error unique_code=${u.unique_code} (${u.desa}): ${err.message}`);
@@ -506,9 +504,9 @@ function writeReport(rows) {
     console.log('\nNo warnings/errors to report.');
     return;
   }
-  const header = 'unique_code,desa,kecamatan,kabupaten,status,note';
+  const header = 'old_district_id,desa,kecamatan,kabupaten,status,note';
   const lines  = rows.map(r =>
-    [r.unique_code, r.desa, r.kecamatan, r.kabupaten, r.status, r.note]
+    [r.old_district_id, r.desa, r.kecamatan, r.kabupaten, r.status, r.note]
       .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
       .join(',')
   );
