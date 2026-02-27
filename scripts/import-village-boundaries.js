@@ -33,6 +33,8 @@ async function main() {
   console.log(`Total records: ${records.length}`);
 
   if (DRY_RUN) {
+    console.log('\n-- RAW keys of first record --');
+    if (records[0]) console.log(JSON.stringify(Object.keys(records[0])));
     console.log('\n-- DRY RUN preview (first 5 rows) --');
     records.slice(0, 5).forEach((r, i) => {
       const geom = r.geom || r.geometry;
@@ -40,6 +42,7 @@ async function main() {
         `[${i}] district_id=${r.district_id} | unique_code=${r.unique_code} | ` +
         `village=${r.village} | p3d_id=${r.p3d_id} | geom=${geom && geom.type}`
       );
+      console.log(`     raw props: ${JSON.stringify({ ...r, geom: undefined, geometry: undefined })}`);
     });
     console.log('\nDry run complete. No data written.');
     return;
