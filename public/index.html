@@ -465,17 +465,19 @@
         }
     }
 
-    async function drillIntoVillage(districtId, districtName) {
-        if (loadedVillageDistricts.has(String(districtId))) {
+    async function drillIntoVillage(districtId, districtName, p3dId) {
+        const mapKey = `${p3dId}:${districtId}`;
+        if (loadedVillageDistricts.has(mapKey)) {
             if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
             return;
         }
         try {
-            const resp = await fetch(`${API_URL}/api/geojson/desa?kode=${encodeURIComponent(districtId)}`);
+            const p3dParam = p3dId ? `&p3d_id=${encodeURIComponent(p3dId)}` : '';
+            const resp = await fetch(`${API_URL}/api/geojson/desa?kode=${encodeURIComponent(districtId)}${p3dParam}`);
             if (!resp.ok) throw new Error(`Data desa untuk kec=${districtId} tidak ditemukan`);
             const geojson = await resp.json();
             if (!geojson.features?.length) { toast(`Tidak ada data desa untuk ${districtName}`, 'error'); return; }
-            loadedVillageDistricts.set(String(districtId), geojson.features);
+            loadedVillageDistricts.set(mapKey, geojson.features);
             rebuildVillageLayer();
             const bounds = geojsonBounds(geojson);
             if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
@@ -485,14 +487,15 @@
     }
     window.drillIntoVillage = drillIntoVillage;
 
-    async function toggleVillage(districtId, districtName) {
-        if (loadedVillageDistricts.has(String(districtId))) {
-            loadedVillageDistricts.delete(String(districtId));
+    async function toggleVillage(districtId, districtName, p3dId) {
+        const mapKey = `${p3dId}:${districtId}`;
+        if (loadedVillageDistricts.has(mapKey)) {
+            loadedVillageDistricts.delete(mapKey);
             rebuildVillageLayer();
             toast(`Desa ${districtName} dihapus dari tampilan`, 'success');
             if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
         } else {
-            await drillIntoVillage(districtId, districtName);
+            await drillIntoVillage(districtId, districtName, p3dId);
         }
     }
     window.toggleVillage = toggleVillage;
@@ -562,7 +565,7 @@
                 const norm = normProps(e.features[0], 'district');
                 if (!norm.district_id) { toast('Kode kecamatan tidak ditemukan', 'error'); return; }
                 closeBoundaryPanel();
-                toggleVillage(norm.district_id, norm.name);
+                toggleVillage(norm.district_id, norm.name, norm.p3d_id);
             });
             // hint
             map.on('click', fid, () => {
@@ -821,15 +824,17 @@
             }
         }
         if (level === 'district' && norm.district_id) {
-            const safeKdKec = String(norm.district_id).replace(/'/g, "\\'");
-            const isVillageLoaded = loadedVillageDistricts.has(String(norm.district_id));
+            const safeKdKec  = String(norm.district_id).replace(/'/g, "\\'");
+            const safeKdP3d  = String(norm.p3d_id || '').replace(/'/g, "\\'");
+            const mapKey     = `${norm.p3d_id}:${norm.district_id}`;
+            const isVillageLoaded = loadedVillageDistricts.has(mapKey);
             if (isVillageLoaded) {
                 drillBtn = `<button class="btn btn-outline" style="width:100%;margin-bottom:8px;font-size:12px;border-color:#ef4444;color:#ef4444"
-                    onclick="toggleVillage('${safeKdKec}','${safeName}')">
+                    onclick="toggleVillage('${safeKdKec}','${safeName}','${safeKdP3d}')">
                     ✕ Hapus Desa ${safeName}</button>`;
             } else {
                 drillBtn = `<button class="btn" style="width:100%;margin-bottom:8px;font-size:12px;background:#f59e0b"
-                    onclick="toggleVillage('${safeKdKec}','${safeName}')">
+                    onclick="toggleVillage('${safeKdKec}','${safeName}','${safeKdP3d}')">
                     🏘️ Tampilkan Desa</button>`;
             }
         }

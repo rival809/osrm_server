@@ -22,7 +22,8 @@ const router = express.Router();
 //  DB-backed query against village_boundaries table
 // ═══════════════════════════════════════════════════════
 router.get('/api/geojson/desa', async (req, res) => {
-  const kode = (req.query.kode || req.query.kd_kecamatan || '').trim();
+  const kode  = (req.query.kode || req.query.kd_kecamatan || '').trim();
+  const p3dId = (req.query.p3d_id || '').trim();
 
   const sql = `
     SELECT (
@@ -49,10 +50,11 @@ router.get('/api/geojson/desa', async (req, res) => {
     )::text AS fc
     FROM village_boundaries
     WHERE ($1 = '' OR district_id::text = $1)
+      AND ($2 = '' OR p3d_id::text = $2)
   `;
 
   try {
-    const { rows } = await pool.query(sql, [kode]);
+    const { rows } = await pool.query(sql, [kode, p3dId]);
     res.set('Content-Type', 'application/json');
     res.send(rows[0]?.fc || '{"type":"FeatureCollection","features":[]}');
   } catch (err) {

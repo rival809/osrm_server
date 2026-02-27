@@ -303,7 +303,8 @@ async function main() {
 
     const kecName   = feat.KECAMATAN || feat.kecamatan || '';
     const desaName  = feat.DESA      || feat.desa      || '';
-    const uniqueCode = String(feat.ID2012 || feat.unique_code || '').trim();
+    // ID2012 may be stored as a number, losing leading zeros → pad to 6 digits to match DB
+    const uniqueCode = String(feat.ID2012 || feat.unique_code || '').trim().padStart(6, '0');
     // Map BPS kab code (e.g. "3201") to 5-digit custom p3d_id (e.g. "10200") via district rows
     // kd_pos_kab_kota is e.g. "3201", but p3d_id in our DB is "10200" custom
     // We use ID_KAB as a cross-ref hint
@@ -388,10 +389,10 @@ async function main() {
 
     updatePlan.push({
       unique_code:    uniqueCode,
-      district_id:    distRow.district_id,  // custom 5-digit kec ID
+      district_id:    distRow.district_id,  // custom kec ID from district_boundaries
       district_db_id: distRow.id,           // serial PK of district_boundaries
       p3d:            distRow.district,     // kecamatan name (canonical from DB)
-      p3d_id:         distRow.id,           // store district_boundaries PK as p3d_id
+      p3d_id:         distRow.p3d_id,       // kabupaten p3d_id (e.g. "10200") — used for API filter
       // kec_kode intentionally NOT saved to unique_code — BPS code is kept as-is
       dist_tier:      distResult.tier,
       kode_tier:      kodeTier,
@@ -399,7 +400,9 @@ async function main() {
       kecamatan:      kecName,
     });
 
-    if (distResult.tier !== 'exact' || (kecKode === null && !SKIP_KEC_CODE)) {
+    // Only warn on non-exact district name match. kec kode NO match is suppressed
+    // because kecKode is never written to the DB (unique_code/BPS code is preserved as-is).
+    if (distResult.tier !== 'exact') {
       report.push({
         unique_code: uniqueCode,
         desa: desaName,
