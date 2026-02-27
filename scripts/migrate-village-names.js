@@ -132,6 +132,35 @@ function findVillageMatch(nmDesaNew, dbRows) {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+    
+  console.log(`\n🏘️  migrate-village-names.js  [${DRY_RUN ? 'DRY RUN' : 'LIVE'}]\n`);
+
+  const client = await pool.connect();
+  const summary = {
+    total:     0,
+    matched:   0,
+    unchanged: 0,
+    skipped:   0,
+    unmatched: [],
+  };
+
+  try {
+    // ── Load all village_boundaries with kecamatan + kabupaten context ──────
+    // Join to district_boundaries via kecamatan name (village_boundaries.p3d)
+    // to resolve kabupaten (p3d_id) for scoping.
+    const { rows: allVillages } = await client.query(`
+      SELECT
+        vb.id,
+        vb.village,
+        vb.p3d                        AS kec_name,
+        vb.district_id,
+        db.p3d_id                     AS kab_p3d_id,
+        db.district                   AS kec_name_db
+      FROM village_boundaries vb
+      LEFT JOIN district_boundaries db
+        ON UPPER(TRIM(vb.p3d)) = UPPER(TRIM(db.district))
+      ORDER BY db.p3d_id, vb.p3d, vb.village
+    `);
     // --- DEBUG: Print mapping kecamatan by p3d_id ---
     // Ambil semua kecamatan unik dari DB per p3d_id
     const dbKecByP3d = {};
@@ -178,34 +207,6 @@ async function main() {
       }
     }
     console.log('=== END DEBUG ===\n');
-  console.log(`\n🏘️  migrate-village-names.js  [${DRY_RUN ? 'DRY RUN' : 'LIVE'}]\n`);
-
-  const client = await pool.connect();
-  const summary = {
-    total:     0,
-    matched:   0,
-    unchanged: 0,
-    skipped:   0,
-    unmatched: [],
-  };
-
-  try {
-    // ── Load all village_boundaries with kecamatan + kabupaten context ──────
-    // Join to district_boundaries via kecamatan name (village_boundaries.p3d)
-    // to resolve kabupaten (p3d_id) for scoping.
-    const { rows: allVillages } = await client.query(`
-      SELECT
-        vb.id,
-        vb.village,
-        vb.p3d                        AS kec_name,
-        vb.district_id,
-        db.p3d_id                     AS kab_p3d_id,
-        db.district                   AS kec_name_db
-      FROM village_boundaries vb
-      LEFT JOIN district_boundaries db
-        ON UPPER(TRIM(vb.p3d)) = UPPER(TRIM(db.district))
-      ORDER BY db.p3d_id, vb.p3d, vb.village
-    `);
 
     console.log(`📦 DB: ${allVillages.length} village rows loaded\n`);
 
