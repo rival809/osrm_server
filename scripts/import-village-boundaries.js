@@ -18,7 +18,18 @@ async function main() {
   console.log(`[import-village-boundaries] DRY_RUN=${DRY_RUN}`);
   console.log(`Reading ${SOURCE_PATH}...`);
 
-  const records = JSON.parse(fs.readFileSync(SOURCE_PATH, 'utf8'));
+  const raw = JSON.parse(fs.readFileSync(SOURCE_PATH, 'utf8'));
+
+  // Support plain array OR GeoJSON FeatureCollection
+  let records;
+  if (Array.isArray(raw)) {
+    records = raw;
+  } else if (raw.type === 'FeatureCollection' && Array.isArray(raw.features)) {
+    records = raw.features.map(f => ({ ...f.properties, geom: f.geometry }));
+  } else {
+    throw new Error('Unrecognized format: expected array or GeoJSON FeatureCollection');
+  }
+
   console.log(`Total records: ${records.length}`);
 
   if (DRY_RUN) {
