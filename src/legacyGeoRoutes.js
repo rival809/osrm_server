@@ -42,7 +42,7 @@ router.get('/api/geojson/desa', async (req, res) => {
                 'p3d',         p3d
               ),
               'geometry', geom_json::json
-            )
+            ) ORDER BY village
           ),
           '[]'::json
         )
@@ -51,7 +51,6 @@ router.get('/api/geojson/desa', async (req, res) => {
     FROM village_boundaries
     WHERE ($1 = '' OR district_id = $1)
       AND ($2 = '' OR p3d_id = $2)
-    ORDER BY village
   `;
 
   try {
