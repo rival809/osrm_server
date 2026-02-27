@@ -37,7 +37,14 @@
 
 const fs   = require('fs');
 const path = require('path');
-const { Pool } = require('pg');
+
+// Support running from /app/scripts inside Docker (node_modules is at /app/node_modules)
+const pgModule = (() => {
+  try { return require('pg'); } catch (_) {}
+  try { return require('/app/node_modules/pg'); } catch (_) {}
+  throw new Error('Cannot find module pg');
+})();
+const { Pool } = pgModule;
 
 // ── config ────────────────────────────────────────────────────────────────────
 
