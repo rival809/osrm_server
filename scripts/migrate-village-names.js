@@ -169,10 +169,13 @@ async function main() {
       console.log(`⚠️  ${noKabCount} village rows tidak bisa di-join ke kabupaten (p3d null/kosong)\n`);
     }
 
-    // Group DB rows by (kab_p3d_id, kec_name_norm)
+    // Group DB rows by (kab_p3d_id as integer, kec_name_norm)
     const dbByKabKec = new Map();
     for (const row of allVillages) {
-      const kabId  = row.kab_p3d_id || '__unknown__';
+      // kab_p3d_id di DB bisa integer atau string, normalisasi ke string angka tanpa leading zero
+      let kabId = row.kab_p3d_id;
+      if (kabId !== null && kabId !== undefined) kabId = String(Number(kabId));
+      else kabId = '__unknown__';
       const kecNm  = norm(row.kec_name || '');
       const key    = `${kabId}|${kecNm}`;
       if (!dbByKabKec.has(key)) dbByKabKec.set(key, []);
@@ -196,7 +199,9 @@ async function main() {
 
     // ── Process each kabupaten file ──────────────────────────────────────────
     for (const file of files) {
-      const kdWil = path.basename(file, '.json');
+      // kdWil dari JSON bisa leading zero, normalisasi ke string angka tanpa leading zero
+      let kdWil = path.basename(file, '.json');
+      kdWil = String(Number(kdWil));
 
       let raw;
       try {
