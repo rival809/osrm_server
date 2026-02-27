@@ -201,6 +201,7 @@ async function main() {
     for (const file of files) {
       // kdWil dari JSON bisa leading zero, normalisasi ke string angka tanpa leading zero
       let kdWil = path.basename(file, '.json');
+      // Always normalize kdWil to string number without leading zero (for matching DB)
       kdWil = String(Number(kdWil));
 
       let raw;
@@ -221,6 +222,7 @@ async function main() {
       let fileMatched = 0, fileTotal = 0;
 
       for (const [kecNorm, desaMap] of byKec) {
+        // kdWil is already normalized to string number without leading zero
         const key    = `${kdWil}|${kecNorm}`;
         const dbRows = dbByKabKec.get(key) || [];
 
