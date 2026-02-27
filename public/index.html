@@ -234,12 +234,14 @@
 
     <!-- double-click hint -->
     <div class="dblclick-hint" id="dblclick-hint">Double-klik untuk lihat kecamatan</div>
+    <div class="dblclick-hint" id="dblclick-hint-district" style="bottom:100px">Double-klik untuk lihat desa</div>
 
     <!-- Legend -->
     <div class="legend" id="legend">
         <h4>🎨 Legenda</h4>
-        <div class="legend-item"><span class="legend-color" style="background:transparent;border:2px solid #7c3aed"></span> Kota/Kabupaten</div>
+    <div class="legend-item"><span class="legend-color" style="background:transparent;border:2px solid #7c3aed"></span> Kota/Kabupaten</div>
         <div class="legend-item"><span class="legend-color" style="background:#10b981"></span> Kecamatan</div>
+        <div class="legend-item"><span class="legend-color" style="background:#f59e0b"></span> Desa/Kelurahan</div>
     </div>
 
     <!-- Toast -->
@@ -323,6 +325,14 @@
                 district_id: p.kd_kecamatan || p.district_id || p.kode || null,
                 p3d_id: p.ID_KAB || p.p3d_id || null, level: 'district',
             };
+        } else if (level === 'village') {
+            return {
+                name: p.village || p.nama || '(tanpa nama)',
+                unique_code: p.unique_code || null,
+                district_id: p.KODE || p.district_id || null,
+                p3d: p.p3d || null,
+                level: 'village',
+            };
         }
         return { name: p.name || '(tanpa nama)', level };
     }
@@ -337,6 +347,7 @@
                 (fp.kd_kecamatan || fp.district_id || fp.kode) === (props.kd_kecamatan || props.district_id || props.kode)
                 && (fp.ID_KAB || fp.p3d_id) === (props.ID_KAB || props.p3d_id)
             );
+            if (level === 'village')  return (fp.unique_code) === (props.unique_code);
             return false;
         }) || null;
     }
@@ -345,10 +356,11 @@
     const COLORS = {
         city:     { fill: '#7c3aed', border: '#7c3aed', fillOpacity: 0, borderWidth: 2.5 },
         district: { fill: '#10b981', border: '#059669', fillOpacity: 0.20, borderWidth: 1.2 },
+        village:  { fill: '#f59e0b', border: '#d97706', fillOpacity: 0.18, borderWidth: 0.8 },
     };
 
-    // Layer stacking order (bottom → top): district-fill, district-border, city-fill, city-border, hl-fill, hl-border
-    const LAYER_ORDER = ['district-fill','district-border','city-fill','city-border','hl-fill','hl-border'];
+    // Layer stacking order (bottom → top)
+    const LAYER_ORDER = ['village-fill','village-border','district-fill','district-border','city-fill','city-border','hl-fill','hl-border'];
 
     function getInsertBeforeId(layerId) {
         const idx = LAYER_ORDER.indexOf(layerId);
@@ -363,7 +375,8 @@
     let currentLevel     = 'city';
     let drillStack       = [];
     let _layersAdded     = {}; // track which levels have layers
-    let loadedDistrictCities = new Map(); // p3d_id → features[]
+    let loadedDistrictCities  = new Map(); // p3d_id → features[]
+    let loadedVillageDistricts = new Map(); // district_id → features[]
 
     function srcId(lvl)    { return `${lvl}-src`; }
     function fillId(lvl)   { return `${lvl}-fill`; }
@@ -437,6 +450,53 @@
         if (routeGeoJSON)    addRouteLayer(routeGeoJSON);
     }
 
+    function rebuildVillageLayer() {
+        const allFeatures = [...loadedVillageDistricts.values()].flat();
+        if (allFeatures.length === 0) {
+            removeBoundaryLevel('village');
+        } else {
+            const merged = { type: 'FeatureCollection', features: allFeatures };
+            if (map.getSource('village-src')) {
+                map.getSource('village-src').setData(merged);
+                boundaryData['village'] = merged;
+            } else {
+                addBoundaryLevel('village', merged);
+            }
+        }
+    }
+
+    async function drillIntoVillage(districtId, districtName) {
+        if (loadedVillageDistricts.has(String(districtId))) {
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+            return;
+        }
+        try {
+            const resp = await fetch(`${API_URL}/api/geojson/desa?kode=${encodeURIComponent(districtId)}`);
+            if (!resp.ok) throw new Error(`Data desa untuk kec=${districtId} tidak ditemukan`);
+            const geojson = await resp.json();
+            if (!geojson.features?.length) { toast(`Tidak ada data desa untuk ${districtName}`, 'error'); return; }
+            loadedVillageDistricts.set(String(districtId), geojson.features);
+            rebuildVillageLayer();
+            const bounds = geojsonBounds(geojson);
+            if (bounds[0][0] !== Infinity) map.fitBounds(bounds, { padding: 40 });
+            toast(`✅ ${geojson.features.length} desa di ${districtName} ditambahkan`, 'success');
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+        } catch (err) { console.error(err); toast(`❌ ${err.message}`, 'error'); }
+    }
+    window.drillIntoVillage = drillIntoVillage;
+
+    async function toggleVillage(districtId, districtName) {
+        if (loadedVillageDistricts.has(String(districtId))) {
+            loadedVillageDistricts.delete(String(districtId));
+            rebuildVillageLayer();
+            toast(`Desa ${districtName} dihapus dari tampilan`, 'success');
+            if (selectedFeature) showBoundaryPanel(selectedFeature, currentLevel);
+        } else {
+            await drillIntoVillage(districtId, districtName);
+        }
+    }
+    window.toggleVillage = toggleVillage;
+
     const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'ml-tooltip', offset: 8 });
 
     function setupLayerEvents(level) {
@@ -488,6 +548,27 @@
                 if (!norm.p3d_id) { toast('p3d_id tidak ditemukan', 'error'); return; }
                 closeBoundaryPanel();
                 toggleKecamatan(norm.p3d_id, norm.name);
+            });
+            // hint
+            map.on('click', fid, () => {
+                const hint = document.getElementById('dblclick-hint');
+                hint.classList.add('show');
+                setTimeout(() => hint.classList.remove('show'), 2500);
+            });
+        }
+        if (level === 'district') {
+            map.on('dblclick', fid, e => {
+                e.preventDefault();
+                const norm = normProps(e.features[0], 'district');
+                if (!norm.district_id) { toast('Kode kecamatan tidak ditemukan', 'error'); return; }
+                closeBoundaryPanel();
+                toggleVillage(norm.district_id, norm.name);
+            });
+            // hint
+            map.on('click', fid, () => {
+                const hint = document.getElementById('dblclick-hint-district');
+                hint.classList.add('show');
+                setTimeout(() => hint.classList.remove('show'), 2500);
             });
         }
     }
@@ -707,9 +788,10 @@
     function loadBoundaries() { return loadAllBoundaries(); }
 
     function clearBoundaries(hidePanel = true) {
-        ['city','district'].forEach(removeBoundaryLevel);
+        ['city','district','village'].forEach(removeBoundaryLevel);
         removeHighlightLayer();
         loadedDistrictCities.clear();
+        loadedVillageDistricts.clear();
         drillStack = [];
         const allKecBtn   = document.getElementById('allKecamatanBtn');
         const clearKecBtn = document.getElementById('clearKecamatanBtn');
@@ -736,6 +818,19 @@
                 drillBtn = `<button class="btn btn-success" style="width:100%;margin-bottom:8px;font-size:12px"
                     onclick="toggleKecamatan('${safeP3d}','${safeName}')">
                     ▶ Tampilkan Kecamatan</button>`;
+            }
+        }
+        if (level === 'district' && norm.district_id) {
+            const safeKdKec = String(norm.district_id).replace(/'/g, "\\'");
+            const isVillageLoaded = loadedVillageDistricts.has(String(norm.district_id));
+            if (isVillageLoaded) {
+                drillBtn = `<button class="btn btn-outline" style="width:100%;margin-bottom:8px;font-size:12px;border-color:#ef4444;color:#ef4444"
+                    onclick="toggleVillage('${safeKdKec}','${safeName}')">
+                    ✕ Hapus Desa ${safeName}</button>`;
+            } else {
+                drillBtn = `<button class="btn" style="width:100%;margin-bottom:8px;font-size:12px;background:#f59e0b"
+                    onclick="toggleVillage('${safeKdKec}','${safeName}')">
+                    🏘️ Tampilkan Desa</button>`;
             }
         }
         // If multiple overlapping kab for same kecamatan, show combined kd info

@@ -73,29 +73,29 @@ const KEC_ALIAS = {
   'PARUNG KUDA':       'PARUNGKUDA',
   'KALAPA NUNGGAL':    'KALAPANUNGGAL',
   // Garut
-  'BLUBUR LIMBANGAN':  'LIMBANGAN',
-  'KARANG TENGAH':     'KARANGTENGAH',
+  'BLUBUR LIMBANGAN':  'BALUBUR LIMBANGAN',
+  'KARANG TENGAH':     'KARANG TENGAH',
   // Tasikmalaya
-  'PAGERAGEUNG':       'PAGERAGEUNG',   // cek ulang
+  'PAGERAGEUNG':       'PAGEURAGEUNG',   // cek ulang
   // Majalengka
-  'CINGAMBUL':         'CINGAMBUL',     // cek ulang
-  'SINDANGWANGI':      'SINDANG WANGI',
+  'CINGAMBUL':         'CIGAMBUL',     // cek ulang
+  'SINDANGWANGI':      'SINDANGWANGI',
   // Indramayu
-  'KANDANGHAUR':       'KANDANG HAUR',
+  'KANDANGHAUR':       'KADANGHAUR',
   // Kota Bogor
-  'TANAH SEREAL':      'TANAHSAREAL',
+  'TANAH SEREAL':      'TANAH SAREAL',
   // Cirebon
   'KARANGSEMBUNG':     'KARANG SEMBUNG',
   'SUSUKANLEBAK':      'SUSUKAN LEBAK',
   'TENGAH TANI':       'TENGAHTANI',
   // Subang
-  'PAGADEN BARAT':     'PAGADENBARAT',
+  'PAGADEN BARAT':     'PEGADEN BARAT', //////
   // Purwakarta
   'TEGAL WARU':        'TEGALWARU',
   'BABAKANCIKAO':      'BABAKAN CIKAO',
   'PONDOK SALAM':      'PONDOKSALAM',
   // Karawang
-  'TALAGASARI':        'TALAGA SARI',
+  'TALAGASARI':        'TELAGASARI',
   // Bekasi
   'MUARA GEMBONG':     'MUARAGEMBONG',
   // Bandung Barat
@@ -114,7 +114,7 @@ const KEC_ALIAS = {
   'UJUNG BERUNG':      'UJUNGBERUNG',
   'MANDALAJATI':       'MANDALA JATI',
   // Kota Sukabumi
-  'WARUDOYONG':        'WARU DOYONG',
+  'WARUDOYONG':        'WARUNGDOYONG',
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
